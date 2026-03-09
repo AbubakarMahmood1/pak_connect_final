@@ -7,12 +7,12 @@
 ///   handleDeviceSelected, openContacts/Archives/Settings/Profile,
 ///   initialize with disposed guard, dispose cancels subscriptions,
 ///   _setupUnreadCountStream via initialize
+library;
 import 'dart:async';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 

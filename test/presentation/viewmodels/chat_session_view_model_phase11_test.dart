@@ -6,7 +6,7 @@
 ///
 /// Also tests: bindStateStore, _canUpdateState guard, rebindControllers,
 /// sendMessage empty-content guard, onSearchModeToggled, updateSearchQuery.
-import 'dart:async';
+library;
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
@@ -126,7 +126,7 @@ void main() {
             );
             final searchCtl = ChatSearchController(
               onSearchModeToggled: (_) {},
-              onSearchResultsChanged: (_, __) {},
+              onSearchResultsChanged: (_, _) {},
               onNavigateToResult: (_) {},
               scrollController: scrollCtl.scrollController,
             );
@@ -410,7 +410,7 @@ void main() {
               );
               final searchCtl = ChatSearchController(
                 onSearchModeToggled: (_) {},
-                onSearchResultsChanged: (_, __) {},
+                onSearchResultsChanged: (_, _) {},
                 onNavigateToResult: (_) {},
                 scrollController: scrollCtl.scrollController,
               );

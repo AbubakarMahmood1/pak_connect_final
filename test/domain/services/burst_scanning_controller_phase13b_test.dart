@@ -8,7 +8,7 @@
 /// remaining time, no burst with next-action), _updateStatus with throwing
 /// listener, statusStream multi-cancel, triggerManualScan during active burst,
 /// forceBurstScanNow during active burst.
-import 'dart:async';
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -17,7 +17,6 @@ import 'package:pak_connect/domain/config/kill_switches.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
-import 'package:pak_connect/domain/models/power_mode.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 
@@ -43,7 +42,7 @@ void main() {
   // BurstScanningStatus model — exhaustive message/override/efficiency
   // =========================================================================
   group('BurstScanningStatus model extras', () {
-    PowerManagementStats _stats({PowerMode mode = PowerMode.balanced}) =>
+    PowerManagementStats stats({PowerMode mode = PowerMode.balanced}) =>
         PowerManagementStats(
           currentScanInterval: 60000,
           currentHealthCheckInterval: 30000,
@@ -66,7 +65,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 120,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.statusMessage, 'Next scan in 120s');
     });
@@ -76,7 +75,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 0,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.statusMessage, 'Starting scan...');
     });
@@ -85,7 +84,7 @@ void main() {
       final s = BurstScanningStatus(
         isBurstActive: false,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.statusMessage, 'Burst scanning ready');
     });
@@ -95,7 +94,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 10,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.canOverride, isTrue);
     });
@@ -105,7 +104,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: 10,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.canOverride, isFalse);
     });
@@ -115,7 +114,7 @@ void main() {
         BurstScanningStatus(
           isBurstActive: false,
           currentScanInterval: 60000,
-          powerStats: _stats(mode: PowerMode.ultraLowPower),
+          powerStats: stats(mode: PowerMode.ultraLowPower),
         ).efficiencyRating,
         'Excellent',
       );
@@ -123,7 +122,7 @@ void main() {
         BurstScanningStatus(
           isBurstActive: false,
           currentScanInterval: 60000,
-          powerStats: _stats(mode: PowerMode.powerSaver),
+          powerStats: stats(mode: PowerMode.powerSaver),
         ).efficiencyRating,
         'Good',
       );
@@ -131,7 +130,7 @@ void main() {
         BurstScanningStatus(
           isBurstActive: false,
           currentScanInterval: 60000,
-          powerStats: _stats(mode: PowerMode.balanced),
+          powerStats: stats(mode: PowerMode.balanced),
         ).efficiencyRating,
         'Fair',
       );
@@ -139,7 +138,7 @@ void main() {
         BurstScanningStatus(
           isBurstActive: false,
           currentScanInterval: 60000,
-          powerStats: _stats(mode: PowerMode.performance),
+          powerStats: stats(mode: PowerMode.performance),
         ).efficiencyRating,
         'Poor',
       );
@@ -151,7 +150,7 @@ void main() {
         burstTimeRemaining: 7,
         secondsUntilNextScan: 3,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats(),
       );
       expect(s.toString(), contains('burst: true'));
     });

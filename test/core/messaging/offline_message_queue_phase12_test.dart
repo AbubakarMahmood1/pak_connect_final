@@ -13,7 +13,6 @@ import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
-import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -209,57 +208,22 @@ class _FakeRetryScheduler extends Fake implements IRetryScheduler {
     return DateTime.now().isAfter(message.expiresAt!);
   }
 
-  @override
   void startConnectivityMonitoring({
     required void Function() onConnectivityCheck,
   }) {}
 
-  @override
   void startPeriodicCleanup({
     required Future<void> Function() onPeriodicMaintenance,
   }) {}
 
-  @override
   void dispose() {}
 }
 
 class _FakeDatabaseProvider extends Fake implements IDatabaseProvider {
-  @override
   Future<dynamic> getDatabase() async => Object();
 }
 
 class _FakeRepositoryProvider extends Fake implements IRepositoryProvider {}
-
-class _FakeSyncCoordinator extends Fake implements IQueueSyncCoordinator {
-  bool initialized = false;
-  String lastHash = 'abc123';
-
-  @override
-  Future<void> initialize({required Set<String> deletedIds}) async {
-    initialized = true;
-  }
-
-  @override
-  String calculateQueueHash({bool forceRecalculation = false}) => lastHash;
-
-  @override
-  QueueSyncMessage createSyncMessage(String nodeId) {
-    return QueueSyncMessage(
-      nodeId: nodeId,
-      queueHash: lastHash,
-      messageIds: ['msg1', 'msg2'],
-      syncTimestamp: DateTime.now(),
-      syncType: QueueSyncType.request,
-    );
-  }
-
-  @override
-  bool needsSynchronization(String otherQueueHash) =>
-      otherQueueHash != lastHash;
-
-  @override
-  void invalidateHashCache() {}
-}
 
 QueuedMessage _makeMessage({
   String id = 'msg_1',

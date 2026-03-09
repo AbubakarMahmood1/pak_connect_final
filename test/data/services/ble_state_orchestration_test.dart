@@ -17,12 +17,19 @@ class _FakeIdentityManager implements IIdentityManager {
   int initializeCalls = 0;
   int loadUserNameCalls = 0;
 
+  @override
   String? myUserName;
+  @override
   String? otherUserName;
+  @override
   String? myPersistentId;
+  @override
   String? myEphemeralId;
+  @override
   String? theirEphemeralId;
+  @override
   String? theirPersistentKey;
+  @override
   String? currentSessionId;
 
   final Map<String, String> _ephemeralToPersistent = <String, String>{};
@@ -237,14 +244,10 @@ class _FakeSessionService implements ISessionService {
 
 class _FakeStateCoordinator extends BLEStateCoordinator {
   _FakeStateCoordinator({
-    required IIdentityManager identityManager,
-    required IPairingService pairingService,
-    required ISessionService sessionService,
-  }) : super(
-         identityManager: identityManager,
-         pairingService: pairingService,
-         sessionService: sessionService,
-       );
+    required super.identityManager,
+    required super.pairingService,
+    required super.sessionService,
+  });
 
   int sendPairingRequestCalls = 0;
   int acceptPairingRequestCalls = 0;
@@ -310,8 +313,7 @@ class _SpyIdentityManager extends IdentityManager {
 }
 
 class _FakeBLEStateManager extends BLEStateManager {
-  _FakeBLEStateManager({IIdentityManager? identityManager})
-    : super(identityManager: identityManager);
+  _FakeBLEStateManager();
 
   bool initializeCalled = false;
   bool loadUserNameCalled = false;

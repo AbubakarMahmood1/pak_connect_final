@@ -254,7 +254,7 @@ void main() {
       final burstSub = harness.container
           .listen<AsyncValue<BurstScanningStatus>>(
             burstScanningStatusProvider,
-            (_, __) {},
+            (_, _) {},
             fireImmediately: true,
           );
       addTearDown(burstSub.close);

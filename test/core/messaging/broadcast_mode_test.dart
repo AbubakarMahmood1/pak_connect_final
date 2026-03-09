@@ -124,17 +124,11 @@ class _FakeSeenStore implements ISeenMessageStore {
   bool hasDelivered(String messageId) => false;
   @override
   Future<void> markDelivered(String messageId) async {}
-  @override
   void markDeliveredId(dynamic messageId) {}
-  @override
   bool hasDeliveredId(dynamic messageId) => false;
-  @override
   int get size => 0;
-  @override
   void cleanup() {}
-  @override
   void dispose() {}
-  @override
   Map<String, dynamic> getStats() => {};
   @override
   Future<void> initialize() async {}

@@ -7,37 +7,26 @@
 /// _handleRelayStatsUpdated (551-553).
 ///
 /// Uses the generated mocks from the phase12 test.
+library;
 
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 
-import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
-import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
-import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
-import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart'
-    show QueueSyncManagerStats, QueueSyncResult;
+    show QueueSyncManagerStats;
 import 'package:pak_connect/domain/models/binary_payload.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     show RelayDecision, RelayStatistics;
-import 'package:pak_connect/domain/models/message_priority.dart';
-import 'package:pak_connect/domain/services/chat_management_service.dart';
-import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 // Import generated mocks from phase12 test
 import 'mesh_networking_service_phase12_test.mocks.dart';

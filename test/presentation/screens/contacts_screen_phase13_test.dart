@@ -575,7 +575,7 @@ void main() {
   // Filter chip deletion (lines 216-250, 262-272)
   // -----------------------------------------------------------------------
   group('Filter chip removal', () {
-    Future<void> _applySecurityAndTrustFilter(WidgetTester tester) async {
+    Future<void> applySecurityAndTrustFilter(WidgetTester tester) async {
       await _pump(
         tester,
         loadContacts: () async => _result([
@@ -605,7 +605,7 @@ void main() {
 
     testWidgets('removing security chip keeps other filters (lines 216-228)',
         (tester) async {
-      await _applySecurityAndTrustFilter(tester);
+      await applySecurityAndTrustFilter(tester);
 
       // Verify chips are present
       expect(find.text('Security: high'), findsOneWidget);
@@ -628,7 +628,7 @@ void main() {
 
     testWidgets('removing trust chip keeps other filters (lines 240-250)',
         (tester) async {
-      await _applySecurityAndTrustFilter(tester);
+      await applySecurityAndTrustFilter(tester);
 
       // Delete trust chip
       final trustChipDeleteIcon = find.descendant(
@@ -646,7 +646,7 @@ void main() {
     testWidgets(
         'removing recently active chip keeps other filters (lines 262-272)',
         (tester) async {
-      await _applySecurityAndTrustFilter(tester);
+      await applySecurityAndTrustFilter(tester);
 
       // Delete recently active chip
       final recentlyActiveDeleteIcon = find.descendant(

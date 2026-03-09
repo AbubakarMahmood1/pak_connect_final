@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_queue_store.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/core/services/message_queue_repository.dart';
 import 'package:pak_connect/core/services/queue_persistence_manager.dart';
 
@@ -12,7 +11,7 @@ void main() {
 
   late QueueStore store;
 
-  QueuedMessage _msg({
+  QueuedMessage msg({
     String id = 'msg-1',
     MessagePriority priority = MessagePriority.normal,
     QueuedMessageStatus status = QueuedMessageStatus.pending,
@@ -87,13 +86,13 @@ void main() {
 
     test('inserts direct message by priority', () {
       store.insertMessageByPriority(
-        _msg(id: 'u', priority: MessagePriority.urgent),
+        msg(id: 'u', priority: MessagePriority.urgent),
       );
       store.insertMessageByPriority(
-        _msg(id: 'l', priority: MessagePriority.low),
+        msg(id: 'l', priority: MessagePriority.low),
       );
       store.insertMessageByPriority(
-        _msg(id: 'h', priority: MessagePriority.high),
+        msg(id: 'h', priority: MessagePriority.high),
       );
 
       final all = store.getAllMessages();
@@ -102,7 +101,7 @@ void main() {
 
     test('inserts relay message into relay queue', () {
       store.insertMessageByPriority(
-        _msg(id: 'r1', isRelay: true, priority: MessagePriority.normal),
+        msg(id: 'r1', isRelay: true, priority: MessagePriority.normal),
       );
       expect(store.relayQueueSize, 1);
       expect(store.directQueueSize, 0);
@@ -111,10 +110,10 @@ void main() {
     test('insertIndex falls through loop when all higher priority', () {
       // urgent first, then low → low appended via insertIndex = index + 1
       store.insertMessageByPriority(
-        _msg(id: 'u', priority: MessagePriority.urgent),
+        msg(id: 'u', priority: MessagePriority.urgent),
       );
       store.insertMessageByPriority(
-        _msg(id: 'l', priority: MessagePriority.low),
+        msg(id: 'l', priority: MessagePriority.low),
       );
       expect(store.getAllMessages().last.id, 'l');
     });
@@ -122,15 +121,15 @@ void main() {
     // -- getAllMessages (lines 199-201) --
 
     test('getAllMessages returns combined direct + relay', () {
-      store.insertMessageByPriority(_msg(id: 'd1'));
-      store.insertMessageByPriority(_msg(id: 'r1', isRelay: true));
+      store.insertMessageByPriority(msg(id: 'd1'));
+      store.insertMessageByPriority(msg(id: 'r1', isRelay: true));
       expect(store.getAllMessages().length, 2);
     });
 
     // -- getMessageById (lines 164-171) --
 
     test('getMessageById returns matching message', () {
-      store.insertMessageByPriority(_msg(id: 'find-me'));
+      store.insertMessageByPriority(msg(id: 'find-me'));
       final found = store.repo.getMessageById('find-me');
       expect(found, isNotNull);
       expect(found!.id, 'find-me');
@@ -144,10 +143,10 @@ void main() {
 
     test('getMessagesByStatus filters correctly', () {
       store.insertMessageByPriority(
-        _msg(id: 'p1', status: QueuedMessageStatus.pending),
+        msg(id: 'p1', status: QueuedMessageStatus.pending),
       );
       store.insertMessageByPriority(
-        _msg(id: 's1', status: QueuedMessageStatus.sending),
+        msg(id: 's1', status: QueuedMessageStatus.sending),
       );
 
       final pending =
@@ -160,10 +159,10 @@ void main() {
 
     test('getPendingMessages returns only pending', () {
       store.insertMessageByPriority(
-        _msg(id: 'p', status: QueuedMessageStatus.pending),
+        msg(id: 'p', status: QueuedMessageStatus.pending),
       );
       store.insertMessageByPriority(
-        _msg(id: 'f', status: QueuedMessageStatus.failed),
+        msg(id: 'f', status: QueuedMessageStatus.failed),
       );
       expect(store.repo.getPendingMessages().length, 1);
     });
@@ -171,7 +170,7 @@ void main() {
     // -- removeMessage (lines 186-188) --
 
     test('removeMessage removes by id', () async {
-      store.insertMessageByPriority(_msg(id: 'rm'));
+      store.insertMessageByPriority(msg(id: 'rm'));
       await store.repo.removeMessage('rm');
       expect(store.repo.getMessageById('rm'), isNull);
     });
@@ -181,8 +180,8 @@ void main() {
     test('getOldestPendingMessage returns oldest', () {
       final earlier = DateTime(2024, 1, 1);
       final later = DateTime(2024, 6, 1);
-      store.insertMessageByPriority(_msg(id: 'old', queuedAt: earlier));
-      store.insertMessageByPriority(_msg(id: 'new', queuedAt: later));
+      store.insertMessageByPriority(msg(id: 'old', queuedAt: earlier));
+      store.insertMessageByPriority(msg(id: 'new', queuedAt: later));
 
       final oldest = store.repo.getOldestPendingMessage();
       expect(oldest, isNotNull);
@@ -195,7 +194,7 @@ void main() {
 
     test('getOldestPendingMessage returns null when no pending', () {
       store.insertMessageByPriority(
-        _msg(id: 'done', status: QueuedMessageStatus.delivered),
+        msg(id: 'done', status: QueuedMessageStatus.delivered),
       );
       expect(store.repo.getOldestPendingMessage(), isNull);
     });
@@ -203,13 +202,13 @@ void main() {
     // -- removeMessageFromQueue (lines 219-223) --
 
     test('removeMessageFromQueue removes from direct queue', () {
-      store.insertMessageByPriority(_msg(id: 'x'));
+      store.insertMessageByPriority(msg(id: 'x'));
       store.removeMessageFromQueue('x');
       expect(store.getAllMessages(), isEmpty);
     });
 
     test('removeMessageFromQueue removes from relay queue', () {
-      store.insertMessageByPriority(_msg(id: 'rx', isRelay: true));
+      store.insertMessageByPriority(msg(id: 'rx', isRelay: true));
       store.removeMessageFromQueue('rx');
       expect(store.getAllMessages(), isEmpty);
     });
@@ -223,7 +222,7 @@ void main() {
     // -- markMessageDeleted (lines 231-234) --
 
     test('markMessageDeleted marks and removes message', () async {
-      store.insertMessageByPriority(_msg(id: 'del'));
+      store.insertMessageByPriority(msg(id: 'del'));
       await store.repo.markMessageDeleted('del');
 
       expect(store.repo.isMessageDeleted('del'), isTrue);
@@ -233,7 +232,7 @@ void main() {
     // -- queuedMessageToDb returns empty map (lines 237-238) --
 
     test('queuedMessageToDb returns empty map (in-memory)', () {
-      final result = store.repo.queuedMessageToDb(_msg());
+      final result = store.repo.queuedMessageToDb(msg());
       expect(result, isEmpty);
     });
 
@@ -253,7 +252,7 @@ void main() {
     });
 
     test('saveMessageToStorage completes', () async {
-      await store.saveMessageToStorage(_msg());
+      await store.saveMessageToStorage(msg());
     });
 
     test('deleteMessageFromStorage completes', () async {
@@ -275,8 +274,8 @@ void main() {
     // -- clearInMemoryQueues --
 
     test('clearInMemoryQueues empties both queues', () {
-      store.insertMessageByPriority(_msg(id: 'd'));
-      store.insertMessageByPriority(_msg(id: 'r', isRelay: true));
+      store.insertMessageByPriority(msg(id: 'd'));
+      store.insertMessageByPriority(msg(id: 'r', isRelay: true));
       store.clearInMemoryQueues();
       expect(store.getAllMessages(), isEmpty);
     });

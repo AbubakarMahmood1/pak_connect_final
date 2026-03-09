@@ -10,6 +10,7 @@
 ///   - cancelRetryTimer / cancelAllActiveRetries
 ///   - startPeriodicCleanup / startConnectivityMonitoring
 ///   - dispose
+library;
 
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,14 +19,11 @@ import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
-import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 
 // ─── Fakes ───────────────────────────────────────────────────────────
 
@@ -252,13 +250,6 @@ class _FakeRetryScheduler extends Fake implements IRetryScheduler {
   void dispose() {}
 }
 
-class _FakeDatabaseProvider extends Fake implements IDatabaseProvider {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-class _FakeRepositoryProvider extends Fake implements IRepositoryProvider {}
-
 class _FakeSyncCoordinator extends Fake implements IQueueSyncCoordinator {
   bool initialized = false;
   String lastHash = 'hash-maint';
@@ -390,6 +381,7 @@ void main() {
   late OfflineMessageQueue queue;
   late _FakeQueueRepository fakeRepo;
   late _FakeRetryScheduler fakeScheduler;
+  // ignore: unused_local_variable
   late _FakeSyncCoordinator fakeSyncCoordinator;
 
   setUp(() async {

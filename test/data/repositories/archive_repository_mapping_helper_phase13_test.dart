@@ -10,12 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:pak_connect/data/repositories/archive_repository.dart';
-import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/entities/archived_message.dart';
 import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/services/archive_crypto.dart';
 import 'package:pak_connect/domain/utils/compression_config.dart';
 import 'package:pak_connect/domain/utils/compression_util.dart';
@@ -663,7 +661,7 @@ void main() {
   // ── applyMessageTypeFilter — all branch combinations ──────────────
 
   group('applyMessageTypeFilter — filter branches', () {
-    ArchivedMessage _makeMsg({
+    ArchivedMessage makeMsg({
       required String id,
       bool isFromMe = false,
       bool isStarred = false,
@@ -709,14 +707,14 @@ void main() {
 
     setUp(() {
       messages = [
-        _makeMsg(id: 'm1', isFromMe: true, isStarred: true),
-        _makeMsg(id: 'm2', isFromMe: false, hasAttachments: true),
-        _makeMsg(
+        makeMsg(id: 'm1', isFromMe: true, isStarred: true),
+        makeMsg(id: 'm2', isFromMe: false, hasAttachments: true),
+        makeMsg(
           id: 'm3',
           isFromMe: true,
           editedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
-        _makeMsg(id: 'm4', isFromMe: false),
+        makeMsg(id: 'm4', isFromMe: false),
       ];
     });
 

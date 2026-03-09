@@ -3,6 +3,7 @@
 ///   publicKey fallback, persistent-as-last-resort, no contact),
 ///   setupDeliveryListener, setupContactRequestListener, dispose,
 ///   sendMessage with reply-to, loadMessages empty queued
+library;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pak_connect/domain/entities/contact.dart';

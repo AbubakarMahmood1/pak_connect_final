@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
@@ -26,7 +25,7 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
   });
 
-  MeshNetworkStatus _makeStatus({
+  MeshNetworkStatus makeStatus({
     bool isInitialized = true,
     bool isConnected = true,
     String? nodeId = 'node-1',
@@ -82,7 +81,7 @@ void main() {
 
     test('copyWith updates status', () {
       final initial = MeshRuntimeState.initial();
-      final newStatus = _makeStatus();
+      final newStatus = makeStatus();
       final updated = initial.copyWith(status: newStatus);
       expect(updated.status.isInitialized, true);
     });
@@ -91,14 +90,14 @@ void main() {
   group('MeshNetworkingUIState — getters', () {
     test('isReady reflects networkStatus.isInitialized', () {
       final ready = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus(isInitialized: true)),
+        networkStatus: AsyncValue.data(makeStatus(isInitialized: true)),
         relayStats: const AsyncValue.data(null),
         queueStats: const AsyncValue.data(null),
       );
       expect(ready.isReady, true);
 
       final notReady = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus(isInitialized: false)),
+        networkStatus: AsyncValue.data(makeStatus(isInitialized: false)),
         relayStats: const AsyncValue.data(null),
         queueStats: const AsyncValue.data(null),
       );
@@ -117,7 +116,7 @@ void main() {
     test('isConnected reflects networkStatus', () {
       final connected = MeshNetworkingUIState(
         networkStatus: AsyncValue.data(
-          _makeStatus(isConnected: true),
+          makeStatus(isConnected: true),
         ),
         relayStats: const AsyncValue.data(null),
         queueStats: const AsyncValue.data(null),
@@ -127,7 +126,7 @@ void main() {
 
     test('currentNodeId from status', () {
       final state = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus(nodeId: 'my-node-42')),
+        networkStatus: AsyncValue.data(makeStatus(nodeId: 'my-node-42')),
         relayStats: const AsyncValue.data(null),
         queueStats: const AsyncValue.data(null),
       );
@@ -148,7 +147,7 @@ void main() {
         currentRelayProbability: 0.7,
       );
       final state = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus()),
+        networkStatus: AsyncValue.data(makeStatus()),
         relayStats: const AsyncValue.data(relay),
         queueStats: const AsyncValue.data(null),
       );
@@ -178,7 +177,7 @@ void main() {
         currentRelayProbability: 0.8,
       );
       final state = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus()),
+        networkStatus: AsyncValue.data(makeStatus()),
         relayStats: const AsyncValue.data(relay),
         queueStats: const AsyncValue.data(null),
       );
@@ -188,7 +187,7 @@ void main() {
 
     test('pendingMessages from queueStatistics', () {
       final state = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus(
+        networkStatus: AsyncValue.data(makeStatus(
           queueStats: const QueueStatistics(
             totalQueued: 20,
             totalDelivered: 15,
@@ -209,7 +208,7 @@ void main() {
 
     test('queueHealthPercent from statistics', () {
       final state = MeshNetworkingUIState(
-        networkStatus: AsyncValue.data(_makeStatus(
+        networkStatus: AsyncValue.data(makeStatus(
           queueStats: const QueueStatistics(
             totalQueued: 100,
             totalDelivered: 90,
@@ -589,7 +588,6 @@ class _FakeMeshService implements IMeshNetworkingService {
   @override
   Stream<QueueSyncManagerStats> get queueStats => const Stream.empty();
 
-  @override
   Stream<String> get deliveryNotifications => const Stream.empty();
 
   @override

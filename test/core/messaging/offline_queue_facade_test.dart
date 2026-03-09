@@ -7,7 +7,6 @@ import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 class _SpyOfflineMessageQueue extends OfflineMessageQueue {

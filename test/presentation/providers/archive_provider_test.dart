@@ -4,9 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
-import 'package:pak_connect/domain/services/archive_management_models.dart';
 import 'package:pak_connect/domain/services/archive_management_service.dart';
-import 'package:pak_connect/domain/services/archive_search_models.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/providers/archive_provider.dart';
@@ -14,10 +12,10 @@ import 'package:pak_connect/presentation/providers/archive_provider.dart';
 class _TestArchiveManagementService implements ArchiveManagementService {
   _TestArchiveManagementService({
     required this.archiveUpdatesStream,
-    this.policyUpdatesStream = const Stream<ArchivePolicyEvent>.empty(),
-    this.maintenanceUpdatesStream =
-        const Stream<ArchiveMaintenanceEvent>.empty(),
-  });
+    Stream<ArchivePolicyEvent>? policyUpdatesStream,
+    Stream<ArchiveMaintenanceEvent>? maintenanceUpdatesStream,
+  })  : policyUpdatesStream = policyUpdatesStream ?? const Stream.empty(),
+        maintenanceUpdatesStream = maintenanceUpdatesStream ?? const Stream.empty();
 
   final Stream<ArchiveUpdateEvent> archiveUpdatesStream;
   final Stream<ArchivePolicyEvent> policyUpdatesStream;
@@ -992,6 +990,7 @@ void main() {
         notifier.clearRecentMessages();
 
         expect(
+          // ignore: deprecated_member_use_from_same_package
           container.read(archiveOperationsStateProvider),
           container.read(archiveOperationsProvider),
         );

@@ -2,34 +2,21 @@
 // Targets uncovered lines: 31, 101, 126, 148-159, 164-174, 179-180,
 // 184-185, 189-190, 193-194, 198-199, 204-207, 212-228, 233-243
 
-import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/presentation/controllers/chat_session_lifecycle.dart';
 import 'package:pak_connect/presentation/models/chat_screen_config.dart';
 import 'package:pak_connect/presentation/models/chat_ui_state.dart';
 import 'package:pak_connect/presentation/notifiers/chat_session_state_provider.dart';
 import 'package:pak_connect/presentation/providers/chat_session_providers.dart';
-import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
 
 // ---------------------------------------------------------------------------
 // Stubs / fakes for domain interfaces (presentation-layer-only imports)
 // ---------------------------------------------------------------------------
-
-class _FakeConnectionService implements _MinimalConnectionService {
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-// We only need the type – avoids importing from core/
-abstract class _MinimalConnectionService {}
 
 // ---------------------------------------------------------------------------
 // Helper: build a ChatSessionActions with tracked invocations
@@ -51,14 +38,14 @@ ChatSessionActions _buildActions({
 }) {
   return ChatSessionActions(
     sendMessage: onSend ?? (_) async {},
-    deleteMessage: onDelete ?? (_, __) async {},
+    deleteMessage: onDelete ?? (_, _) async {},
     retryFailedMessages: onRetry ?? () async {},
     manualReconnection: onReconnect ?? () async {},
     retryFailedMessagesInline: onRetryInline ?? () async {},
     requestPairing: onPairing ?? () async {},
-    handleAsymmetricContact: onAsymmetric ?? (_, __) async {},
-    handleConnectionChange: onConnectionChange ?? (_, __) {},
-    handleMeshInitializationStatusChange: onMeshChange ?? (_, __) {},
+    handleAsymmetricContact: onAsymmetric ?? (_, _) async {},
+    handleConnectionChange: onConnectionChange ?? (_, _) {},
+    handleMeshInitializationStatusChange: onMeshChange ?? (_, _) {},
     scrollToBottom: onScroll ?? () {},
     toggleSearchMode: onToggleSearch ?? () {},
   );
@@ -209,7 +196,7 @@ void main() {
 
     test('handleMeshInitializationStatusChange with data', () {
       var called = false;
-      final a = _buildActions(onMeshChange: (_, __) {
+      final a = _buildActions(onMeshChange: (_, _) {
         called = true;
       });
 

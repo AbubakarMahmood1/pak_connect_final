@@ -9,26 +9,24 @@
 ///   - Stream bridge providers (lines 222-234)
 ///   - Topology providers (lines 237-246)
 ///   - meshRoutingServiceProvider (lines 251-255)
+library;
 
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
 import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/network_topology.dart';
 import 'package:pak_connect/domain/routing/topology_manager.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
@@ -237,7 +235,7 @@ void main() {
       fakeService.closeAll();
     });
 
-    ProviderContainer _buildContainer() {
+    ProviderContainer buildContainer() {
       final container = ProviderContainer(
         overrides: [
           meshNetworkingServiceProvider.overrideWithValue(fakeService),
@@ -251,7 +249,7 @@ void main() {
     }
 
     test('build() returns initial state and calls refreshMeshStatus', () async {
-      final container = _buildContainer();
+      final container = buildContainer();
 
       // Reading the provider triggers build().
       final future = container.read(meshRuntimeProvider.future);
@@ -264,7 +262,7 @@ void main() {
     });
 
     test('meshStatusStream listener updates state', () async {
-      final container = _buildContainer();
+      final container = buildContainer();
 
       // Wait for initial build to complete.
       await container.read(meshRuntimeProvider.future);
@@ -281,7 +279,7 @@ void main() {
     });
 
     test('relayStatsStream listener updates relayStatistics', () async {
-      final container = _buildContainer();
+      final container = buildContainer();
       await container.read(meshRuntimeProvider.future);
 
       fakeService.relayCtrl.add(_defaultRelayStats);
@@ -294,7 +292,7 @@ void main() {
     });
 
     test('queueStatsStream listener updates queueStatistics', () async {
-      final container = _buildContainer();
+      final container = buildContainer();
       await container.read(meshRuntimeProvider.future);
 
       fakeService.queueCtrl.add(_defaultQueueSyncStats);
@@ -307,7 +305,7 @@ void main() {
     });
 
     test('all three listeners update concurrently', () async {
-      final container = _buildContainer();
+      final container = buildContainer();
       await container.read(meshRuntimeProvider.future);
 
       // Emit all three at once.
@@ -347,7 +345,7 @@ void main() {
       fakeConnection.close();
     });
 
-    ProviderContainer _btContainer() {
+    ProviderContainer btContainer() {
       final c = ProviderContainer(
         overrides: [
           connectionServiceProvider.overrideWithValue(fakeConnection),
@@ -358,10 +356,10 @@ void main() {
     }
 
     test('bluetoothStateStreamProvider emits state info', () async {
-      final container = _btContainer();
+      final container = btContainer();
 
       // Subscribe to the stream.
-      final sub = container.listen(bluetoothStateStreamProvider, (_, __) {});
+      final sub = container.listen(bluetoothStateStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       final info = BluetoothStateInfo(
@@ -377,10 +375,10 @@ void main() {
     });
 
     test('bluetoothStatusMessageStreamProvider emits messages', () async {
-      final container = _btContainer();
+      final container = btContainer();
 
       final sub =
-          container.listen(bluetoothStatusMessageStreamProvider, (_, __) {});
+          container.listen(bluetoothStatusMessageStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       final msg = BluetoothStatusMessage.ready('Bluetooth ready');
@@ -392,9 +390,9 @@ void main() {
     });
 
     test('bluetoothStateProvider wraps stream provider value', () async {
-      final container = _btContainer();
+      final container = btContainer();
 
-      final sub = container.listen(bluetoothStateProvider, (_, __) {});
+      final sub = container.listen(bluetoothStateProvider, (_, _) {});
       addTearDown(sub.close);
 
       final info = BluetoothStateInfo(
@@ -411,10 +409,10 @@ void main() {
 
     test('bluetoothStatusMessageProvider wraps stream provider value',
         () async {
-      final container = _btContainer();
+      final container = btContainer();
 
       final sub =
-          container.listen(bluetoothStatusMessageProvider, (_, __) {});
+          container.listen(bluetoothStatusMessageProvider, (_, _) {});
       addTearDown(sub.close);
 
       fakeConnection.btMsgCtrl
@@ -427,10 +425,10 @@ void main() {
 
     test('bluetoothReadyProvider returns true when stream reports ready',
         () async {
-      final container = _btContainer();
+      final container = btContainer();
 
       final sub =
-          container.listen(bluetoothStateStreamProvider, (_, __) {});
+          container.listen(bluetoothStateStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       final info = BluetoothStateInfo(
@@ -449,7 +447,7 @@ void main() {
         'bluetoothReadyProvider falls back to service.isBluetoothReady '
         'when no stream data', () {
       fakeConnection.isReady = false;
-      final container = _btContainer();
+      final container = btContainer();
 
       final ready = container.read(bluetoothReadyProvider);
       expect(ready, isFalse);
@@ -562,7 +560,7 @@ void main() {
       fakeService.closeAll();
     });
 
-    ProviderContainer _binContainer() {
+    ProviderContainer binContainer() {
       final c = ProviderContainer(
         overrides: [
           meshNetworkingServiceProvider.overrideWithValue(fakeService),
@@ -573,10 +571,10 @@ void main() {
     }
 
     test('binaryPayloadStreamProvider emits events', () async {
-      final container = _binContainer();
+      final container = binContainer();
 
       final sub =
-          container.listen(binaryPayloadStreamProvider, (_, __) {});
+          container.listen(binaryPayloadStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       final event = ReceivedBinaryEvent(
@@ -595,7 +593,7 @@ void main() {
     });
 
     test('binaryPayloadInboxProvider ingests stream events', () async {
-      final container = _binContainer();
+      final container = binContainer();
 
       // Read the notifier to wire up the subscription.
       container.read(binaryPayloadInboxProvider);
@@ -625,7 +623,7 @@ void main() {
         ),
       ];
 
-      final container = _binContainer();
+      final container = binContainer();
       final transfers = container.read(pendingBinaryTransfersProvider);
       expect(transfers, hasLength(1));
       expect(transfers.first.transferId, 'tx-3');
@@ -633,7 +631,7 @@ void main() {
 
     test('pendingBinaryTransfersProvider returns empty list', () {
       fakeService.pendingTransfers = [];
-      final container = _binContainer();
+      final container = binContainer();
       final transfers = container.read(pendingBinaryTransfersProvider);
       expect(transfers, isEmpty);
     });
@@ -654,7 +652,7 @@ void main() {
       fakeService.closeAll();
     });
 
-    ProviderContainer _streamContainer() {
+    ProviderContainer streamContainer() {
       final c = ProviderContainer(
         overrides: [
           meshNetworkingServiceProvider.overrideWithValue(fakeService),
@@ -665,10 +663,10 @@ void main() {
     }
 
     test('meshStatusStreamProvider emits status events', () async {
-      final container = _streamContainer();
+      final container = streamContainer();
 
       final sub =
-          container.listen(meshStatusStreamProvider, (_, __) {});
+          container.listen(meshStatusStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       fakeService.statusCtrl.add(_status(isConnected: true));
@@ -679,10 +677,10 @@ void main() {
     });
 
     test('relayStatsStreamProvider emits relay stats', () async {
-      final container = _streamContainer();
+      final container = streamContainer();
 
       final sub =
-          container.listen(relayStatsStreamProvider, (_, __) {});
+          container.listen(relayStatsStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       fakeService.relayCtrl.add(_defaultRelayStats);
@@ -693,10 +691,10 @@ void main() {
     });
 
     test('queueStatsStreamProvider emits queue sync stats', () async {
-      final container = _streamContainer();
+      final container = streamContainer();
 
       final sub =
-          container.listen(queueStatsStreamProvider, (_, __) {});
+          container.listen(queueStatsStreamProvider, (_, _) {});
       addTearDown(sub.close);
 
       fakeService.queueCtrl.add(_defaultQueueSyncStats);

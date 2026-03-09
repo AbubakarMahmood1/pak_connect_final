@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
@@ -7,7 +6,6 @@ import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Phase 12.4: Supplementary tests for ProtocolMessageHandler
@@ -205,7 +203,7 @@ void main() {
 
     test('defaults isVerified to false when missing', () async {
       bool? capturedIsVerified;
-      handler.onCryptoVerificationResponseReceived((_, __, isVerified, ___) {
+      handler.onCryptoVerificationResponseReceived((_, _, isVerified, _) {
         capturedIsVerified = isVerified;
       });
 

@@ -252,6 +252,7 @@ void main() {
 
       final valueCompleter = Completer<String>();
       final valueSub = dataContainer.listen<AsyncValue<String>>(
+        // ignore: deprecated_member_use_from_same_package
         usernameStreamProvider,
         (previous, next) {
           next.whenData((value) {
@@ -275,6 +276,7 @@ void main() {
 
       final errorCompleter = Completer<Object>();
       final errorSub = errorContainer.listen<AsyncValue<String>>(
+        // ignore: deprecated_member_use_from_same_package
         usernameStreamProvider,
         (previous, next) {
           next.when(

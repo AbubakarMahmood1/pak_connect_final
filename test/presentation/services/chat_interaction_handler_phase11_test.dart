@@ -1,7 +1,7 @@
 /// Phase 11.3 — Extra ChatInteractionHandler tests that target uncovered
 /// branches: formatTime edge-cases, multi-subscriber behavior,
 /// _emitIntent exception safety, navigation guards, and double-dispose.
-import 'dart:async';
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';

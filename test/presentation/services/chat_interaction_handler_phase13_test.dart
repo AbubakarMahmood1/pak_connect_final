@@ -6,6 +6,7 @@
 /// editDisplayName null guard, showArchiveConfirmation / showDeleteConfirmation
 /// null guards, showChatContextMenu null guard, markChatAsRead success path,
 /// and _emitIntent with a throwing listener.
+library;
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +16,6 @@ import 'package:pak_connect/domain/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
-import 'package:pak_connect/domain/services/chat_management_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/services/chat_interaction_handler.dart';

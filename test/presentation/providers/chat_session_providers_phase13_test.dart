@@ -3,9 +3,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/presentation/providers/chat_session_providers.dart';
-import 'package:pak_connect/presentation/models/chat_ui_state.dart';
-import 'package:pak_connect/presentation/viewmodels/chat_session_view_model.dart';
-import 'package:pak_connect/presentation/controllers/chat_session_lifecycle.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,14 +15,14 @@ void main() {
     test('can be constructed with all required callbacks', () {
       final actions = ChatSessionActions(
         sendMessage: (_) async {},
-        deleteMessage: (_, __) async {},
+        deleteMessage: (_, _) async {},
         retryFailedMessages: () async {},
         manualReconnection: () async {},
         retryFailedMessagesInline: () async {},
         requestPairing: () async {},
-        handleAsymmetricContact: (_, __) async {},
-        handleConnectionChange: (_, __) {},
-        handleMeshInitializationStatusChange: (_, __) {},
+        handleAsymmetricContact: (_, _) async {},
+        handleConnectionChange: (_, _) {},
+        handleMeshInitializationStatusChange: (_, _) {},
         scrollToBottom: () {},
         toggleSearchMode: () {},
       );
@@ -47,14 +44,14 @@ void main() {
       String? captured;
       final actions = ChatSessionActions(
         sendMessage: (content) async { captured = content; },
-        deleteMessage: (_, __) async {},
+        deleteMessage: (_, _) async {},
         retryFailedMessages: () async {},
         manualReconnection: () async {},
         retryFailedMessagesInline: () async {},
         requestPairing: () async {},
-        handleAsymmetricContact: (_, __) async {},
-        handleConnectionChange: (_, __) {},
-        handleMeshInitializationStatusChange: (_, __) {},
+        handleAsymmetricContact: (_, _) async {},
+        handleConnectionChange: (_, _) {},
+        handleMeshInitializationStatusChange: (_, _) {},
         scrollToBottom: () {},
         toggleSearchMode: () {},
       );
@@ -76,9 +73,9 @@ void main() {
         manualReconnection: () async {},
         retryFailedMessagesInline: () async {},
         requestPairing: () async {},
-        handleAsymmetricContact: (_, __) async {},
-        handleConnectionChange: (_, __) {},
-        handleMeshInitializationStatusChange: (_, __) {},
+        handleAsymmetricContact: (_, _) async {},
+        handleConnectionChange: (_, _) {},
+        handleMeshInitializationStatusChange: (_, _) {},
         scrollToBottom: () {},
         toggleSearchMode: () {},
       );
@@ -93,17 +90,17 @@ void main() {
       ConnectionInfo? capturedNew;
       final actions = ChatSessionActions(
         sendMessage: (_) async {},
-        deleteMessage: (_, __) async {},
+        deleteMessage: (_, _) async {},
         retryFailedMessages: () async {},
         manualReconnection: () async {},
         retryFailedMessagesInline: () async {},
         requestPairing: () async {},
-        handleAsymmetricContact: (_, __) async {},
+        handleAsymmetricContact: (_, _) async {},
         handleConnectionChange: (old, newInfo) {
           capturedOld = old;
           capturedNew = newInfo;
         },
-        handleMeshInitializationStatusChange: (_, __) {},
+        handleMeshInitializationStatusChange: (_, _) {},
         scrollToBottom: () {},
         toggleSearchMode: () {},
       );
@@ -117,14 +114,14 @@ void main() {
       var called = false;
       final actions = ChatSessionActions(
         sendMessage: (_) async {},
-        deleteMessage: (_, __) async {},
+        deleteMessage: (_, _) async {},
         retryFailedMessages: () async {},
         manualReconnection: () async {},
         retryFailedMessagesInline: () async {},
         requestPairing: () async {},
-        handleAsymmetricContact: (_, __) async {},
-        handleConnectionChange: (_, __) {},
-        handleMeshInitializationStatusChange: (_, __) { called = true; },
+        handleAsymmetricContact: (_, _) async {},
+        handleConnectionChange: (_, _) {},
+        handleMeshInitializationStatusChange: (_, _) { called = true; },
         scrollToBottom: () {},
         toggleSearchMode: () {},
       );

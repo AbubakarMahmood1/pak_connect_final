@@ -141,25 +141,25 @@ void main() {
     );
 
     test('callback accessors round-trip assignments', () {
-      void contactRequest(String _, String __) {}
-      void contactAccept(String _, String __) {}
+      void contactRequest(String _, String _) {}
+      void contactAccept(String _, String _) {}
       void contactReject() {}
-      void cryptoReq(String _, String __) {}
+      void cryptoReq(String _, String _) {}
       void cryptoResp(
         String _,
-        String __,
-        bool ___,
-        Map<String, dynamic>? ____,
+        String _,
+        bool _,
+        Map<String, dynamic>? _,
       ) {}
-      void queueSync(relay_models.QueueSyncMessage _, String __) {}
-      void sendQueue(List<QueuedMessage> _, String __) {}
-      void queueDone(String _, QueueSyncResult __) {}
-      void relayText(String _, String __, String ___) {}
-      void relayIds(MessageId _, String __, String ___) {}
+      void queueSync(relay_models.QueueSyncMessage _, String _) {}
+      void sendQueue(List<QueuedMessage> _, String _) {}
+      void queueDone(String _, QueueSyncResult _) {}
+      void relayText(String _, String _, String _) {}
+      void relayIds(MessageId _, String _, String _) {}
       void relayDecision(relay_models.RelayDecision _) {}
       void relayStats(relay_models.RelayStatistics _) {}
       void sendAck(ProtocolMessage _) {}
-      void sendRelay(ProtocolMessage _, String __) {}
+      void sendRelay(ProtocolMessage _, String _) {}
 
       handler.onContactRequestReceived = contactRequest;
       handler.onContactAcceptReceived = contactAccept;

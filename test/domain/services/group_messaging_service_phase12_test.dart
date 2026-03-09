@@ -4,6 +4,7 @@
 ///   queue exception, multiple members, mixed results), getGroupMessages,
 ///   getMessage, markDelivered, markDeliveredForMember, markFailed,
 ///   markFailedForMember, getDeliverySummary, _updateStatus error handling.
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -14,7 +15,6 @@ import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/contact_group.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/group_messaging_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';

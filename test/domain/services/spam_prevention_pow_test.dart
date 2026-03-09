@@ -10,7 +10,7 @@ void main() {
   late SpamPreventionManager spamManager;
   late MessageCostPolicy costPolicy;
 
-  MeshRelayMessage _createMessage(
+  MeshRelayMessage createMessage(
     String id,
     String fromNodeId, {
     int? powNonce,
@@ -54,7 +54,7 @@ void main() {
 
   group('SpamPreventionManager - Proof of Work', () {
     test('allows message without PoW when under free tier', () async {
-      final msg = _createMessage('msg-1', 'sender-a');
+      final msg = createMessage('msg-1', 'sender-a');
       final result = await spamManager.checkIncomingRelay(
         relayMessage: msg,
         fromNodeId: 'sender-a',
@@ -79,7 +79,7 @@ void main() {
         difficulty: 8,
       );
 
-      final msg = _createMessage(
+      final msg = createMessage(
         'pow-msg',
         'heavy-sender',
         powNonce: powResult!.nonce,
@@ -97,7 +97,7 @@ void main() {
     });
 
     test('checks PoW validity in spam check results', () async {
-      final msg = _createMessage('msg-pow', 'node-x');
+      final msg = createMessage('msg-pow', 'node-x');
       final result = await spamManager.checkIncomingRelay(
         relayMessage: msg,
         fromNodeId: 'node-x',
@@ -117,7 +117,7 @@ void main() {
       // Set network floor high to require PoW
       costPolicy.addNetworkTimestampsForTest(1500);
 
-      final msg = _createMessage(
+      final msg = createMessage(
         'invalid-pow',
         'bad-actor',
         powNonce: 42, // invalid nonce
@@ -142,7 +142,7 @@ void main() {
       costPolicy.addNetworkTimestampsForTest(300);
 
       // Message claims difficulty 0 (no PoW)
-      final msg = _createMessage('low-pow', 'lazy-node');
+      final msg = createMessage('low-pow', 'lazy-node');
 
       final result = await spamManager.checkIncomingRelay(
         relayMessage: msg,
@@ -162,7 +162,7 @@ void main() {
       final plainManager = SpamPreventionManager();
       await plainManager.initialize();
 
-      final msg = _createMessage('legacy-msg', 'old-client');
+      final msg = createMessage('legacy-msg', 'old-client');
       final result = await plainManager.checkIncomingRelay(
         relayMessage: msg,
         fromNodeId: 'old-client',

@@ -1,6 +1,7 @@
 /// Phase 11.2 — Additional coverage for SecurityManager focusing on
 /// encryption/decryption branches, sealed messages, binary payloads,
 /// identity mapping, and Noise peer resolution.
+library;
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -8,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';

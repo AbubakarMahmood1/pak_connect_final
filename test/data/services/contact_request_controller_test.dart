@@ -82,7 +82,7 @@ void main() {
     test(
       'initiateContactRequest resolves false on rejection response',
       () async {
-        controller.onSendContactRequest = (_, __) {
+        controller.onSendContactRequest = (_, _) {
           controller.handleContactRequestRejectResponse();
         };
 
@@ -125,7 +125,7 @@ void main() {
       'acceptContactRequest no-ops when there is no pending request',
       () async {
         var sentAccept = 0;
-        controller.onSendContactAccept = (_, __) => sentAccept++;
+        controller.onSendContactAccept = (_, _) => sentAccept++;
 
         await controller.acceptContactRequest();
 
@@ -140,7 +140,7 @@ void main() {
         final completed = <bool>[];
         controller.onContactRequestCompleted = completed.add;
         var sentAccept = 0;
-        controller.onSendContactAccept = (_, __) => sentAccept++;
+        controller.onSendContactAccept = (_, _) => sentAccept++;
 
         await controller.handleContactRequest('their-key', 'Alice');
         await controller.acceptContactRequest();

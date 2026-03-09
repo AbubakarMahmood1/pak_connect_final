@@ -11,7 +11,7 @@ void main() {
     return MaterialApp(home: Scaffold(body: child));
   }
 
-  ReceivedBinaryEvent _event({
+  ReceivedBinaryEvent event0({
     required String id,
     required String path,
     required int size,
@@ -37,8 +37,8 @@ void main() {
     final dismissed = <String>[];
 
     final inbox = <String, ReceivedBinaryEvent>{
-      'small': _event(id: 'small', path: '/tmp/small.bin', size: 512),
-      'large': _event(
+      'small': event0(id: 'small', path: '/tmp/small.bin', size: 512),
+      'large': event0(
         id: 'large',
         path: '/tmp/large.bin',
         size: 2 * 1024 * 1024,
@@ -61,7 +61,7 @@ void main() {
 
   testWidgets('BinaryInboxList opens viewer on tile tap', (tester) async {
     final inbox = <String, ReceivedBinaryEvent>{
-      'one': _event(id: 'one', path: '/tmp/one.jpg', size: 2048),
+      'one': event0(id: 'one', path: '/tmp/one.jpg', size: 2048),
     };
 
     await tester.pumpWidget(
@@ -117,7 +117,7 @@ void main() {
   testWidgets('BinaryPayloadViewer falls back to file icon for non-image', (
     tester,
   ) async {
-    final event = _event(
+    final event = event0(
       id: 'doc',
       path: '/tmp/report.pdf',
       size: 1024,
@@ -213,7 +213,7 @@ void main() {
       ],
     );
 
-    final event = _event(
+    final event = event0(
       id: 'img',
       path: image.path,
       size: 4096,

@@ -3,6 +3,7 @@
 ///   214, 224-225, 248-249, 319-320, 349-350, 362, 371-372, 441-442,
 ///   503, 512, 530-543, 547, 575-576, 580-581, 608, 655, 752, 773,
 ///   785, 795, 811, 825, 854, 938-939, 963, 967-968
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/domain/entities/contact.dart';

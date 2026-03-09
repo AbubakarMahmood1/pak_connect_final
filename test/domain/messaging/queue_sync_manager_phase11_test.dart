@@ -1,15 +1,12 @@
 /// Phase 11.4 — QueueSyncManager tests: construction, getStats,
 /// initialize, handleSyncRequest, processSyncResponse, rate-limiting,
 /// dispose, cancelAllSyncs, and initiateSync error paths.
-import 'dart:async';
+library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
@@ -20,7 +17,7 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
   List<String> _missingIds = [];
   List<QueuedMessage> _excessMessages = [];
   List<QueuedMessage> _pendingMessages = [];
-  String _hash = 'hash-abc';
+  final String _hash = 'hash-abc';
   final List<QueuedMessage> addedMessages = [];
   final Set<String> deletedIds = {};
 
@@ -132,10 +129,10 @@ void main() {
   group('initialize', () {
     test('registers callbacks', () async {
       await manager.initialize(
-        onSyncRequest: (_, __) {},
-        onSendMessages: (_, __) {},
-        onSyncCompleted: (_, __) {},
-        onSyncFailed: (_, __) {},
+        onSyncRequest: (_, _) {},
+        onSendMessages: (_, _) {},
+        onSyncCompleted: (_, _) {},
+        onSyncFailed: (_, _) {},
       );
       expect(manager.onSyncRequest, isNotNull);
     });

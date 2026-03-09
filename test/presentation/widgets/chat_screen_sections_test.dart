@@ -64,7 +64,7 @@ void main() {
             onToggleSearchMode: () {},
             onRetryFailedMessages: () {},
             retryHandlerFor: (_) => null,
-            onDeleteMessage: (_, __) async {},
+            onDeleteMessage: (_, _) async {},
           ),
         ),
       );
@@ -80,7 +80,7 @@ void main() {
             onToggleSearchMode: () {},
             onRetryFailedMessages: () {},
             retryHandlerFor: (_) => null,
-            onDeleteMessage: (_, __) async {},
+            onDeleteMessage: (_, _) async {},
           ),
         ),
       );
@@ -120,7 +120,7 @@ void main() {
               onToggleSearchMode: () {},
               onRetryFailedMessages: () => retryAllCalls++,
               retryHandlerFor: (_) => null,
-              onDeleteMessage: (_, __) async {},
+              onDeleteMessage: (_, _) async {},
             ),
           ),
         );

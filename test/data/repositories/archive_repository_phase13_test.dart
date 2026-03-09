@@ -5,7 +5,6 @@ import 'package:pak_connect/data/repositories/archive_repository.dart';
 import 'package:pak_connect/data/repositories/message_repository.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/test_setup.dart';
 

@@ -1,8 +1,6 @@
 // Phase 13.2: ChatScrollingController tests
 // Targeting 60 uncovered lines
 
-import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/presentation/controllers/chat_scrolling_controller.dart';

@@ -1,6 +1,7 @@
 /// Phase 12.5: Supplementary tests for archive_models.dart
 /// Covers: factory constructors, computed getters, formatters,
 ///   serialization round-trips, search result metadata helpers.
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';

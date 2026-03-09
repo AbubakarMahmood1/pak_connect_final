@@ -4,6 +4,7 @@
 /// cooldown enforcement, max-connections skip (with BT ready), scan failure,
 /// triggerManualScan during active burst, forceBurstScanNow, and the full
 /// report-connection paths.
+library;
 import 'dart:async';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
@@ -42,7 +43,7 @@ void main() {
   // =========================================================================
   // Helper to initialise with Bluetooth ready
   // =========================================================================
-  Future<(BurstScanningController, _FakeConnectionSvc)> _initReady({
+  Future<(BurstScanningController, _FakeConnectionSvc)> initReady({
     bool canAcceptMore = true,
     int activeCount = 0,
     int maxConns = 1,
@@ -68,7 +69,7 @@ void main() {
   // =========================================================================
   group('BT ready – scan start happy path', () {
     test('startBurstScanning triggers actual BLE scan', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -84,7 +85,7 @@ void main() {
     });
 
     test('burst auto-stops after duration timer expires', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -104,7 +105,7 @@ void main() {
     });
 
     test('scan logs success message', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -126,7 +127,7 @@ void main() {
   // =========================================================================
   group('BT ready – cooldown enforcement', () {
     test('second scan start blocked by cooldown', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         // Start first burst
         unawaited(controller.startBurstScanning());
@@ -155,7 +156,7 @@ void main() {
   // =========================================================================
   group('BT ready – max connections blocks scan', () {
     test('scan skipped when at max connections', () async {
-      final (controller, ble) = await _initReady(
+      final (controller, ble) = await initReady(
         canAcceptMore: false,
         activeCount: 1,
         maxConns: 1,
@@ -185,7 +186,7 @@ void main() {
   // =========================================================================
   group('BT ready – scan failure', () {
     test('failed startScanning resets state', () async {
-      final (controller, _) = await _initReady(failScan: true);
+      final (controller, _) = await initReady(failScan: true);
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -210,7 +211,7 @@ void main() {
   // =========================================================================
   group('BT ready – scan stop paths', () {
     test('scan stop logs success and resets state', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -235,7 +236,7 @@ void main() {
     });
 
     test('stopScanning exception in _handleBurstScanStop is caught', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -263,7 +264,7 @@ void main() {
     });
 
     test('idempotent stop is safe when burst already inactive', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -289,7 +290,7 @@ void main() {
   // =========================================================================
   group('BT ready – health check & stats callbacks', () {
     test('health check fires via power manager timer', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -312,7 +313,7 @@ void main() {
     });
 
     test('stats update fires after health check', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -339,7 +340,7 @@ void main() {
   // =========================================================================
   group('BT ready – statusStream listener callback', () {
     test('listener gets notified on scan start', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         final events = <BurstScanningStatus>[];
         final sub = controller.statusStream.listen(events.add);
@@ -365,7 +366,7 @@ void main() {
   // =========================================================================
   group('BT ready – triggerManualScan during active burst', () {
     test('shortens active burst to given delay', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -395,7 +396,7 @@ void main() {
   // =========================================================================
   group('BT ready – triggerManualScan when idle', () {
     test('schedules next scan via power manager', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.triggerManualScan(
           delay: const Duration(milliseconds: 50),
@@ -420,7 +421,7 @@ void main() {
   // =========================================================================
   group('BT ready – forceBurstScanNow', () {
     test('triggers immediate scan', () async {
-      final (controller, ble) = await _initReady();
+      final (controller, ble) = await initReady();
       fakeAsync((async) {
         unawaited(controller.forceBurstScanNow());
         async.flushMicrotasks();
@@ -439,7 +440,7 @@ void main() {
 
     test('forceBurstScanNow during active burst delegates to triggerManualScan',
         () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       fakeAsync((async) {
         unawaited(controller.startBurstScanning());
         async.flushMicrotasks();
@@ -466,7 +467,7 @@ void main() {
   // =========================================================================
   group('BT ready – report methods', () {
     test('reportConnectionSuccess delegates to power manager', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       controller.reportConnectionSuccess(
         rssi: -55,
         connectionTime: 200,
@@ -480,7 +481,7 @@ void main() {
     });
 
     test('reportConnectionFailure delegates to power manager', () async {
-      final (controller, _) = await _initReady();
+      final (controller, _) = await initReady();
       controller.reportConnectionFailure(
         reason: 'timeout',
         rssi: -90,

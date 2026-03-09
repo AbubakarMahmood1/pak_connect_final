@@ -22,7 +22,6 @@ import 'package:pak_connect/presentation/providers/mesh_networking_provider.dart
 import 'package:pak_connect/presentation/screens/home_screen.dart';
 import 'package:pak_connect/presentation/widgets/discovery_overlay.dart';
 
-import '../../helpers/ble/ble_fakes.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes

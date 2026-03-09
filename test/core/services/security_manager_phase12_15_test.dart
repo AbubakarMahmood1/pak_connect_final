@@ -56,7 +56,6 @@ class _Repo extends Fake implements IContactRepository {
   @override
   Future<String?> getCachedSharedSecret(String pk) async => cachedSecret;
 
-  @override
   Future<void> clearSharedSecrets(String pk) async {}
 }
 

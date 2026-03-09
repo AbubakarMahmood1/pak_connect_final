@@ -2,7 +2,7 @@
 /// Covers: clearSearchHistory, getAllEnhancedContacts edge cases,
 ///   getEnhancedContactById, getContactById, updatePrivacySettings persistence,
 ///   exportContacts CSV format, exportContacts with security data.
-import 'dart:convert';
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/domain/entities/contact.dart';

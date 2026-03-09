@@ -12,7 +12,7 @@ void main() {
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   /// Build topology with bidirectional connections and sorted quality keys.
-  NetworkTopology _topo(
+  NetworkTopology topo(
     Map<String, Set<String>> connections,
     Map<String, ConnectionQuality> qualities,
   ) {
@@ -23,7 +23,7 @@ void main() {
   }
 
   /// Sorted connection key (matches NetworkTopology._connectionKey).
-  String _qk(String a, String b) {
+  String qk(String a, String b) {
     final sorted = [a, b]..sort();
     return '${sorted[0]}:${sorted[1]}';
   }
@@ -41,9 +41,9 @@ void main() {
 
     for (final entry in expectations.entries) {
       test('direct route score for ${entry.key}', () async {
-        final topology = _topo(
+        final topology = topo(
           {'A': {'B'}, 'B': {'A'}},
-          {_qk('A', 'B'): entry.key},
+          {qk('A', 'B'): entry.key},
         );
 
         final routes = await calculator.calculateRoutes(
@@ -60,7 +60,7 @@ void main() {
     }
 
     test('direct route with null (unknown) quality defaults to 0.8', () async {
-      final topology = _topo(
+      final topology = topo(
         {'A': {'B'}, 'B': {'A'}},
         {}, // no quality entry → null
       );
@@ -88,9 +88,9 @@ void main() {
 
     for (final entry in qualityMap.entries) {
       test('maps ${entry.key} → ${entry.value}', () async {
-        final topology = _topo(
+        final topology = topo(
           {'A': {'B'}, 'B': {'A'}},
-          {_qk('A', 'B'): entry.key},
+          {qk('A', 'B'): entry.key},
         );
 
         final routes = await calculator.calculateRoutes(
@@ -105,7 +105,7 @@ void main() {
     }
 
     test('null quality maps to RouteQuality.good', () async {
-      final topology = _topo(
+      final topology = topo(
         {'A': {'B'}, 'B': {'A'}},
         {},
       );
@@ -125,9 +125,9 @@ void main() {
 
   group('Route cache', () {
     test('second call returns identical cached list', () async {
-      final topology = _topo(
+      final topology = topo(
         {'A': {'B'}, 'B': {'A'}},
-        {_qk('A', 'B'): ConnectionQuality.excellent},
+        {qk('A', 'B'): ConnectionQuality.excellent},
       );
 
       final r1 = await calculator.calculateRoutes(
@@ -153,9 +153,9 @@ void main() {
     });
 
     test('cleanExpiredCache runs on non-expired cache', () async {
-      final topology = _topo(
+      final topology = topo(
         {'X': {'Y'}, 'Y': {'X'}},
-        {_qk('X', 'Y'): ConnectionQuality.good},
+        {qk('X', 'Y'): ConnectionQuality.good},
       );
 
       await calculator.calculateRoutes(
@@ -185,15 +185,15 @@ void main() {
     test('poor + fair quality single-hop route', () async {
       // _qualityToScore(poor)=0.4, (fair)=0.6 → avg=0.5 ≥ 0.4 → poor quality
       // _qualityToReliability(poor)=0.50, (fair)=0.70 → combined=0.35
-      final topology = _topo(
+      final topology = topo(
         {
           'S': {'R'},
           'R': {'S', 'D'},
           'D': {'R'},
         },
         {
-          _qk('S', 'R'): ConnectionQuality.poor,
-          _qk('R', 'D'): ConnectionQuality.fair,
+          qk('S', 'R'): ConnectionQuality.poor,
+          qk('R', 'D'): ConnectionQuality.fair,
         },
       );
 
@@ -214,14 +214,14 @@ void main() {
     test('unreliable + null quality single-hop route', () async {
       // _qualityToScore(unreliable)=0.2, (null)=0.7 → avg=0.45 ≥ 0.4 → poor
       // _qualityToReliability(unreliable)=0.30, (null)=0.80 → 0.24
-      final topology = _topo(
+      final topology = topo(
         {
           'S2': {'R2'},
           'R2': {'S2', 'D2'},
           'D2': {'R2'},
         },
         {
-          _qk('S2', 'R2'): ConnectionQuality.unreliable,
+          qk('S2', 'R2'): ConnectionQuality.unreliable,
           // No entry for R2↔D2 → null quality
         },
       );
@@ -246,7 +246,7 @@ void main() {
     test('BFS discovers routes through intermediate nodes', () async {
       // Chain: src → hop1 → hop2 → dst
       // hop2 can reach dst; hop1 can only reach hop2
-      final topology = _topo(
+      final topology = topo(
         {
           'src': {'hop1'},
           'hop1': {'src', 'hop2'},
@@ -254,9 +254,9 @@ void main() {
           'dst': {'hop2'},
         },
         {
-          _qk('src', 'hop1'): ConnectionQuality.good,
-          _qk('hop1', 'hop2'): ConnectionQuality.good,
-          _qk('hop2', 'dst'): ConnectionQuality.good,
+          qk('src', 'hop1'): ConnectionQuality.good,
+          qk('hop1', 'hop2'): ConnectionQuality.good,
+          qk('hop2', 'dst'): ConnectionQuality.good,
         },
       );
 
@@ -274,7 +274,7 @@ void main() {
     });
 
     test('multi-hop with direct + relay routes', () async {
-      final topology = _topo(
+      final topology = topo(
         {
           'A': {'B', 'C', 'D'},
           'B': {'A', 'C', 'D'},
@@ -282,12 +282,12 @@ void main() {
           'D': {'A', 'B', 'C'},
         },
         {
-          _qk('A', 'B'): ConnectionQuality.excellent,
-          _qk('A', 'C'): ConnectionQuality.fair,
-          _qk('A', 'D'): ConnectionQuality.good,
-          _qk('B', 'C'): ConnectionQuality.good,
-          _qk('B', 'D'): ConnectionQuality.excellent,
-          _qk('C', 'D'): ConnectionQuality.fair,
+          qk('A', 'B'): ConnectionQuality.excellent,
+          qk('A', 'C'): ConnectionQuality.fair,
+          qk('A', 'D'): ConnectionQuality.good,
+          qk('B', 'C'): ConnectionQuality.good,
+          qk('B', 'D'): ConnectionQuality.excellent,
+          qk('C', 'D'): ConnectionQuality.fair,
         },
       );
 
@@ -313,16 +313,16 @@ void main() {
     late NetworkTopology topology;
 
     setUp(() {
-      topology = _topo(
+      topology = topo(
         {
           'A': {'B', 'C'},
           'B': {'A', 'C'},
           'C': {'A', 'B'},
         },
         {
-          _qk('A', 'C'): ConnectionQuality.poor,
-          _qk('A', 'B'): ConnectionQuality.excellent,
-          _qk('B', 'C'): ConnectionQuality.excellent,
+          qk('A', 'C'): ConnectionQuality.poor,
+          qk('A', 'B'): ConnectionQuality.excellent,
+          qk('B', 'C'): ConnectionQuality.excellent,
         },
       );
     });
@@ -396,7 +396,7 @@ void main() {
 
   group('Edge cases', () {
     test('returns empty list when destination is unreachable', () async {
-      final topology = _topo({'A': <String>{}}, {});
+      final topology = topo({'A': <String>{}}, {});
       final routes = await calculator.calculateRoutes(
         from: 'A',
         to: 'Z',
@@ -407,9 +407,9 @@ void main() {
     });
 
     test('skips hops equal to from or to in single-hop loop', () async {
-      final topology = _topo(
+      final topology = topo(
         {'A': {'B'}, 'B': {'A'}},
-        {_qk('A', 'B'): ConnectionQuality.good},
+        {qk('A', 'B'): ConnectionQuality.good},
       );
 
       // availableHops includes both from and to – they should be skipped

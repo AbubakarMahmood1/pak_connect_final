@@ -1,5 +1,6 @@
 /// Phase 12.6: Supplementary tests for ArchiveSearchService
 /// Covers: fuzzySearch, searchByDateRange, rebuildIndexes, dispose, stream getters
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

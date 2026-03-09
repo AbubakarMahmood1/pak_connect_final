@@ -2,12 +2,11 @@
 /// Covers: getEnhancedArchiveSummaries success path, applyArchivePolicies success,
 ///   getArchiveAnalytics success, updateConfiguration persistence, config getter,
 ///   policy getters, stream accessors
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pak_connect/domain/entities/archived_chat.dart';
-import 'package:pak_connect/domain/entities/archived_message.dart';
-import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/services/archive_management_service.dart';

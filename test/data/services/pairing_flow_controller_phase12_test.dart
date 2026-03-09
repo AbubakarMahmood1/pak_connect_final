@@ -5,27 +5,19 @@
 //          already at same level re-initialization, ensureContactMaximumSecurity
 //          no cached secret path, isPaired getter, callback setters
 
-import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/models/identity_session_state.dart';
-import 'package:pak_connect/domain/models/pairing_state.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/data/services/pairing_flow_controller.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
-import 'package:pak_connect/data/services/pairing_failure_handler.dart';
-import 'package:pak_connect/data/services/pairing_request_coordinator.dart';
-import 'package:pak_connect/data/services/pairing_ui_orchestrator.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────
@@ -223,12 +215,15 @@ void main() {
     });
 
     test('onSendPairingCode setter delegates to PairingService', () {
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       String? captured;
       controller.onSendPairingCode = (code) => captured = code;
       expect(controller.onSendPairingCode, isNotNull);
     });
 
     test('onSendPairingVerification setter delegates', () {
+      // ignore: unused_local_variable
       String? captured;
       controller.onSendPairingVerification = (hash) => captured = hash;
       expect(controller.onSendPairingVerification, isNotNull);
@@ -238,6 +233,8 @@ void main() {
   // ─── Request/accept/cancel flow (lazy coordinator) ─────────────────
   group('PairingFlowController — request/accept/cancel flow', () {
     test('sendPairingRequest triggers coordinator and logs', () async {
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       ProtocolMessage? sentMessage;
       controller.onSendPairingRequest = (msg) => sentMessage = msg;
       identityState.setTheirEphemeralId('peer-eph');

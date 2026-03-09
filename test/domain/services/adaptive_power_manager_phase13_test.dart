@@ -12,6 +12,7 @@
 /// - _getBaseIntervalForPowerMode per mode
 /// - _stopAllTimers: dutyCycleScanning cleanup
 /// - _loadSettings / _saveSettings
+library;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +48,8 @@ void main() {
   // -----------------------------------------------------------------------
   group('setAppBackgroundState', () {
     test('transitions to background changes power mode', () async {
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       PowerMode? lastMode;
       final manager = AdaptivePowerManager();
       await manager.initialize(

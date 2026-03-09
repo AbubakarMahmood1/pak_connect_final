@@ -6,7 +6,6 @@ import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {

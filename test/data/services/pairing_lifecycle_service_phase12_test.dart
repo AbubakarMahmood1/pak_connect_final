@@ -5,12 +5,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/pairing_lifecycle_service.dart';
-import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/identity_session_state.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
-import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -136,7 +134,7 @@ void main() {
         migrationCalls.add({
           'ephemeralId': ephemeralId,
           'persistentKey': persistentKey,
-          if (contactName != null) 'contactName': contactName,
+          'contactName': ?contactName,
         });
       },
       identityManager: identityManager,

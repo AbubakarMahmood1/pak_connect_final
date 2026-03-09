@@ -5,7 +5,6 @@
 //          handlePairingVerification hash match/mismatch, _performVerification,
 //          _startRequestTimeout, dispose
 
-import 'dart:async';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/data/services/pairing_service.dart';

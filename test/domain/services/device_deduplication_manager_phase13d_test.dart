@@ -2,7 +2,7 @@
 /// Targets uncovered lines: 120, 123, 184-197, 206-215, 253-271,
 ///   312-313, 351-353, 369, 372, 386-387, 442-445, 458, 473-477,
 ///   601-603, 615, 663
-import 'dart:async';
+library;
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -275,6 +275,8 @@ void main() {
   group('auto-connect trigger', () {
     test('shouldAutoConnect predicate declines device', () async {
       // Lines 351-353: shouldAutoConnect returns false
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       bool callbackCalled = false;
       DeviceDeduplicationManager.onKnownContactDiscovered =
           (peripheral, name) async {
@@ -656,7 +658,7 @@ void main() {
       expect(d1.hintNonce, isNotNull);
 
       // Modify d1's ephemeral hint to a specific value so we can match
-      final hintString =
+      final _ =
           '${HintAdvertisementService.bytesToHex(nonce)}:${HintAdvertisementService.bytesToHex(hintBytes)}';
 
       // Second device with same hint string but empty ad (no parsedHint)
@@ -706,6 +708,8 @@ void main() {
     });
 
     test('auto-connect with contact info uses display name', () async {
+      // ignore: unused_local_variable
+      // ignore: unused_local_variable
       String? connectedName;
       DeviceDeduplicationManager.onKnownContactDiscovered =
           (peripheral, name) async {

@@ -152,7 +152,7 @@ void main() {
 
         await facade.initializeRelaySystem(
           currentNodeId: 'node-a',
-          onRelayMessageReceived: (_, __, ___) {},
+          onRelayMessageReceived: (_, _, _) {},
           onRelayDecisionMade: (_) {},
           onRelayStatsUpdated: (_) {},
           nextHopsProvider: () => ['peer-1', 'peer-2'],
@@ -386,24 +386,24 @@ void main() {
     );
 
     test('callback setters and dispose are safe to call repeatedly', () async {
-      facade.onContactRequestReceived = (_, __) {};
-      facade.onContactAcceptReceived = (_, __) {};
+      facade.onContactRequestReceived = (_, _) {};
+      facade.onContactAcceptReceived = (_, _) {};
       facade.onContactRejectReceived = () {};
-      facade.onCryptoVerificationReceived = (_, __) {};
-      facade.onCryptoVerificationResponseReceived = (_, __, ___, ____) {};
-      facade.onQueueSyncReceived = (_, __) {};
-      facade.onSendQueueMessages = (_, __) {};
-      facade.onQueueSyncCompleted = (_, __) {};
-      facade.onRelayMessageReceived = (_, __, ___) {};
-      facade.onRelayMessageReceivedIds = (_, __, ___) {};
+      facade.onCryptoVerificationReceived = (_, _) {};
+      facade.onCryptoVerificationResponseReceived = (_, _, _, _) {};
+      facade.onQueueSyncReceived = (_, _) {};
+      facade.onSendQueueMessages = (_, _) {};
+      facade.onQueueSyncCompleted = (_, _) {};
+      facade.onRelayMessageReceived = (_, _, _) {};
+      facade.onRelayMessageReceivedIds = (_, _, _) {};
       facade.onRelayDecisionMade = (_) {};
       facade.onRelayStatsUpdated = (_) {};
-      facade.onTextMessageReceived = (_, __, ___) async {};
+      facade.onTextMessageReceived = (_, _, _) async {};
       facade.onSendAckMessage = (_) {};
-      facade.onSendRelayMessage = (_, __) {};
+      facade.onSendRelayMessage = (_, _) {};
       facade.onIdentityRevealed = (_) {};
-      facade.onBinaryPayloadReceived = (_, __, ___, ____, _____, ______) {};
-      facade.onForwardBinaryFragment = (_, __, ___, ____, _____) {};
+      facade.onBinaryPayloadReceived = (_, _, _, _, _, _) {};
+      facade.onForwardBinaryFragment = (_, _, _, _, _) {};
 
       facade.dispose();
       facade.dispose();

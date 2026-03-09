@@ -19,7 +19,8 @@ void main() {
     batteryLevel = 80;
     batteryState = 'discharging';
 
-    batteryChannel.setMockMethodCallHandler((call) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(batteryChannel, (call) async {
       switch (call.method) {
         case 'getBatteryLevel':
           return batteryLevel;
@@ -30,7 +31,8 @@ void main() {
       }
     });
 
-    chargingChannel.setMockMethodCallHandler((call) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(chargingChannel, (call) async {
       if (call.method == 'listen' || call.method == 'cancel') {
         return null;
       }
@@ -45,8 +47,10 @@ void main() {
   tearDown(() async {
     optimizer.dispose();
     BatteryOptimizer.enableForRuntime();
-    batteryChannel.setMockMethodCallHandler(null);
-    chargingChannel.setMockMethodCallHandler(null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(batteryChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(chargingChannel, null);
   });
 
   test('BatteryInfo exposes charging and mode description metadata', () {

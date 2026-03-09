@@ -134,7 +134,7 @@ void main() {
       });
 
       test('rejects invalid nonce', () {
-        final valid = ProofOfWorkService.verify(
+        final _ = ProofOfWorkService.verify(
           challenge: 'test-challenge',
           nonce: 999999999, // extremely unlikely to be valid
           difficulty: 16,

@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/queue_bandwidth_allocator.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/models/message_priority.dart';
 
 void main() {
   group('QueueBandwidthAllocator', () {

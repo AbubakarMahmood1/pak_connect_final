@@ -5,15 +5,13 @@
 /// kill-switch early-returns, BurstScanningStatus edge-case getters,
 /// BluetoothStateMonitor stream lifecycle, and status-message actionHint
 /// fields.
-import 'dart:async';
+library;
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/config/kill_switches.dart';
-import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
-import 'package:pak_connect/domain/models/power_mode.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/bluetooth_state_monitor.dart';
 import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
@@ -120,7 +118,7 @@ void main() {
   // BurstScanningStatus — supplement edge cases
   // =========================================================================
   group('BurstScanningStatus — supplement', () {
-    PowerManagementStats _stats({PowerMode mode = PowerMode.balanced}) {
+    PowerManagementStats stats0({PowerMode mode = PowerMode.balanced}) {
       return PowerManagementStats(
         currentScanInterval: 60000,
         currentHealthCheckInterval: 30000,
@@ -144,7 +142,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: null,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats0(),
       );
       // (null ?? 0) > 5  ➜ false
       expect(status.canOverride, isFalse);
@@ -155,7 +153,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: 5,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats0(),
       );
       // 5 > 5 ➜ false (boundary)
       expect(status.canOverride, isFalse);
@@ -171,7 +169,7 @@ void main() {
         isBurstActive: true,
         burstTimeRemaining: null,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats0(),
       );
       expect(status.statusMessage, 'Burst scanning ready');
     });
@@ -181,7 +179,7 @@ void main() {
         isBurstActive: false,
         secondsUntilNextScan: -1,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats0(),
       );
       // -1 > 0 ➜ false; -1 == 0 ➜ false; falls through
       expect(status.statusMessage, 'Burst scanning ready');
@@ -193,7 +191,7 @@ void main() {
         secondsUntilNextScan: null,
         burstTimeRemaining: null,
         currentScanInterval: 60000,
-        powerStats: _stats(),
+        powerStats: stats0(),
       );
       final str = status.toString();
       expect(str, contains('BurstStatus'));

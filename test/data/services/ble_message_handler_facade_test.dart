@@ -343,26 +343,26 @@ void main() {
       await facade.initializeRelaySystem(
         currentNodeId: 'node-relay',
         nextHopsProvider: () => ['next-1', 'next-2'],
-        onRelayMessageReceived: (_, __, ___) {},
+        onRelayMessageReceived: (_, _, _) {},
         onRelayDecisionMade: (_) {},
         onRelayStatsUpdated: (_) {},
       );
 
-      facade.onContactRequestReceived = (_, __) {};
-      facade.onContactAcceptReceived = (_, __) {};
+      facade.onContactRequestReceived = (_, _) {};
+      facade.onContactAcceptReceived = (_, _) {};
       facade.onContactRejectReceived = () {};
-      facade.onCryptoVerificationReceived = (_, __) {};
-      facade.onCryptoVerificationResponseReceived = (_, __, ___, ____) {};
-      facade.onQueueSyncReceived = (_, __) {};
-      facade.onSendQueueMessages = (_, __) {};
-      facade.onQueueSyncCompleted = (_, __) {};
-      facade.onRelayMessageReceived = (_, __, ___) {};
-      facade.onRelayMessageReceivedIds = (_, __, ___) {};
+      facade.onCryptoVerificationReceived = (_, _) {};
+      facade.onCryptoVerificationResponseReceived = (_, _, _, _) {};
+      facade.onQueueSyncReceived = (_, _) {};
+      facade.onSendQueueMessages = (_, _) {};
+      facade.onQueueSyncCompleted = (_, _) {};
+      facade.onRelayMessageReceived = (_, _, _) {};
+      facade.onRelayMessageReceivedIds = (_, _, _) {};
       facade.onRelayDecisionMade = (_) {};
       facade.onRelayStatsUpdated = (_) {};
       facade.onSendAckMessage = (_) {};
-      facade.onSendRelayMessage = (_, __) {};
-      facade.onTextMessageReceived = (_, __, ___) async {};
+      facade.onSendRelayMessage = (_, _) {};
+      facade.onTextMessageReceived = (_, _, _) async {};
       facade.onIdentityRevealed = (_) {};
 
       expect(facade.getAvailableNextHops(), ['next-1', 'next-2']);
