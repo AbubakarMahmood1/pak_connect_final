@@ -14,7 +14,7 @@ class EncryptionUtils {
 
   // Encryption constants
   static const int _saltLength = 32; // 256 bits
-  static const int _pbkdf2Iterations = 100000; // 100k iterations
+  static const int _pbkdf2Iterations = 600000; // 600k iterations (brute-force hardening)
   static const int _keyLength = 32; // 256 bits for AES-256
   static const int _ivLength = 16; // 128 bits for AES
 
@@ -28,10 +28,10 @@ class EncryptionUtils {
 
   /// Derive encryption key from passphrase using PBKDF2
   ///
-  /// Uses PBKDF2-HMAC-SHA256 with 100,000 iterations
+  /// Uses PBKDF2-HMAC-SHA256 with 600,000 iterations
   /// Returns 256-bit key for AES-256 encryption
   static Uint8List deriveKey(String passphrase, Uint8List salt) {
-    _logger.fine('Deriving key with PBKDF2 (100k iterations)...');
+    _logger.fine('Deriving key with PBKDF2 (600k iterations)...');
 
     final passphraseBytes = utf8.encode(passphrase);
 

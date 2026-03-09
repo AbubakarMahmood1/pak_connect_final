@@ -19,6 +19,13 @@ import 'selective_restore_service.dart';
 class ImportService {
   static final _logger = Logger('ImportService');
 
+  // Rate limiting constants
+  static const String _attemptTrackerKey = 'import_attempt_tracker';
+  static const List<int> _backoffScheduleMs = [0, 2000, 5000, 15000, 30000, 60000];
+
+  // Checkpoint file name (stored alongside DB in app data directory)
+  static const String _checkpointFileName = 'import_checkpoint.json';
+
   /// Import and restore from encrypted bundle.
   ///
   /// v2.0.0 bundles are self-contained (database embedded, HMAC-verified).
@@ -33,6 +40,15 @@ class ImportService {
     try {
       _logger.info('🔐 Starting import process...');
       _logger.info('Bundle: $bundlePath');
+
+      // ── 0. Check rate limit before expensive key derivation ──
+      final cooldownRemaining = await _checkCooldown();
+      if (cooldownRemaining > Duration.zero) {
+        final secs = cooldownRemaining.inSeconds;
+        return ImportResult.failure(
+          'Too many failed attempts. Please wait $secs seconds before trying again.',
+        );
+      }
 
       // ── 1. Read and parse bundle file ──
       _logger.info('Reading bundle file...');
@@ -76,6 +92,7 @@ class ImportService {
       );
 
       if (metadataJson == null) {
+        await _recordFailedAttempt();
         return ImportResult.failure(
           'Invalid passphrase or corrupted metadata. '
           'Please check your passphrase and try again.',
@@ -172,6 +189,21 @@ class ImportService {
         );
       }
 
+      // ── 7.5. Save checkpoint so import can resume if interrupted ──
+      await _saveCheckpoint(
+        dbRestorePath: dbRestorePath,
+        keys: keys,
+        preferences: preferences,
+        exportType: bundle.exportType.name,
+        clearExistingData: clearExistingData,
+        bundleMetadata: {
+          'deviceId': bundle.deviceId,
+          'username': bundle.username,
+          'timestamp': bundle.timestamp.toIso8601String(),
+          'isSelfContained': bundle.isSelfContained,
+        },
+      );
+
       // ── 8. Clear existing data (AFTER all preflight checks pass) ──
       if (clearExistingData) {
         _logger.warning('⚠️ Clearing all existing data...');
@@ -233,7 +265,9 @@ class ImportService {
       await _restorePreferences(preferences);
       _logger.info('Preferences restored');
 
-      // ── 13. Success! ──
+      // ── 13. Success — clean up checkpoint ──
+      await _clearCheckpoint();
+      await _resetAttempts();
       _logger.info('✅ Import complete (${bundle.exportType.name})!');
 
       return ImportResult.success(
@@ -441,5 +475,257 @@ class ImportService {
   /// Check if bundle version is compatible.
   static bool _isCompatibleVersion(String version) {
     return version == '1.0.0' || version == '2.0.0';
+  }
+
+  // ──────────────────── Resumable import checkpoint ────────────────────
+
+  /// Check whether an interrupted import left a checkpoint to resume.
+  static Future<bool> hasPendingCheckpoint() async {
+    final path = await _checkpointPath();
+    return File(path).existsSync();
+  }
+
+  /// Resume an import that was interrupted after data was cleared.
+  ///
+  /// Returns null if no checkpoint exists.
+  static Future<ImportResult?> resumePendingImport() async {
+    final checkpoint = await _loadCheckpoint();
+    if (checkpoint == null) return null;
+
+    _logger.info('🔄 Resuming interrupted import from checkpoint...');
+
+    try {
+      final dbRestorePath = checkpoint['dbRestorePath'] as String;
+      final keys = checkpoint['keys'] as Map<String, dynamic>;
+      final preferences = checkpoint['preferences'] as Map<String, dynamic>;
+      final exportTypeName = checkpoint['exportType'] as String;
+      final clearExistingData = checkpoint['clearExistingData'] as bool;
+      final meta = checkpoint['bundleMetadata'] as Map<String, dynamic>;
+
+      final exportType = ExportType.values.firstWhere(
+        (e) => e.name == exportTypeName,
+        orElse: () => ExportType.full,
+      );
+
+      // Verify the temp DB file still exists
+      if (!File(dbRestorePath).existsSync()) {
+        await _clearCheckpoint();
+        return ImportResult.failure(
+          'Checkpoint recovery failed: temp database file missing. '
+          'Please re-import from the original bundle.',
+        );
+      }
+
+      // Resume from step 9: restore keys
+      _logger.info('Restoring encryption keys...');
+      await _restoreKeys(keys);
+      _logger.info('Keys restored to secure storage');
+
+      // Step 10: restore database
+      _logger.info('Restoring database ($exportTypeName)...');
+      int recordsRestored = 0;
+
+      if (exportType == ExportType.full) {
+        final restoreResult = await DatabaseBackupService.restoreBackup(
+          backupPath: dbRestorePath,
+          validateChecksum: false, // already verified before checkpoint
+        );
+        if (!restoreResult.success) {
+          return ImportResult.failure(
+            'Resume failed at database restore: ${restoreResult.errorMessage}',
+          );
+        }
+        recordsRestored = restoreResult.recordsRestored ?? 0;
+      } else {
+        final selectiveRestore =
+            await SelectiveRestoreService.restoreSelectiveBackup(
+              backupPath: dbRestorePath,
+              exportType: exportType,
+              clearExistingData: clearExistingData,
+            );
+        if (!selectiveRestore.success) {
+          return ImportResult.failure(
+            'Resume failed at selective restore: ${selectiveRestore.errorMessage}',
+          );
+        }
+        recordsRestored = selectiveRestore.recordsRestored;
+      }
+
+      _logger.info('Database restored: $recordsRestored records');
+
+      // Step 11: clean up temp DB
+      if (meta['isSelfContained'] == true) {
+        try {
+          await File(dbRestorePath).delete();
+        } catch (_) {}
+      }
+
+      // Step 12: restore preferences
+      _logger.info('Restoring preferences...');
+      await _restorePreferences(preferences);
+      _logger.info('Preferences restored');
+
+      // Step 13: success
+      await _clearCheckpoint();
+      await _resetAttempts();
+      _logger.info('✅ Resumed import complete ($exportTypeName)!');
+
+      return ImportResult.success(
+        recordsRestored: recordsRestored,
+        originalDeviceId: meta['deviceId'] as String? ?? 'unknown',
+        originalUsername: meta['username'] as String? ?? 'unknown',
+        backupTimestamp:
+            DateTime.tryParse(meta['timestamp'] as String? ?? '') ??
+                DateTime.now(),
+      );
+    } catch (e, stackTrace) {
+      _logger.severe('❌ Resume from checkpoint failed', e, stackTrace);
+      return ImportResult.failure('Resume failed: $e');
+    }
+  }
+
+  /// Discard a pending checkpoint (e.g. user chooses to start fresh).
+  static Future<void> discardCheckpoint() async {
+    final checkpoint = await _loadCheckpoint();
+    if (checkpoint != null) {
+      // Clean up the temp DB file if it exists
+      final dbPath = checkpoint['dbRestorePath'] as String?;
+      if (dbPath != null) {
+        try {
+          await File(dbPath).delete();
+        } catch (_) {}
+      }
+    }
+    await _clearCheckpoint();
+    _logger.info('Discarded pending import checkpoint');
+  }
+
+  static Future<String> _checkpointPath() async {
+    final dbDir = await DatabaseHelper.getDatabasePath();
+    final dir = File(dbDir).parent.path;
+    return '$dir${Platform.pathSeparator}$_checkpointFileName';
+  }
+
+  static Future<void> _saveCheckpoint({
+    required String dbRestorePath,
+    required Map<String, dynamic> keys,
+    required Map<String, dynamic> preferences,
+    required String exportType,
+    required bool clearExistingData,
+    required Map<String, dynamic> bundleMetadata,
+  }) async {
+    final data = {
+      'dbRestorePath': dbRestorePath,
+      'keys': keys,
+      'preferences': preferences,
+      'exportType': exportType,
+      'clearExistingData': clearExistingData,
+      'bundleMetadata': bundleMetadata,
+      'savedAt': DateTime.now().toIso8601String(),
+    };
+
+    final path = await _checkpointPath();
+    await File(path).writeAsString(jsonEncode(data));
+    _logger.info('💾 Import checkpoint saved');
+  }
+
+  static Future<Map<String, dynamic>?> _loadCheckpoint() async {
+    try {
+      final path = await _checkpointPath();
+      final file = File(path);
+      if (!file.existsSync()) return null;
+
+      final json = await file.readAsString();
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (e) {
+      _logger.warning('Failed to load checkpoint: $e');
+      return null;
+    }
+  }
+
+  static Future<void> _clearCheckpoint() async {
+    try {
+      final path = await _checkpointPath();
+      final file = File(path);
+      if (file.existsSync()) {
+        await file.delete();
+        _logger.info('🧹 Import checkpoint cleared');
+      }
+    } catch (e) {
+      _logger.fine('Failed to clear checkpoint: $e');
+    }
+  }
+
+  // ──────────────────── Import rate limiting ────────────────────
+
+  /// Check if a cooldown is active from previous failed attempts.
+  /// Returns Duration.zero if no cooldown, otherwise the remaining wait time.
+  static Future<Duration> _checkCooldown() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final trackerJson = prefs.getString(_attemptTrackerKey);
+      if (trackerJson == null) return Duration.zero;
+
+      final tracker = jsonDecode(trackerJson) as Map<String, dynamic>;
+      final failCount = tracker['failCount'] as int? ?? 0;
+      final lastFailTime = tracker['lastFailTime'] as int? ?? 0;
+
+      if (failCount == 0) return Duration.zero;
+
+      final backoffIdx = failCount.clamp(0, _backoffScheduleMs.length - 1);
+      final cooldownMs = _backoffScheduleMs[backoffIdx];
+      final elapsed = DateTime.now().millisecondsSinceEpoch - lastFailTime;
+      final remaining = cooldownMs - elapsed;
+
+      if (remaining <= 0) return Duration.zero;
+
+      _logger.warning(
+        '⏳ Import rate limit: ${(remaining / 1000).ceil()}s remaining '
+        '(attempt ${failCount + 1})',
+      );
+      return Duration(milliseconds: remaining);
+    } catch (e) {
+      _logger.fine('Rate limit check failed, allowing attempt: $e');
+      return Duration.zero;
+    }
+  }
+
+  /// Record a failed passphrase attempt and escalate the backoff.
+  static Future<void> _recordFailedAttempt() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final trackerJson = prefs.getString(_attemptTrackerKey);
+      int failCount = 0;
+
+      if (trackerJson != null) {
+        final tracker = jsonDecode(trackerJson) as Map<String, dynamic>;
+        failCount = tracker['failCount'] as int? ?? 0;
+      }
+
+      failCount++;
+      final tracker = {
+        'failCount': failCount,
+        'lastFailTime': DateTime.now().millisecondsSinceEpoch,
+      };
+
+      await prefs.setString(_attemptTrackerKey, jsonEncode(tracker));
+      final backoffIdx = failCount.clamp(0, _backoffScheduleMs.length - 1);
+      _logger.warning(
+        '🚫 Failed import attempt #$failCount. '
+        'Next cooldown: ${_backoffScheduleMs[backoffIdx]}ms',
+      );
+    } catch (e) {
+      _logger.fine('Failed to record attempt: $e');
+    }
+  }
+
+  /// Reset attempt tracker after a successful import.
+  static Future<void> _resetAttempts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_attemptTrackerKey);
+    } catch (e) {
+      _logger.fine('Failed to reset attempts: $e');
+    }
   }
 }
