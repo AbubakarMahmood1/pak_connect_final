@@ -181,6 +181,78 @@ void main() {
 
       expect(checksum1, isNot(equals(checksum2)));
     });
+
+    // ── HMAC-SHA256 tests ──
+
+    test('calculateHmac is consistent for same key and data', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final data = ['payload1', 'payload2'];
+
+      final hmac1 = EncryptionUtils.calculateHmac(data, key);
+      final hmac2 = EncryptionUtils.calculateHmac(data, key);
+
+      expect(hmac1, equals(hmac2));
+      expect(hmac1.length, equals(64)); // HMAC-SHA256 hex = 64 chars
+    });
+
+    test('calculateHmac differs from calculateChecksum for same data', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final data = ['payload1', 'payload2'];
+
+      final sha = EncryptionUtils.calculateChecksum(data);
+      final hmac = EncryptionUtils.calculateHmac(data, key);
+
+      expect(sha, isNot(equals(hmac)),
+          reason: 'Keyed HMAC must differ from unkeyed SHA-256');
+    });
+
+    test('calculateHmac changes with different key', () {
+      final key1 = Uint8List.fromList(List.filled(32, 1));
+      final key2 = Uint8List.fromList(List.filled(32, 2));
+      final data = ['same', 'data'];
+
+      final hmac1 = EncryptionUtils.calculateHmac(data, key1);
+      final hmac2 = EncryptionUtils.calculateHmac(data, key2);
+
+      expect(hmac1, isNot(equals(hmac2)));
+    });
+
+    test('verifyHmac returns true for correct key and data', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final data = ['a', 'b', 'c'];
+      final hmac = EncryptionUtils.calculateHmac(data, key);
+
+      expect(EncryptionUtils.verifyHmac(data, key, hmac), isTrue);
+    });
+
+    test('verifyHmac returns false for tampered data', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final data = ['a', 'b', 'c'];
+      final hmac = EncryptionUtils.calculateHmac(data, key);
+
+      final tampered = ['a', 'b', 'REPLACED'];
+      expect(EncryptionUtils.verifyHmac(tampered, key, hmac), isFalse);
+    });
+
+    test('verifyHmac returns false for wrong key', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final wrongKey = Uint8List.fromList(List.filled(32, 99));
+      final data = ['a', 'b', 'c'];
+      final hmac = EncryptionUtils.calculateHmac(data, key);
+
+      expect(EncryptionUtils.verifyHmac(data, wrongKey, hmac), isFalse);
+    });
+
+    test('verifyHmac rejects recomputed SHA-256 as HMAC', () {
+      final key = Uint8List.fromList(List.filled(32, 42));
+      final data = ['a', 'b', 'c'];
+
+      // Attacker computes SHA-256 (which they can do without the key)
+      final fakeSha = EncryptionUtils.calculateChecksum(data);
+
+      expect(EncryptionUtils.verifyHmac(data, key, fakeSha), isFalse,
+          reason: 'SHA-256 hash must not be accepted as a valid HMAC');
+    });
   });
 
   group('PassphraseValidation', () {

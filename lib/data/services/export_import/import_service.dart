@@ -1,8 +1,10 @@
 // Import service for restoring encrypted data bundles
-// Restores .pakconnect files with all user data and encryption keys
+// Restores .pakconnect files with all user data and encryption keys.
+// Supports v2.0.0 (self-contained, HMAC) and v1.0.0 (legacy path-based).
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,10 +19,12 @@ import 'selective_restore_service.dart';
 class ImportService {
   static final _logger = Logger('ImportService');
 
-  /// Import and restore from encrypted bundle
+  /// Import and restore from encrypted bundle.
+  ///
+  /// v2.0.0 bundles are self-contained (database embedded, HMAC-verified).
+  /// v1.0.0 bundles reference an external DB path (legacy, still supported).
   ///
   /// WARNING: This will REPLACE all existing data!
-  /// Returns ImportResult with details of the restore operation
   static Future<ImportResult> importBundle({
     required String bundlePath,
     required String userPassphrase,
@@ -30,7 +34,7 @@ class ImportService {
       _logger.info('🔐 Starting import process...');
       _logger.info('Bundle: $bundlePath');
 
-      // 1. Read and parse bundle file
+      // ── 1. Read and parse bundle file ──
       _logger.info('Reading bundle file...');
       final bundleFile = File(bundlePath);
 
@@ -48,23 +52,23 @@ class ImportService {
       _logger.info('Original username: ${bundle.username}');
       _logger.info('Original device: ${bundle.deviceId}');
 
-      // 2. Validate version compatibility
+      // ── 2. Validate version compatibility ──
       _logger.info('Validating version compatibility...');
       if (!_isCompatibleVersion(bundle.version)) {
         return ImportResult.failure(
           'Incompatible bundle version: ${bundle.version}. '
-          'Expected: 1.0.0',
+          'Expected: 1.0.0 or 2.0.0',
         );
       }
 
-      // 3. Derive decryption key from passphrase
+      // ── 3. Derive decryption key ──
       _logger.info('Deriving decryption key...');
       final decryptionKey = EncryptionUtils.deriveKey(
         userPassphrase,
         bundle.salt,
       );
 
-      // 4. Decrypt and verify metadata first (validates passphrase)
+      // ── 4. Decrypt metadata first (validates passphrase) ──
       _logger.info('Decrypting metadata...');
       final metadataJson = EncryptionUtils.decrypt(
         bundle.encryptedMetadata,
@@ -84,25 +88,18 @@ class ImportService {
         'Bundle contains ${metadata['total_records']} total records',
       );
 
-      // 5. Verify checksum
+      // ── 5. Verify integrity (HMAC for v2, SHA-256 for v1) ──
       _logger.info('Verifying bundle integrity...');
-      final calculatedChecksum = EncryptionUtils.calculateChecksum([
-        bundle.encryptedMetadata,
-        bundle.encryptedKeys,
-        bundle.encryptedPreferences,
-        bundle.databasePath,
-      ]);
-
-      if (calculatedChecksum != bundle.checksum) {
+      final integrityOk = _verifyIntegrity(bundle, decryptionKey);
+      if (!integrityOk) {
         return ImportResult.failure(
           'Bundle integrity check failed. '
           'File may be corrupted or tampered with.',
         );
       }
-
       _logger.info('Bundle integrity verified');
 
-      // 6. Decrypt keys and preferences
+      // ── 6. Decrypt keys and preferences ──
       _logger.info('Decrypting keys...');
       final keysJson = EncryptionUtils.decrypt(
         bundle.encryptedKeys,
@@ -130,38 +127,72 @@ class ImportService {
       final keys = jsonDecode(keysJson) as Map<String, dynamic>;
       final preferences = jsonDecode(preferencesJson) as Map<String, dynamic>;
 
+      // Validate keys before doing anything destructive
+      if (!keys.containsKey('database_encryption_key') ||
+          !keys.containsKey('ecdh_public_key') ||
+          !keys.containsKey('ecdh_private_key')) {
+        return ImportResult.failure('Missing required keys in bundle');
+      }
+
       _logger.info('All data decrypted successfully');
 
-      // 7. Clear existing data if requested
+      // ── 7. PREFLIGHT: Resolve database file BEFORE any destructive ops ──
+      String dbRestorePath;
+
+      if (bundle.isSelfContained) {
+        // v2: decrypt embedded database to a temp file
+        _logger.info('Extracting embedded database...');
+        final dbBase64 = EncryptionUtils.decrypt(
+          bundle.encryptedDatabase!,
+          decryptionKey,
+        );
+
+        if (dbBase64 == null) {
+          return ImportResult.failure(
+            'Failed to decrypt embedded database.',
+          );
+        }
+
+        final dbBytes = base64Decode(dbBase64);
+        final mainDbPath = await DatabaseHelper.getDatabasePath();
+        dbRestorePath = '${mainDbPath}_import_temp_${DateTime.now().millisecondsSinceEpoch}.db';
+        await File(dbRestorePath).writeAsBytes(dbBytes);
+        _logger.info('Embedded database extracted to temp file');
+      } else {
+        // v1 legacy: reference external path
+        _logger.warning('⚠️ Importing legacy v1.0.0 bundle (external DB path)');
+        dbRestorePath = bundle.databasePath;
+      }
+
+      // Verify the DB file actually exists BEFORE clearing anything
+      final dbFile = File(dbRestorePath);
+      if (!await dbFile.exists()) {
+        return ImportResult.failure(
+          'Database file not found: $dbRestorePath',
+        );
+      }
+
+      // ── 8. Clear existing data (AFTER all preflight checks pass) ──
       if (clearExistingData) {
         _logger.warning('⚠️ Clearing all existing data...');
         await _clearExistingData();
         _logger.info('Existing data cleared');
       }
 
-      // 8. Restore encryption keys to secure storage
+      // ── 9. Restore encryption keys to secure storage ──
       _logger.info('Restoring encryption keys...');
       await _restoreKeys(keys);
       _logger.info('Keys restored to secure storage');
 
-      // 9. Verify database file exists
-      final dbFile = File(bundle.databasePath);
-      if (!await dbFile.exists()) {
-        return ImportResult.failure(
-          'Database file not found: ${bundle.databasePath}',
-        );
-      }
-
-      // 10. Restore database (selective or full)
+      // ── 10. Restore database (selective or full) ──
       _logger.info('Restoring database (${bundle.exportType.name})...');
 
       int recordsRestored = 0;
 
       if (bundle.exportType == ExportType.full) {
-        // Full database restore
         final restoreResult = await DatabaseBackupService.restoreBackup(
-          backupPath: bundle.databasePath,
-          validateChecksum: true,
+          backupPath: dbRestorePath,
+          validateChecksum: !bundle.isSelfContained, // v2 already HMAC-verified
         );
 
         if (!restoreResult.success) {
@@ -172,10 +203,9 @@ class ImportService {
 
         recordsRestored = restoreResult.recordsRestored ?? 0;
       } else {
-        // Selective restore
         final selectiveRestore =
             await SelectiveRestoreService.restoreSelectiveBackup(
-              backupPath: bundle.databasePath,
+              backupPath: dbRestorePath,
               exportType: bundle.exportType,
               clearExistingData: clearExistingData,
             );
@@ -191,12 +221,19 @@ class ImportService {
 
       _logger.info('Database restored: $recordsRestored records');
 
-      // 11. Restore preferences
+      // ── 11. Clean up temp extracted DB ──
+      if (bundle.isSelfContained) {
+        try {
+          await File(dbRestorePath).delete();
+        } catch (_) {}
+      }
+
+      // ── 12. Restore preferences ──
       _logger.info('Restoring preferences...');
       await _restorePreferences(preferences);
       _logger.info('Preferences restored');
 
-      // 12. Success!
+      // ── 13. Success! ──
       _logger.info('✅ Import complete (${bundle.exportType.name})!');
 
       return ImportResult.success(
@@ -208,26 +245,22 @@ class ImportService {
     } catch (e, stackTrace) {
       _logger.severe('❌ Import failed', e, stackTrace);
 
-      // Try to reopen database even if import fails
       try {
         await DatabaseHelper.database;
-      } catch (_) {
-        // Ignore errors during recovery
-      }
+      } catch (_) {}
 
       return ImportResult.failure('Import failed: $e');
     }
   }
 
-  /// Validate bundle without importing
+  /// Validate bundle without importing.
   ///
-  /// Useful for previewing what will be imported
+  /// Useful for previewing what will be imported.
   static Future<Map<String, dynamic>> validateBundle({
     required String bundlePath,
     required String userPassphrase,
   }) async {
     try {
-      // Read bundle
       final bundleFile = File(bundlePath);
       if (!await bundleFile.exists()) {
         return {'valid': false, 'error': 'Bundle file not found'};
@@ -238,7 +271,6 @@ class ImportService {
         jsonDecode(bundleJson) as Map<String, dynamic>,
       );
 
-      // Check version
       if (!_isCompatibleVersion(bundle.version)) {
         return {
           'valid': false,
@@ -246,7 +278,6 @@ class ImportService {
         };
       }
 
-      // Try to decrypt metadata
       final decryptionKey = EncryptionUtils.deriveKey(
         userPassphrase,
         bundle.salt,
@@ -263,22 +294,14 @@ class ImportService {
 
       final metadata = jsonDecode(metadataJson) as Map<String, dynamic>;
 
-      // Verify checksum
-      final calculatedChecksum = EncryptionUtils.calculateChecksum([
-        bundle.encryptedMetadata,
-        bundle.encryptedKeys,
-        bundle.encryptedPreferences,
-        bundle.databasePath,
-      ]);
-
-      if (calculatedChecksum != bundle.checksum) {
+      // Verify integrity
+      if (!_verifyIntegrity(bundle, decryptionKey)) {
         return {
           'valid': false,
-          'error': 'Checksum mismatch - file may be corrupted',
+          'error': 'Integrity check failed - file may be corrupted or tampered',
         };
       }
 
-      // Success - return bundle info
       return {
         'valid': true,
         'version': bundle.version,
@@ -289,27 +312,50 @@ class ImportService {
         'database_version': metadata['database_version'],
         'total_records': metadata['total_records'],
         'table_counts': metadata['table_counts'],
+        'self_contained': bundle.isSelfContained,
       };
     } catch (e) {
       return {'valid': false, 'error': 'Validation failed: $e'};
     }
   }
 
-  /// Clear all existing data
+  // ──────────────────────── Private helpers ────────────────────────
+
+  /// Verify bundle integrity using the appropriate mechanism.
+  static bool _verifyIntegrity(ExportBundle bundle, Uint8List key) {
+    if (bundle.isSelfContained && bundle.hmac != null) {
+      // v2: HMAC-SHA256 keyed verification
+      return EncryptionUtils.verifyHmac([
+        bundle.encryptedMetadata,
+        bundle.encryptedKeys,
+        bundle.encryptedPreferences,
+        bundle.encryptedDatabase!,
+      ], key, bundle.hmac!);
+    } else if (bundle.checksum != null) {
+      // v1 legacy: unkeyed SHA-256 (backward compat only)
+      final calculated = EncryptionUtils.calculateChecksum([
+        bundle.encryptedMetadata,
+        bundle.encryptedKeys,
+        bundle.encryptedPreferences,
+        bundle.databasePath,
+      ]);
+      return calculated == bundle.checksum;
+    }
+    // No integrity field at all — reject
+    return false;
+  }
+
+  /// Clear all existing data.
   ///
   /// WARNING: This is destructive!
   static Future<void> _clearExistingData() async {
-    // Close database before clearing
     await DatabaseHelper.close();
-
-    // Clear SQLite database
     await DatabaseHelper.clearAllData();
 
-    // Clear SharedPreferences (except migration flags)
     final prefs = await SharedPreferences.getInstance();
     final keysToKeep = [
       'sqlite_migration_completed',
-      'first_launch_complete', // Keep first launch flag
+      'first_launch_complete',
     ];
 
     final allKeys = prefs.getKeys();
@@ -319,29 +365,19 @@ class ImportService {
       }
     }
 
-    // Clear secure storage
     const storage = FlutterSecureStorage();
     await storage.deleteAll();
   }
 
-  /// Restore encryption keys to secure storage
+  /// Restore encryption keys to secure storage.
   static Future<void> _restoreKeys(Map<String, dynamic> keys) async {
     const storage = FlutterSecureStorage();
 
-    // Validate keys exist
-    if (!keys.containsKey('database_encryption_key') ||
-        !keys.containsKey('ecdh_public_key') ||
-        !keys.containsKey('ecdh_private_key')) {
-      throw Exception('Missing required keys in bundle');
-    }
-
-    // Restore database encryption key
     await storage.write(
       key: 'db_encryption_key_v1',
       value: keys['database_encryption_key'] as String,
     );
 
-    // Restore ECDH keypair
     await storage.write(
       key: 'ecdh_public_key_v2',
       value: keys['ecdh_public_key'] as String,
@@ -355,21 +391,18 @@ class ImportService {
     _logger.info('Restored ${keys.length} encryption keys');
   }
 
-  /// Restore preferences to both repositories
+  /// Restore preferences to both repositories.
   static Future<void> _restorePreferences(
     Map<String, dynamic> preferences,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     final prefsRepo = PreferencesRepository();
 
-    // Restore app preferences to SQLite
     final appPrefs = preferences['app_preferences'] as Map<String, dynamic>?;
     if (appPrefs != null) {
       for (final entry in appPrefs.entries) {
         try {
-          // Determine type and restore appropriately
           final value = entry.value;
-
           if (value is String) {
             await prefsRepo.setString(entry.key, value);
           } else if (value is bool) {
@@ -383,11 +416,9 @@ class ImportService {
           _logger.warning('Failed to restore preference ${entry.key}: $e');
         }
       }
-
       _logger.info('Restored ${appPrefs.length} app preferences');
     }
 
-    // Restore SharedPreferences
     if (preferences['username'] != null) {
       await prefs.setString(
         'user_display_name',
@@ -407,10 +438,8 @@ class ImportService {
     }
   }
 
-  /// Check if bundle version is compatible
+  /// Check if bundle version is compatible.
   static bool _isCompatibleVersion(String version) {
-    // For now, only support 1.0.0
-    // Future versions can add migration logic here
-    return version == '1.0.0';
+    return version == '1.0.0' || version == '2.0.0';
   }
 }

@@ -161,11 +161,44 @@ class EncryptionUtils {
   }
 
   /// Calculate SHA-256 checksum of data
+  ///
+  /// @deprecated Use [calculateHmac] for authenticated integrity checks.
+  /// Retained only for importing legacy v1.0.0 bundles.
   static String calculateChecksum(List<String> dataList) {
     final combined = dataList.join('|');
     final bytes = utf8.encode(combined);
     final digest = sha256.convert(bytes);
     return digest.toString();
+  }
+
+  /// Calculate HMAC-SHA256 over [dataList] keyed with [key].
+  ///
+  /// This provides authenticated integrity — an attacker cannot recompute
+  /// the tag without knowing the encryption key derived from the passphrase.
+  static String calculateHmac(List<String> dataList, Uint8List key) {
+    final combined = dataList.join('|');
+    final bytes = utf8.encode(combined);
+    final hmac = Hmac(sha256, key);
+    final digest = hmac.convert(bytes);
+    return digest.toString();
+  }
+
+  /// Verify HMAC-SHA256 tag for [dataList] against [expectedHmac].
+  ///
+  /// Returns `true` only when the tag matches exactly.
+  static bool verifyHmac(
+    List<String> dataList,
+    Uint8List key,
+    String expectedHmac,
+  ) {
+    final computed = calculateHmac(dataList, key);
+    // Constant-time comparison to prevent timing attacks
+    if (computed.length != expectedHmac.length) return false;
+    var result = 0;
+    for (var i = 0; i < computed.length; i++) {
+      result |= computed.codeUnitAt(i) ^ expectedHmac.codeUnitAt(i);
+    }
+    return result == 0;
   }
 
   /// Validate passphrase strength

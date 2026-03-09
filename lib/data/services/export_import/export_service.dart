@@ -1,5 +1,6 @@
 // Export service for creating encrypted data bundles
-// Creates .pakconnect files with all user data and encryption keys
+// Creates self-contained .pakconnect files (v2) with all user data,
+// encryption keys, and embedded encrypted database.
 
 import 'dart:convert';
 import 'dart:io';
@@ -19,21 +20,19 @@ import 'selective_backup_service.dart';
 class ExportService {
   static final _logger = Logger('ExportService');
   static const String _bundleExtension = '.pakconnect';
+  static const String _bundleVersion = '2.0.0';
 
-  /// Create encrypted export bundle
+  /// Create encrypted, self-contained export bundle.
   ///
-  /// [exportType] determines what data to export:
-  /// - ExportType.full: Everything (default)
-  /// - ExportType.contactsOnly: Only contacts
-  /// - ExportType.messagesOnly: Messages + chats
-  ///
-  /// Returns path to created .pakconnect file
-  /// Throws exception if export fails
+  /// The v2.0.0 bundle embeds the encrypted database bytes so the
+  /// .pakconnect file is fully portable across devices. Integrity is
+  /// protected by HMAC-SHA256 keyed with the passphrase-derived key.
   static Future<ExportResult> createExport({
     required String userPassphrase,
     String? customPath,
     ExportType exportType = ExportType.full,
   }) async {
+    String? tempBackupPath;
     try {
       _logger.info('🔐 Starting export process (${exportType.name})...');
 
@@ -50,69 +49,70 @@ class ExportService {
         _logger.warning('Passphrase is weak but acceptable');
       }
 
-      // 2. Create database backup (selective or full)
+      // 2. Create database backup (selective or full) to temp file
       _logger.info('Creating database backup (${exportType.name})...');
       await DatabaseHelper.close();
 
-      String? backupPath;
       int recordCount = 0;
 
       if (exportType == ExportType.full) {
-        // Full database backup
         final dbBackup = await DatabaseBackupService.createBackup(
           includeMetadata: true,
         );
 
         if (!dbBackup.success || dbBackup.backupPath == null) {
-          await DatabaseHelper.database; // Reopen
+          await DatabaseHelper.database;
           return ExportResult.failure(
             'Database backup failed: ${dbBackup.errorMessage}',
           );
         }
 
-        backupPath = dbBackup.backupPath;
+        tempBackupPath = dbBackup.backupPath;
         final stats = await DatabaseHelper.getStatistics();
         recordCount = stats['total_records'] as int? ?? 0;
       } else {
-        // Selective backup
         final selectiveBackup =
             await SelectiveBackupService.createSelectiveBackup(
               exportType: exportType,
             );
 
         if (!selectiveBackup.success || selectiveBackup.backupPath == null) {
-          await DatabaseHelper.database; // Reopen
+          await DatabaseHelper.database;
           return ExportResult.failure(
             'Selective backup failed: ${selectiveBackup.errorMessage}',
           );
         }
 
-        backupPath = selectiveBackup.backupPath;
+        tempBackupPath = selectiveBackup.backupPath;
         recordCount = selectiveBackup.recordCount;
       }
 
       _logger.info(
-        'Database backup created: $backupPath ($recordCount records)',
+        'Database backup created: $tempBackupPath ($recordCount records)',
       );
 
-      // 3. Collect encryption keys
+      // 3. Read database bytes for embedding
+      _logger.info('Reading database bytes for embedding...');
+      final dbBytes = await File(tempBackupPath!).readAsBytes();
+
+      // 4. Collect encryption keys
       _logger.info('Collecting encryption keys...');
       final keys = await _collectKeys();
 
-      // 4. Collect preferences
+      // 5. Collect preferences
       _logger.info('Collecting preferences...');
       final preferences = await _collectPreferences();
 
-      // 5. Collect metadata
+      // 6. Collect metadata
       _logger.info('Collecting metadata...');
       final metadata = await _collectMetadata();
 
-      // 6. Generate salt and derive encryption key
+      // 7. Generate salt and derive encryption key
       _logger.info('Deriving encryption key...');
       final salt = EncryptionUtils.generateSalt();
       final encryptionKey = EncryptionUtils.deriveKey(userPassphrase, salt);
 
-      // 7. Encrypt each component
+      // 8. Encrypt each component (including database)
       _logger.info('Encrypting data...');
       final encryptedMetadata = EncryptionUtils.encrypt(
         jsonEncode(metadata),
@@ -129,18 +129,23 @@ class ExportService {
         encryptionKey,
       );
 
-      // 8. Calculate checksum
-      _logger.info('Calculating checksum...');
-      final checksum = EncryptionUtils.calculateChecksum([
+      final encryptedDatabase = EncryptionUtils.encrypt(
+        base64Encode(dbBytes),
+        encryptionKey,
+      );
+
+      // 9. Calculate HMAC-SHA256 over all encrypted payloads
+      _logger.info('Calculating HMAC...');
+      final hmac = EncryptionUtils.calculateHmac([
         encryptedMetadata,
         encryptedKeys,
         encryptedPreferences,
-        backupPath!, // backupPath is guaranteed non-null at this point
-      ]);
+        encryptedDatabase,
+      ], encryptionKey);
 
-      // 9. Create bundle
+      // 10. Create bundle
       final bundle = ExportBundle(
-        version: '1.0.0',
+        version: _bundleVersion,
         timestamp: DateTime.now(),
         deviceId: metadata['device_id'] as String,
         username: metadata['username'] as String,
@@ -148,24 +153,36 @@ class ExportService {
         encryptedMetadata: encryptedMetadata,
         encryptedKeys: encryptedKeys,
         encryptedPreferences: encryptedPreferences,
-        databasePath: backupPath,
+        encryptedDatabase: encryptedDatabase,
         salt: salt,
-        checksum: checksum,
+        hmac: hmac,
       );
 
-      // 10. Write bundle file
+      // 11. Write bundle file
       _logger.info('Writing bundle file...');
       final bundlePath = await _writeBundleFile(bundle, customPath);
 
-      // 11. Get bundle size
+      // 12. Get bundle size
       final bundleFile = File(bundlePath);
       final bundleSize = await bundleFile.length();
 
-      // 12. Reopen database
+      // 13. Clean up temp backup file
+      try {
+        await File(tempBackupPath).delete();
+        // Also clean up sidecar .meta.json if it exists
+        final metaFile = File('$tempBackupPath.meta.json');
+        if (await metaFile.exists()) await metaFile.delete();
+      } catch (_) {
+        // Non-critical
+      }
+      tempBackupPath = null;
+
+      // 14. Reopen database
       await DatabaseHelper.database;
 
       _logger.info(
-        '✅ Export complete (${exportType.name}): $bundlePath ($recordCount records, ${bundleSize / 1024}KB)',
+        '✅ Export complete (${exportType.name}): $bundlePath '
+        '($recordCount records, ${bundleSize / 1024}KB)',
       );
 
       return ExportResult.success(
@@ -177,12 +194,17 @@ class ExportService {
     } catch (e, stackTrace) {
       _logger.severe('❌ Export failed', e, stackTrace);
 
+      // Clean up temp backup on failure
+      if (tempBackupPath != null) {
+        try {
+          await File(tempBackupPath).delete();
+        } catch (_) {}
+      }
+
       // Ensure database is reopened even if export fails
       try {
         await DatabaseHelper.database;
-      } catch (_) {
-        // Ignore errors during recovery
-      }
+      } catch (_) {}
 
       return ExportResult.failure('Export failed: $e');
     }
