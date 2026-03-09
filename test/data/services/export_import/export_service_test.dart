@@ -176,7 +176,7 @@ void main() {
 
         final json =
             jsonDecode(await bundleFile.readAsString()) as Map<String, dynamic>;
-        expect(json['version'], equals('2.0.0'));
+        expect(json['version'], equals('2.1.0'));
         expect(json['export_type'], equals('contactsOnly'));
         expect(json['username'], equals('Phase3 User'));
         expect(json['device_id'], equals('phase3-device-id'));
