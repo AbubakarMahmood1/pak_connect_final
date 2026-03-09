@@ -226,7 +226,8 @@ class DatabaseSchemaBuilder {
         consecutive_failures INTEGER DEFAULT 0,
         sync_enabled INTEGER DEFAULT 1,
         metadata_json TEXT,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        last_synced_changelog_id INTEGER DEFAULT 0
       )
     ''');
 

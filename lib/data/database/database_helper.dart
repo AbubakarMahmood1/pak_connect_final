@@ -22,7 +22,7 @@ class DatabaseHelper {
   static Future<sqlcipher.Database>? _initializingDatabase;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
-      11; // v11: Added change_log table + triggers for incremental sync
+      12; // v12: Added last_synced_changelog_id for live P2P change_log sync
   static int get currentVersion => _databaseVersion;
 
   /// Override database name for testing (allows using fresh database files)

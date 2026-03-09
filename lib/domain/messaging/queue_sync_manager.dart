@@ -238,6 +238,27 @@ class QueueSyncManager {
 
       _messagesTransferred += messagesAdded;
 
+      // BIDIRECTIONAL SYNC (Phase 1): Send OUR excess messages to the peer.
+      // The responder already sent us their excess in handleSyncRequest().
+      // Now we reciprocate so both sides converge in a single round.
+      int reverseMessagesSent = 0;
+      if (responseMessage.messageIds.isNotEmpty && onSendMessages != null) {
+        final ourExcess = _messageQueue.getExcessMessages(
+          responseMessage.messageIds,
+        );
+        if (ourExcess.isNotEmpty) {
+          _logger.info(
+            '📤 Reverse-sending ${ourExcess.length} excess messages to $fromNodeId',
+          );
+          onSendMessages!.call(
+            List<QueuedMessage>.from(ourExcess),
+            fromNodeId,
+          );
+          reverseMessagesSent = ourExcess.length;
+          _messagesTransferred += reverseMessagesSent;
+        }
+      }
+
       final result = QueueSyncResult.success(
         messagesReceived: messagesAdded,
         messagesUpdated: messagesUpdated,
