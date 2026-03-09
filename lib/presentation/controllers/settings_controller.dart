@@ -67,6 +67,11 @@ class SettingsController extends ChangeNotifier {
   bool autoArchiveOldChats = PreferenceDefaults.autoArchiveOldChats;
   int archiveAfterDays = PreferenceDefaults.archiveAfterDays;
 
+  // Rate limiting (user-facing)
+  int rateLimitUnknown = PreferenceDefaults.rateLimitUnknownPerHour;
+  int rateLimitKnown = PreferenceDefaults.rateLimitKnownPerHour;
+  int rateLimitFriend = PreferenceDefaults.rateLimitFriendPerHour;
+
   int contactCount = 0;
   int chatCount = 0;
   int messageCount = 0;
@@ -130,6 +135,23 @@ class SettingsController extends ChangeNotifier {
     if (_isDisposed) return;
     archiveAfterDays = await _preferencesRepository.getInt(
       PreferenceKeys.archiveAfterDays,
+    );
+
+    // Rate limiting (user-facing)
+    if (_isDisposed) return;
+    rateLimitUnknown = await _preferencesRepository.getInt(
+      PreferenceKeys.rateLimitUnknownPerHour,
+      defaultValue: PreferenceDefaults.rateLimitUnknownPerHour,
+    );
+    if (_isDisposed) return;
+    rateLimitKnown = await _preferencesRepository.getInt(
+      PreferenceKeys.rateLimitKnownPerHour,
+      defaultValue: PreferenceDefaults.rateLimitKnownPerHour,
+    );
+    if (_isDisposed) return;
+    rateLimitFriend = await _preferencesRepository.getInt(
+      PreferenceKeys.rateLimitFriendPerHour,
+      defaultValue: PreferenceDefaults.rateLimitFriendPerHour,
     );
 
     // Developer kill switches
@@ -326,6 +348,36 @@ class SettingsController extends ChangeNotifier {
     _safeNotifyListeners();
     await _preferencesRepository.setInt(PreferenceKeys.archiveAfterDays, days);
     await AutoArchiveScheduler.restart();
+  }
+
+  Future<void> setRateLimitUnknown(int value) async {
+    if (_isDisposed) return;
+    rateLimitUnknown = value.clamp(1, 200);
+    _safeNotifyListeners();
+    await _preferencesRepository.setInt(
+      PreferenceKeys.rateLimitUnknownPerHour,
+      rateLimitUnknown,
+    );
+  }
+
+  Future<void> setRateLimitKnown(int value) async {
+    if (_isDisposed) return;
+    rateLimitKnown = value.clamp(1, 500);
+    _safeNotifyListeners();
+    await _preferencesRepository.setInt(
+      PreferenceKeys.rateLimitKnownPerHour,
+      rateLimitKnown,
+    );
+  }
+
+  Future<void> setRateLimitFriend(int value) async {
+    if (_isDisposed) return;
+    rateLimitFriend = value.clamp(1, 1000);
+    _safeNotifyListeners();
+    await _preferencesRepository.setInt(
+      PreferenceKeys.rateLimitFriendPerHour,
+      rateLimitFriend,
+    );
   }
 
   Future<void> triggerTestNotification() async {

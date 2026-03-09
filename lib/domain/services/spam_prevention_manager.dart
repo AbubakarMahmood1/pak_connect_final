@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mesh_relay_models.dart';
+import '../entities/preference_keys.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Comprehensive spam prevention for mesh relay operations
@@ -23,6 +24,11 @@ class SpamPreventionManager {
   // Storage keys
   static const String _trustScoreKey = 'spam_prevention_trust_score_v1';
   static const String _messageHashKey = 'spam_prevention_message_hashes_v1';
+
+  // Rate limiting — user-configurable per trust tier
+  int _limitUnknown = 5;
+  int _limitKnown = 25;
+  int _limitFriend = 100;
 
   // In-memory tracking for performance
   final Map<String, List<int>> _hourlyRelayCount = {};
@@ -43,6 +49,7 @@ class SpamPreventionManager {
   /// Initialize spam prevention system
   Future<void> initialize() async {
     await _loadPersistentData();
+    await _loadUserRateLimits();
     _startPeriodicCleanup();
     _logger.info('SpamPreventionManager initialized');
   }
@@ -220,6 +227,30 @@ class SpamPreventionManager {
     _averageSpamScore = 0.0;
   }
 
+  /// Current effective rate limits (for testing/debugging).
+  @visibleForTesting
+  Map<String, int> get currentRateLimits => {
+        'unknown': _limitUnknown,
+        'known': _limitKnown,
+        'friend': _limitFriend,
+      };
+
+  /// Set trust score directly (for testing).
+  @visibleForTesting
+  void setTrustScoreForTest(String nodeId, double score) {
+    _trustScores[nodeId] = score.clamp(0.0, 1.0);
+  }
+
+  /// Increment relay count without side effects (for testing).
+  @visibleForTesting
+  void incrementRelayCountForTest(String nodeId) {
+    final now = DateTime.now();
+    final hourlyKey =
+        '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
+    _hourlyRelayCount.putIfAbsent(hourlyKey, () => []);
+    _hourlyRelayCount[hourlyKey]!.add(now.millisecondsSinceEpoch);
+  }
+
   /// Record successful relay operation for trust building
   Future<void> recordRelayOperation({
     required String fromNodeId,
@@ -277,30 +308,44 @@ class SpamPreventionManager {
 
   // Private methods
 
-  /// Check rate limiting for a node
+  /// Check rate limiting for a node, using trust-tiered limits.
+  ///
+  /// The per-sender limit varies by trust tier:
+  /// - Unknown (trust < 0.4): [_limitUnknown] (default 5/hr)
+  /// - Known (trust 0.4-0.7): [_limitKnown] (default 25/hr)
+  /// - Friend (trust > 0.7): [_limitFriend] (default 100/hr)
   Future<SpamCheck> _checkRateLimit(String nodeId) async {
     final now = DateTime.now();
     final hourlyKey =
         '${nodeId}_${now.hour}_${now.day}_${now.month}_${now.year}';
 
     final relayCount = _hourlyRelayCount[hourlyKey]?.length ?? 0;
+    final effectiveLimit = _effectiveLimitForNode(nodeId);
 
-    if (relayCount >= maxRelaysPerSenderPerHour) {
+    if (relayCount >= effectiveLimit) {
       return SpamCheck(
         type: SpamCheckType.rateLimit,
         passed: false,
         spamScore: 1.0,
-        message: 'Rate limit exceeded: $relayCount/$maxRelaysPerSenderPerHour',
+        message: 'Rate limit exceeded: $relayCount/$effectiveLimit',
       );
     }
 
-    final spamScore = relayCount / maxRelaysPerSenderPerHour;
+    final spamScore = relayCount / effectiveLimit;
     return SpamCheck(
       type: SpamCheckType.rateLimit,
       passed: true,
       spamScore: spamScore,
-      message: 'Rate limit OK: $relayCount/$maxRelaysPerSenderPerHour',
+      message: 'Rate limit OK: $relayCount/$effectiveLimit',
     );
+  }
+
+  /// Resolve per-sender hourly limit based on trust tier.
+  int _effectiveLimitForNode(String nodeId) {
+    final trust = _trustScores[nodeId] ?? 0.5;
+    if (trust >= 0.7) return _limitFriend;
+    if (trust >= 0.4) return _limitKnown;
+    return _limitUnknown;
   }
 
   /// Check message size limits
@@ -470,6 +515,31 @@ class SpamPreventionManager {
     } catch (e) {
       _logger.warning('Failed to load spam prevention data: $e');
     }
+  }
+
+  /// Load user-configured rate limits from preferences.
+  /// Falls back to defaults if not set.
+  Future<void> _loadUserRateLimits() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _limitUnknown = prefs.getInt(PreferenceKeys.rateLimitUnknownPerHour) ??
+          PreferenceDefaults.rateLimitUnknownPerHour;
+      _limitKnown = prefs.getInt(PreferenceKeys.rateLimitKnownPerHour) ??
+          PreferenceDefaults.rateLimitKnownPerHour;
+      _limitFriend = prefs.getInt(PreferenceKeys.rateLimitFriendPerHour) ??
+          PreferenceDefaults.rateLimitFriendPerHour;
+      _logger.info(
+        'Rate limits loaded: unknown=$_limitUnknown, '
+        'known=$_limitKnown, friend=$_limitFriend /hr',
+      );
+    } catch (e) {
+      _logger.warning('Failed to load rate limits, using defaults: $e');
+    }
+  }
+
+  /// Reload rate limits (call after user changes settings).
+  Future<void> reloadUserRateLimits() async {
+    await _loadUserRateLimits();
   }
 
   /// Load trust scores
