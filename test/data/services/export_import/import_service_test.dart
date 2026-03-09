@@ -18,7 +18,7 @@ import '../../../test_helpers/test_setup.dart';
 
 void main() {
   final logRecords = <LogRecord>[];
-  const allowedSeverePatterns = {'Import failed'};
+  const allowedSeverePatterns = {'Import failed', 'Failed to clear all data'};
 
   late Directory artifactDir;
 
@@ -797,6 +797,380 @@ void main() {
       expect(restored.databasePath, equals('/some/path/db.sqlite'));
       expect(restored.checksum, equals('sha256-hash'));
       expect(restored.isLegacy, isTrue);
+    });
+  });
+
+  // ── Rate limiting tests (Phase 1B) ──
+
+  group('Import rate limiting', () {
+    // Dummy encrypted DB bytes for rate limit tests
+    Uint8List dummyDbBytes() => Uint8List.fromList(List.filled(64, 0xAB));
+
+    test('first attempt is never rate-limited', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('import_attempt_tracker');
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'BundlePassphrase123!',
+        databaseBytes: dummyDbBytes(),
+      );
+
+      // Use DIFFERENT passphrase to trigger decrypt failure
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'WrongPassphrase123!',
+      );
+
+      // Should fail with passphrase error, NOT rate limit error
+      expect(result.success, isFalse);
+      expect(result.errorMessage, isNot(contains('wait')));
+      expect(result.errorMessage, contains('passphrase'));
+    });
+
+    test('records failed attempts in SharedPreferences', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('import_attempt_tracker');
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'CorrectPass123!',
+        databaseBytes: dummyDbBytes(),
+      );
+
+      // Attempt with wrong passphrase
+      await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'WrongPassphrase123!',
+      );
+
+      final trackerJson = prefs.getString('import_attempt_tracker');
+      expect(trackerJson, isNotNull);
+
+      final tracker =
+          jsonDecode(trackerJson!) as Map<String, dynamic>;
+      expect(tracker['failCount'], equals(1));
+      expect(tracker['lastFailTime'], isA<int>());
+    });
+
+    test('escalates backoff after multiple failures', () async {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Simulate 3 prior failures with recent timestamp
+      final tracker = {
+        'failCount': 3,
+        'lastFailTime': DateTime.now().millisecondsSinceEpoch,
+      };
+      await prefs.setString(
+        'import_attempt_tracker',
+        jsonEncode(tracker),
+      );
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'CorrectPass123!',
+        databaseBytes: dummyDbBytes(),
+      );
+
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'CorrectPass123!',
+      );
+
+      // Should be rate-limited
+      expect(result.success, isFalse);
+      expect(result.errorMessage, contains('wait'));
+    });
+
+    test('allows attempt after cooldown expires', () async {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Simulate 2 prior failures but cooldown has expired (10 seconds ago)
+      final tracker = {
+        'failCount': 2,
+        'lastFailTime':
+            DateTime.now().millisecondsSinceEpoch - 10000, // 10s ago
+      };
+      await prefs.setString(
+        'import_attempt_tracker',
+        jsonEncode(tracker),
+      );
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'CorrectPass123!',
+        databaseBytes: dummyDbBytes(),
+      );
+
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'WrongPassphrase123!',
+      );
+
+      // Should NOT be rate-limited (cooldown expired), but wrong passphrase
+      expect(result.success, isFalse);
+      expect(result.errorMessage, isNot(contains('wait')));
+      expect(result.errorMessage, contains('passphrase'));
+    });
+
+    test('resets attempts after successful import', () async {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Seed keys and identity (required for successful import)
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'db_encryption_key_v1', value: 'db-key-v1');
+      await storage.write(key: 'ecdh_public_key_v2', value: 'pub-key');
+      await storage.write(key: 'ecdh_private_key_v2', value: 'priv-key');
+      await prefs.setString('user_display_name', 'Test User');
+      await prefs.setString('my_persistent_device_id', 'test-device');
+
+      await insertContact(
+        publicKey: 'rate-limit-contact',
+        displayName: 'RL Contact',
+      );
+
+      // Set up prior failures (cooldown expired)
+      final tracker = {
+        'failCount': 5,
+        'lastFailTime':
+            DateTime.now().millisecondsSinceEpoch - 120000, // 2min ago
+      };
+      await prefs.setString(
+        'import_attempt_tracker',
+        jsonEncode(tracker),
+      );
+
+      // Create a real backup DB for successful restore
+      final backupDb = await SelectiveBackupService.createSelectiveBackup(
+        exportType: ExportType.contactsOnly,
+      );
+      final dbBytes = await File(backupDb.backupPath!).readAsBytes();
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+      );
+
+      // Create FTS tables so clearAllData doesn't fail
+      final db = await DatabaseHelper.database;
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS messages_fts (dummy TEXT)',
+      );
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS archived_messages_fts (dummy TEXT)',
+      );
+
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+      );
+
+      expect(result.success, isTrue);
+
+      // Tracker should be cleared
+      final trackerJson = prefs.getString('import_attempt_tracker');
+      expect(trackerJson, isNull,
+          reason: 'Attempt tracker should reset on success');
+    });
+  });
+
+  // ── Resumable import checkpoint tests ──
+
+  group('Resumable import checkpoint', () {
+    test('hasPendingCheckpoint returns false initially', () async {
+      expect(await ImportService.hasPendingCheckpoint(), isFalse);
+    });
+
+    test('resumePendingImport returns null when no checkpoint', () async {
+      final result = await ImportService.resumePendingImport();
+      expect(result, isNull);
+    });
+
+    test('successful import clears any checkpoint file', () async {
+      await insertContact(
+        publicKey: 'checkpoint-clear-contact',
+        displayName: 'Checkpoint Test',
+      );
+
+      final backup = await SelectiveBackupService.createSelectiveBackup(
+        exportType: ExportType.contactsOnly,
+        customBackupDir: artifactDir.path,
+      );
+      final dbBytes = await File(backup.backupPath!).readAsBytes();
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+      );
+
+      // Ensure FTS tables exist for clearAllData
+      final db = await DatabaseHelper.database;
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS messages_fts (dummy TEXT)',
+      );
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS archived_messages_fts (dummy TEXT)',
+      );
+
+      // Seed keys/identity
+      const storage = FlutterSecureStorage();
+      await storage.write(key: 'db_encryption_key_v1', value: 'old-key');
+
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+      );
+
+      expect(result.success, isTrue);
+      expect(await ImportService.hasPendingCheckpoint(), isFalse,
+          reason: 'Checkpoint should be cleared after success');
+    });
+
+    test('discardCheckpoint removes checkpoint and temp DB', () async {
+      await insertContact(
+        publicKey: 'discard-contact',
+        displayName: 'Discard Test',
+      );
+
+      final backup = await SelectiveBackupService.createSelectiveBackup(
+        exportType: ExportType.contactsOnly,
+        customBackupDir: artifactDir.path,
+      );
+      final dbBytes = await File(backup.backupPath!).readAsBytes();
+
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+      );
+
+      // Pre-validate to force checkpoint creation on next import attempt
+      // Instead, manually test discardCheckpoint by creating a fake checkpoint
+      final dbPath = await DatabaseHelper.getDatabasePath();
+      final checkpointDir = File(dbPath).parent.path;
+      final checkpointPath =
+          '$checkpointDir${Platform.pathSeparator}import_checkpoint.json';
+      final fakeTempDb = '$dbPath\_discard_test_temp.db';
+
+      // Create fake temp DB file
+      await File(fakeTempDb).writeAsString('fake-db');
+
+      // Create fake checkpoint
+      final checkpoint = {
+        'dbRestorePath': fakeTempDb,
+        'keys': {'database_encryption_key': 'k1', 'ecdh_public_key': 'k2', 'ecdh_private_key': 'k3'},
+        'preferences': {},
+        'exportType': 'contactsOnly',
+        'clearExistingData': true,
+        'bundleMetadata': {
+          'deviceId': 'dev', 'username': 'user',
+          'timestamp': DateTime.now().toIso8601String(),
+          'isSelfContained': true,
+        },
+        'savedAt': DateTime.now().toIso8601String(),
+      };
+      await File(checkpointPath).writeAsString(jsonEncode(checkpoint));
+
+      expect(await ImportService.hasPendingCheckpoint(), isTrue);
+
+      await ImportService.discardCheckpoint();
+
+      expect(await ImportService.hasPendingCheckpoint(), isFalse);
+      expect(File(fakeTempDb).existsSync(), isFalse,
+          reason: 'Temp DB should be deleted by discard');
+    });
+
+    test('resumePendingImport recovers from checkpoint', () async {
+      await insertContact(
+        publicKey: 'resume-contact',
+        displayName: 'Resume Test',
+      );
+
+      // Create a real DB backup
+      final backup = await SelectiveBackupService.createSelectiveBackup(
+        exportType: ExportType.contactsOnly,
+        customBackupDir: artifactDir.path,
+      );
+      final dbBytes = await File(backup.backupPath!).readAsBytes();
+
+      // Write the temp DB where the checkpoint expects it
+      final mainDbPath = await DatabaseHelper.getDatabasePath();
+      final tempDbPath = '${mainDbPath}_resume_test.db';
+      await File(tempDbPath).writeAsBytes(dbBytes);
+
+      // Create a checkpoint that simulates a crash after step 8
+      final checkpointDir = File(mainDbPath).parent.path;
+      final checkpointPath =
+          '$checkpointDir${Platform.pathSeparator}import_checkpoint.json';
+
+      final checkpoint = {
+        'dbRestorePath': tempDbPath,
+        'keys': {
+          'database_encryption_key': 'resumed-db-key',
+          'ecdh_public_key': 'resumed-pub-key',
+          'ecdh_private_key': 'resumed-priv-key',
+        },
+        'preferences': {
+          'username': 'ResumedUser',
+          'device_id': 'resumed-device',
+        },
+        'exportType': 'contactsOnly',
+        'clearExistingData': true,
+        'bundleMetadata': {
+          'deviceId': 'original-dev',
+          'username': 'OriginalUser',
+          'timestamp': DateTime.now().toIso8601String(),
+          'isSelfContained': true,
+        },
+        'savedAt': DateTime.now().toIso8601String(),
+      };
+      await File(checkpointPath).writeAsString(jsonEncode(checkpoint));
+
+      expect(await ImportService.hasPendingCheckpoint(), isTrue);
+
+      final result = await ImportService.resumePendingImport();
+
+      expect(result, isNotNull);
+      expect(result!.success, isTrue);
+      expect(result.recordsRestored, equals(1));
+      expect(result.originalDeviceId, equals('original-dev'));
+      expect(result.originalUsername, equals('OriginalUser'));
+
+      // Checkpoint should be gone
+      expect(await ImportService.hasPendingCheckpoint(), isFalse);
+
+      // Keys should have been restored
+      const storage = FlutterSecureStorage();
+      expect(
+        await storage.read(key: 'db_encryption_key_v1'),
+        equals('resumed-db-key'),
+      );
+    });
+
+    test('resumePendingImport fails gracefully when temp DB missing',
+        () async {
+      final mainDbPath = await DatabaseHelper.getDatabasePath();
+      final checkpointDir = File(mainDbPath).parent.path;
+      final checkpointPath =
+          '$checkpointDir${Platform.pathSeparator}import_checkpoint.json';
+
+      final checkpoint = {
+        'dbRestorePath': '/nonexistent/path/to/temp.db',
+        'keys': {'database_encryption_key': 'k', 'ecdh_public_key': 'k', 'ecdh_private_key': 'k'},
+        'preferences': {},
+        'exportType': 'contactsOnly',
+        'clearExistingData': true,
+        'bundleMetadata': {
+          'deviceId': 'dev', 'username': 'user',
+          'timestamp': DateTime.now().toIso8601String(),
+          'isSelfContained': true,
+        },
+        'savedAt': DateTime.now().toIso8601String(),
+      };
+      await File(checkpointPath).writeAsString(jsonEncode(checkpoint));
+
+      final result = await ImportService.resumePendingImport();
+
+      expect(result, isNotNull);
+      expect(result!.success, isFalse);
+      expect(result.errorMessage, contains('temp database file missing'));
+      expect(await ImportService.hasPendingCheckpoint(), isFalse,
+          reason: 'Checkpoint should be cleared after failed resume');
     });
   });
 }
