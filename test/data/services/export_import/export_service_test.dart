@@ -77,18 +77,7 @@ void main() {
       return;
     }
 
-    final contents = await bundleFile.readAsString();
-    final bundleJson = jsonDecode(contents) as Map<String, dynamic>;
-    final backupPath = bundleJson['database_path'] as String?;
-
     await bundleFile.delete();
-
-    if (backupPath != null) {
-      final backupFile = File(backupPath);
-      if (await backupFile.exists()) {
-        await backupFile.delete();
-      }
-    }
   }
 
   setUpAll(() async {
@@ -187,10 +176,16 @@ void main() {
 
         final json =
             jsonDecode(await bundleFile.readAsString()) as Map<String, dynamic>;
-        expect(json['version'], equals('1.0.0'));
+        expect(json['version'], equals('2.0.0'));
         expect(json['export_type'], equals('contactsOnly'));
         expect(json['username'], equals('Phase3 User'));
         expect(json['device_id'], equals('phase3-device-id'));
+        expect(json.containsKey('encrypted_database'), isTrue,
+            reason: 'v2 bundles must embed encrypted database');
+        expect(json.containsKey('hmac'), isTrue,
+            reason: 'v2 bundles must have HMAC');
+        expect(json.containsKey('database_path'), isFalse,
+            reason: 'v2 bundles should not have database_path');
 
         await deleteBundleAndBackup(result.bundlePath!);
         await customDir.delete(recursive: true);
