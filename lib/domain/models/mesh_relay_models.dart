@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-import 'package:pak_connect/core/security/stealth_address.dart';
+import 'package:pak_connect/domain/models/stealth_envelope.dart';
 import 'message_priority.dart';
 import '../utils/gcs_filter.dart';
 import 'protocol_message_type.dart'; // PHASE 2: For ProtocolMessageType

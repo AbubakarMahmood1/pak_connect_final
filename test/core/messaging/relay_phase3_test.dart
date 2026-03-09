@@ -158,7 +158,7 @@ void main() {
       expect(stats.currentRelayProbability, equals(1.0));
     });
 
-    test('Growing network (≤30 nodes) has 85% relay probability', () async {
+    test('Growing network (≤30 nodes) has 100% relay probability (broadcast mode)', () async {
       // Create growing network with 30 nodes
       for (int i = 1; i < 30; i++) {
         await topologyAnalyzer.addConnection('node_$i', 'node_${i + 1}');
@@ -166,7 +166,7 @@ void main() {
 
       final stats = relayEngine.getStatistics();
       expect(stats.networkSize, equals(30));
-      expect(stats.currentRelayProbability, equals(0.85));
+      expect(stats.currentRelayProbability, equals(1.0));
     });
 
     test('Large network (≤50 nodes) has 70% relay probability', () async {
@@ -421,7 +421,7 @@ void main() {
       final stats = relayEngine.getStatistics();
 
       expect(stats.networkSize, equals(30));
-      expect(stats.currentRelayProbability, equals(0.85));
+      expect(stats.currentRelayProbability, equals(1.0));
       expect(
         stats.totalProbabilisticSkip,
         equals(0),

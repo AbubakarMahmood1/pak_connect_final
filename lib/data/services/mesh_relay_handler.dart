@@ -8,7 +8,7 @@ import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
-import 'package:pak_connect/core/security/sealed_sender_payload.dart';
+import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.

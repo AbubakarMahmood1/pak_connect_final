@@ -114,6 +114,7 @@ class _ConfigurableRelayEngine implements domain_messaging.MeshRelayEngine {
     MessagePriority priority = MessagePriority.normal,
     String? encryptedPayload,
     ProtocolMessageType? originalMessageType,
+    bool sealedSender = false,
   }) async =>
       null;
 

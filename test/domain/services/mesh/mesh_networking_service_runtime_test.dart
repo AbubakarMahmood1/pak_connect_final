@@ -379,6 +379,7 @@ class _FakeMeshRelayEngine implements MeshRelayEngine {
     MessagePriority priority = MessagePriority.normal,
     String? encryptedPayload,
     ProtocolMessageType? originalMessageType,
+    bool sealedSender = false,
   }) async => null;
 
   @override
