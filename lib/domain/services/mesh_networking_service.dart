@@ -40,6 +40,8 @@ import '../models/mesh_relay_models.dart' show RelayDecision, RelayStatistics;
 
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/models/change_log_entry.dart';
+import 'package:pak_connect/domain/services/change_log_sync_service.dart';
 
 part 'mesh_networking_binary_helper.dart';
 part 'mesh_networking_runtime_helper.dart';
@@ -241,6 +243,41 @@ class MeshNetworkingService implements IMeshNetworkingService {
   @override
   Future<void> initialize({String? nodeId}) =>
       _runtimeHelper.initialize(nodeId: nodeId);
+
+  /// Wire change_log sync callbacks after initialization.
+  ///
+  /// Called by app_core once DB access is available. The callbacks bridge
+  /// the domain-layer [ChangeLogSyncService] to the data-layer DB.
+  void configureChangeLogSync({
+    required Future<List<ChangeLogEntry>> Function(int sinceCursorId)
+        onQueryChangeLogSince,
+    required Future<List<ChangeLogEntry>> Function(int sinceMillis)
+        onQueryChangeLogSinceTime,
+    required Future<ChangeLogReplayResult> Function(List<ChangeLogEntry>)
+        onReplayChangeLogEntries,
+    required Future<int?> Function(String peerId)
+        onGetLastSyncedCursorForPeer,
+    required Future<void> Function(String peerId, int cursorId)
+        onSetLastSyncedCursorForPeer,
+    required Future<void> Function(String peerId, List<ChangeLogEntry>)
+        onSendChangeLogToPeer,
+  }) {
+    final service = _gossipSyncManager?.changeLogSyncService;
+    if (service == null) {
+      _logger.warning(
+        'Cannot configure change_log sync: GossipSyncManager not initialized',
+      );
+      return;
+    }
+    service
+      ..onQueryChangeLogSince = onQueryChangeLogSince
+      ..onQueryChangeLogSinceTime = onQueryChangeLogSinceTime
+      ..onReplayChangeLogEntries = onReplayChangeLogEntries
+      ..onGetLastSyncedCursorForPeer = onGetLastSyncedCursorForPeer
+      ..onSetLastSyncedCursorForPeer = onSetLastSyncedCursorForPeer
+      ..onSendChangeLogToPeer = onSendChangeLogToPeer;
+    _logger.info('✅ Change_log sync callbacks configured');
+  }
 
   /// Initialize core mesh networking components
   Future<void> _initializeCoreComponents() =>

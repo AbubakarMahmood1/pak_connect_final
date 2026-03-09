@@ -112,7 +112,26 @@ class _MeshNetworkingRuntimeHelper {
               );
               unawaited(_owner._bleService.sendQueueSyncMessage(syncMessage));
             }
-          };
+          }
+          ..onSendQueuedMessagesToPeer = (messages, peerId) {
+            if (messages.isEmpty) return;
+            MeshNetworkingService._logger.info(
+              '📤 Gossip: delivering ${messages.length} queued message(s) to ${peerId.shortId(8)}...',
+            );
+            for (final message in messages) {
+              unawaited(
+                _owner._queueCoordinator
+                    .retryMessage(message.id)
+                    .catchError((e) {
+                  MeshNetworkingService._logger.warning(
+                    'Gossip sync delivery failed for ${message.id.shortId(8)}...: $e',
+                  );
+                  return false;
+                }),
+              );
+            }
+          }
+          ..changeLogSyncService = ChangeLogSyncService();
 
     _owner._spamPrevention = SpamPreventionManager();
     await _owner._spamPrevention!.initialize();

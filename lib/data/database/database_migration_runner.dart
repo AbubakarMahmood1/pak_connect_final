@@ -472,5 +472,21 @@ class DatabaseMigrationRunner {
         'Migration to v11 complete: Added change_log table with 9 triggers',
       );
     }
+
+    // Migration from version 11 to 12: Add per-peer change_log sync cursor
+    if (oldVersion < 12 && newVersion >= 12) {
+      logger.info(
+        '🔧 Adding last_synced_changelog_id to queue_sync_state for live P2P sync...',
+      );
+
+      await db.execute('''
+        ALTER TABLE queue_sync_state
+        ADD COLUMN last_synced_changelog_id INTEGER DEFAULT 0
+      ''');
+
+      logger.info(
+        'Migration to v12 complete: Added last_synced_changelog_id column',
+      );
+    }
   }
 }

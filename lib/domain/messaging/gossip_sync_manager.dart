@@ -16,6 +16,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
+import '../services/change_log_sync_service.dart';
 import '../utils/gcs_filter.dart';
 import 'offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -57,6 +58,14 @@ class GossipSyncManager {
   Function(String peerID, MessageId messageId, MeshRelayMessage message)?
   onSendMessageToPeerIds;
   Function(String peerId)? onDirectAnnouncement;
+
+  /// Callback to send excess queued messages to a peer during sync.
+  /// Bridges the QueuedMessage → wire-send gap (Phase 1 bidirectional sync).
+  Function(List<QueuedMessage> messages, String toPeerId)?
+      onSendQueuedMessagesToPeer;
+
+  /// Phase 2: Change_log sync service for live P2P DB synchronization.
+  ChangeLogSyncService? changeLogSyncService;
 
   // Announcements: only keep latest per sender node
   // Note: Regular messages are tracked by OfflineMessageQueue
@@ -211,6 +220,10 @@ class GossipSyncManager {
         _logger.info(
           '✅ Peer ${fromPeerID.shortId(8)}... is in sync (hash match - no messages to send)',
         );
+        // Still exchange change_log — message queues match but contacts/chats may differ
+        if (changeLogSyncService != null) {
+          await changeLogSyncService!.exchangeWithPeer(fromPeerID);
+        }
         return;
       }
 
@@ -258,7 +271,7 @@ class GossipSyncManager {
         }
       }
 
-      // STEP 4: Check queue messages (use OfflineMessageQueue's method)
+      // STEP 4: Send excess queued messages via callback (Phase 1 fix)
       final excessMessages = _messageQueue.getExcessMessages(
         syncRequest.messageIds,
       );
@@ -266,11 +279,20 @@ class GossipSyncManager {
         'Queue has ${excessMessages.length} messages peer doesn\'t have',
       );
 
-      // Note: Can't directly send QueuedMessages as MeshRelayMessages
-      // This would need conversion logic or callback
-      // For now, log what we would send
-      for (final queuedMsg in excessMessages) {
-        _logger.fine('Would send queued message: ${queuedMsg.id.shortId()}...');
+      if (excessMessages.isNotEmpty) {
+        if (onSendQueuedMessagesToPeer != null) {
+          _logger.info(
+            '📤 Sending ${excessMessages.length} queued messages to ${fromPeerID.shortId(8)}... via sync',
+          );
+          onSendQueuedMessagesToPeer!.call(
+            List<QueuedMessage>.from(excessMessages),
+            fromPeerID,
+          );
+        } else {
+          _logger.warning(
+            '⚠️ ${excessMessages.length} queued messages for ${fromPeerID.shortId(8)}... but no send callback configured',
+          );
+        }
       }
 
       if (messagesToSend.isEmpty && excessMessages.isEmpty) {
@@ -295,6 +317,11 @@ class GossipSyncManager {
       _logger.info(
         '✅ Sync complete - sent ${messagesToSend.length} messages to ${fromPeerID.shortId(8)}...',
       );
+
+      // STEP 6 (Phase 2): Exchange change_log entries for DB-level sync
+      if (changeLogSyncService != null) {
+        await changeLogSyncService!.exchangeWithPeer(fromPeerID);
+      }
     } catch (e) {
       _logger.severe('Failed to handle sync request from $fromPeerID: $e');
     }
