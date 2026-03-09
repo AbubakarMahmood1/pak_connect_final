@@ -94,6 +94,12 @@ class SelectiveBackupService {
           throw UnsupportedError('Use DatabaseBackupService for full exports');
       }
 
+      // Include change_log entries for incremental exports so the import
+      // side can replay DELETEs that a simple `updated_at >` query misses.
+      if (since != null) {
+        recordCount += await _exportChangeLog(db, backupDb, since: since);
+      }
+
       await backupDb.close();
 
       final backupFile = File(backupPath);
@@ -134,6 +140,8 @@ class SelectiveBackupService {
       case ExportType.full:
         throw UnsupportedError('Full schema not supported in selective backup');
     }
+    // Every selective backup can carry change_log rows.
+    await _createChangeLogSchema(db);
   }
 
   /// Create contacts table schema
@@ -349,6 +357,80 @@ class SelectiveBackupService {
       case ExportType.full:
         return DatabaseHelper.getStatistics();
     }
+  }
+
+  // ── Change log helpers ──────────────────────────────────────────────
+
+  /// Schema for change_log table inside the backup database.
+  static Future<void> _createChangeLogSchema(
+    sqflite_common.Database db,
+  ) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS change_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        row_key TEXT NOT NULL,
+        changed_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Export change_log entries since [since] into [targetDb].
+  static Future<int> _exportChangeLog(
+    sqlcipher.Database sourceDb,
+    sqflite_common.Database targetDb, {
+    required int since,
+  }) async {
+    _logger.info('Exporting change_log entries since $since...');
+
+    // Guard: the source DB may not have been migrated to v11 yet.
+    final tables = await sourceDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='change_log'",
+    );
+    if (tables.isEmpty) {
+      _logger.fine('change_log table not present in source — skipping');
+      return 0;
+    }
+
+    final entries = await sourceDb.query(
+      'change_log',
+      where: 'changed_at > ?',
+      whereArgs: [since],
+      orderBy: 'id ASC',
+    );
+
+    if (entries.isEmpty) {
+      _logger.info('No change_log entries to export');
+      return 0;
+    }
+
+    final batch = targetDb.batch();
+    for (final entry in entries) {
+      batch.insert('change_log', entry);
+    }
+    await batch.commit(noResult: true);
+
+    _logger.info('Exported ${entries.length} change_log entries');
+    return entries.length;
+  }
+
+  /// Prune change_log entries older than [maxAge] (default 30 days).
+  static Future<int> pruneChangeLog({
+    Duration maxAge = const Duration(days: 30),
+  }) async {
+    final db = await DatabaseHelper.database;
+    final cutoff =
+        DateTime.now().subtract(maxAge).millisecondsSinceEpoch;
+    final deleted = await db.delete(
+      'change_log',
+      where: 'changed_at < ?',
+      whereArgs: [cutoff],
+    );
+    if (deleted > 0) {
+      _logger.info('Pruned $deleted change_log entries older than $maxAge');
+    }
+    return deleted;
   }
 }
 

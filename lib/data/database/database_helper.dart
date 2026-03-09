@@ -22,7 +22,7 @@ class DatabaseHelper {
   static Future<sqlcipher.Database>? _initializingDatabase;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
-      10; // v10: Added seen_messages table for mesh deduplication (FIX-005)
+      11; // v11: Added change_log table + triggers for incremental sync
   static int get currentVersion => _databaseVersion;
 
   /// Override database name for testing (allows using fresh database files)
