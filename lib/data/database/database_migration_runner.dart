@@ -357,5 +357,120 @@ class DatabaseMigrationRunner {
       );
       logger.info('✅ seen_messages (message_id, seen_type, seen_at)');
     }
+
+    // Migration from version 10 to 11: Add change_log table + triggers
+    if (oldVersion < 11 && newVersion >= 11) {
+      logger.info(
+        '🔧 Adding change_log table and triggers for incremental sync...',
+      );
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS change_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_name TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          row_key TEXT NOT NULL,
+          changed_at INTEGER NOT NULL
+        )
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_change_log_table_time
+          ON change_log(table_name, changed_at DESC)
+      ''');
+
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_change_log_time
+          ON change_log(changed_at DESC)
+      ''');
+
+      // ── Triggers: contacts ────────────────────────────────────────
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_contacts_insert AFTER INSERT ON contacts
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('contacts', 'INSERT', NEW.public_key,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_contacts_update AFTER UPDATE ON contacts
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('contacts', 'UPDATE', NEW.public_key,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_contacts_delete AFTER DELETE ON contacts
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('contacts', 'DELETE', OLD.public_key,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      // ── Triggers: chats ───────────────────────────────────────────
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_chats_insert AFTER INSERT ON chats
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('chats', 'INSERT', NEW.chat_id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_chats_update AFTER UPDATE ON chats
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('chats', 'UPDATE', NEW.chat_id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_chats_delete AFTER DELETE ON chats
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('chats', 'DELETE', OLD.chat_id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      // ── Triggers: messages ────────────────────────────────────────
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_messages_insert AFTER INSERT ON messages
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('messages', 'INSERT', NEW.id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_messages_update AFTER UPDATE ON messages
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('messages', 'UPDATE', NEW.id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS trg_messages_delete AFTER DELETE ON messages
+        BEGIN
+          INSERT INTO change_log (table_name, operation, row_key, changed_at)
+          VALUES ('messages', 'DELETE', OLD.id,
+                  CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+        END
+      ''');
+
+      logger.info(
+        'Migration to v11 complete: Added change_log table with 9 triggers',
+      );
+    }
   }
 }

@@ -88,6 +88,12 @@ class SelectiveRestoreService {
           throw UnsupportedError('Use DatabaseBackupService for full restore');
       }
 
+      // Replay change_log DELETEs that the upsert pass cannot capture.
+      recordsRestored += await _replayChangeLogDeletes(
+        backupDb,
+        targetDb,
+      );
+
       await backupDb.close();
 
       _logger.info('✅ Selective restore complete: $recordsRestored records');
@@ -263,6 +269,59 @@ class SelectiveRestoreService {
     final totalRecords = chats.length + messages.length;
     _logger.info('Restored $totalRecords total records');
     return totalRecords;
+  }
+
+  /// Replay DELETE entries from the backup's change_log table.
+  ///
+  /// The upsert (INSERT OR REPLACE) path handles INSERT and UPDATE
+  /// operations, but cannot propagate deletions.  This method reads
+  /// all DELETE entries from the backup's change_log and removes the
+  /// corresponding rows from the target database.
+  static Future<int> _replayChangeLogDeletes(
+    sqflite_common.Database backupDb,
+    sqlcipher.Database targetDb,
+  ) async {
+    // Guard: backup may have been created before v11 (no change_log).
+    final tables = await backupDb.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='change_log'",
+    );
+    if (tables.isEmpty) return 0;
+
+    final deletes = await backupDb.query(
+      'change_log',
+      where: "operation = 'DELETE'",
+      orderBy: 'id ASC',
+    );
+
+    if (deletes.isEmpty) return 0;
+
+    _logger.info('Replaying ${deletes.length} change_log DELETE entries...');
+
+    const pkColumnByTable = {
+      'contacts': 'public_key',
+      'chats': 'chat_id',
+      'messages': 'id',
+    };
+
+    int deletedCount = 0;
+    for (final entry in deletes) {
+      final table = entry['table_name'] as String;
+      final rowKey = entry['row_key'] as String;
+      final pkColumn = pkColumnByTable[table];
+      if (pkColumn == null) {
+        _logger.warning('Unknown table in change_log DELETE: $table');
+        continue;
+      }
+      final affected = await targetDb.delete(
+        table,
+        where: '$pkColumn = ?',
+        whereArgs: [rowKey],
+      );
+      deletedCount += affected;
+    }
+
+    _logger.info('Replayed $deletedCount deletions from change_log');
+    return deletedCount;
   }
 }
 
