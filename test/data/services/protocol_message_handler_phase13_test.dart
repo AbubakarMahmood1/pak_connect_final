@@ -39,7 +39,7 @@ void main() {
     ProtocolMessageHandler.clearPeerProtocolVersionFloorForTest();
     ProtocolMessageHandler.clearIdentityManagerResolver();
     securityService = _FakeSecurityService();
-    handler = ProtocolMessageHandler(securityService: securityService);
+    handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
   });
 
   tearDown(() {
@@ -602,7 +602,7 @@ void main() {
       ProtocolMessageHandler.configureIdentityManagerResolver(
         () => _FakeIdentityManager(persistentId: 'my-persistent-key'),
       );
-      handler = ProtocolMessageHandler(securityService: securityService);
+      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
 
       final result = await handler.isMessageForMe('my-persistent-key');
       expect(result, isTrue);
@@ -610,7 +610,7 @@ void main() {
 
     test('identity manager resolver returns null gracefully', () async {
       ProtocolMessageHandler.configureIdentityManagerResolver(() => null);
-      handler = ProtocolMessageHandler(securityService: securityService);
+      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
       handler.setCurrentNodeId('my-node');
 
       final result = await handler.isMessageForMe('unknown-id');
@@ -621,7 +621,7 @@ void main() {
       ProtocolMessageHandler.configureIdentityManagerResolver(() {
         throw Exception('not initialized');
       });
-      handler = ProtocolMessageHandler(securityService: securityService);
+      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
       handler.setCurrentNodeId('my-node');
 
       final result = await handler.isMessageForMe('unknown-id');

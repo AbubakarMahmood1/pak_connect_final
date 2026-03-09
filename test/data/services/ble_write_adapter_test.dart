@@ -287,10 +287,14 @@ void main() {
     stateManager = _FakeStateManager();
     contactRepository = ContactRepository();
     writeClient = FakeBleWriteClient();
+    // Explicit permissive flag: production now defaults to strict.
+    // Tests that exercise non-policy logic use permissive mode; tests for
+    // strict behavior construct their own adapter with explicit flags.
     adapter = BleWriteAdapter(
       contactRepository: contactRepository,
       stateManagerProvider: () => stateManager,
       writeClient: writeClient,
+      allowLegacyV2Send: true,
     );
   });
 

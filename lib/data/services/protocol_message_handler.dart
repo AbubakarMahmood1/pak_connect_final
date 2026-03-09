@@ -27,13 +27,19 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
+  /// Legacy v2 decryption is disabled by default for security hardening.
+  /// Override at build time with -DPAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=true
+  /// for backward compatibility during migration.
   static const bool _defaultAllowLegacyV2Decrypt = bool.fromEnvironment(
     'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
-    defaultValue: true,
+    defaultValue: false,
   );
+
+  /// V2 signatures are required by default. Override at build time with
+  /// -DPAKCONNECT_REQUIRE_V2_SIGNATURE=false to relax during migration.
   static const bool _defaultRequireV2Signature = bool.fromEnvironment(
     'PAKCONNECT_REQUIRE_V2_SIGNATURE',
-    defaultValue: false,
+    defaultValue: true,
   );
   static IIdentityManager? Function()? _identityManagerResolver;
 

@@ -32,7 +32,14 @@ void main() {
       logSub = Logger.root.onRecord.listen(logRecords.add);
       ProtocolMessageHandler.clearPeerProtocolVersionFloorForTest();
       securityService = _FakeSecurityService();
-      handler = ProtocolMessageHandler(securityService: securityService);
+      // Explicit permissive flags: production now defaults to strict (false/true).
+      // Tests that exercise non-policy logic use permissive mode; tests for
+      // strict behavior construct their own handler with explicit flags.
+      handler = ProtocolMessageHandler(
+        securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
+      );
     });
 
     tearDown(() {
@@ -689,6 +696,7 @@ void main() {
       final strictHandler = ProtocolMessageHandler(
         securityService: securityService,
         allowLegacyV2Decrypt: false,
+        requireV2Signature: false,
       );
       final message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
@@ -1060,6 +1068,79 @@ void main() {
         }
       },
     );
+
+    // -------------------------------------------------------------------------
+    // Production defaults verification
+    // -------------------------------------------------------------------------
+    group('Production defaults', () {
+      test(
+        'rejects unsigned v2 encrypted message with production defaults',
+        () async {
+          allowedSevere.add(
+            'v2 encrypted message missing signature under strict/upgraded-peer policy',
+          );
+          // Construct with NO overrides — exercises the hardened production defaults
+          // (allowLegacyV2Decrypt=false, requireV2Signature=true).
+          final strictHandler = ProtocolMessageHandler(
+            securityService: securityService,
+          );
+          final message = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: {
+              'messageId': 'msg-v2-prod-defaults',
+              'content': 'ciphertext',
+              'encrypted': true,
+              'senderId': 'sender-key',
+              'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+            },
+            timestamp: DateTime.now(),
+          );
+
+          final result = await strictHandler.processProtocolMessage(
+            message: message,
+            fromDeviceId: 'device-1',
+            fromNodeId: 'relay-node',
+          );
+
+          expect(result, isNull);
+          expect(securityService.decryptMessageByTypeCalls, equals(0));
+        },
+      );
+
+      test(
+        'blocks legacy v2 decrypt with production defaults',
+        () async {
+          allowedSevere.add(
+            'v2 encrypted message missing signature under strict/upgraded-peer policy',
+          );
+          final strictHandler = ProtocolMessageHandler(
+            securityService: securityService,
+          );
+          final message = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            version: 2,
+            payload: {
+              'messageId': 'msg-v2-prod-legacy',
+              'content': 'ciphertext',
+              'encrypted': true,
+              'senderId': 'sender-key',
+              'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
+            },
+            timestamp: DateTime.now(),
+          );
+
+          final result = await strictHandler.processProtocolMessage(
+            message: message,
+            fromDeviceId: 'device-1',
+            fromNodeId: 'relay-node',
+          );
+
+          expect(result, isNull);
+          expect(securityService.decryptMessageByTypeCalls, equals(0));
+        },
+      );
+    });
   });
 }
 

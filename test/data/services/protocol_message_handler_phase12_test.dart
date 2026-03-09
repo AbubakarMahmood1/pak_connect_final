@@ -24,7 +24,11 @@ void main() {
     Logger.root.onRecord.listen(logRecords.add);
     ProtocolMessageHandler.clearPeerProtocolVersionFloorForTest();
     securityService = _FakeSecurityService();
-    handler = ProtocolMessageHandler(securityService: securityService);
+    handler = ProtocolMessageHandler(
+      securityService: securityService,
+      allowLegacyV2Decrypt: true,
+      requireV2Signature: false,
+    );
   });
 
   group('contactRequest dispatch', () {
