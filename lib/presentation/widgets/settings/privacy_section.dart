@@ -8,11 +8,17 @@ class PrivacySection extends StatelessWidget {
     required this.showOnlineStatus,
     required this.allowNewContacts,
     required this.autoConnectKnownContacts,
+    required this.rateLimitUnknown,
+    required this.rateLimitKnown,
+    required this.rateLimitFriend,
     required this.onHintBroadcastChanged,
     required this.onReadReceiptsChanged,
     required this.onOnlineStatusChanged,
     required this.onAllowNewContactsChanged,
     required this.onAutoConnectChanged,
+    required this.onRateLimitUnknownChanged,
+    required this.onRateLimitKnownChanged,
+    required this.onRateLimitFriendChanged,
     required this.onShowMessage,
   });
 
@@ -21,11 +27,17 @@ class PrivacySection extends StatelessWidget {
   final bool showOnlineStatus;
   final bool allowNewContacts;
   final bool autoConnectKnownContacts;
+  final int rateLimitUnknown;
+  final int rateLimitKnown;
+  final int rateLimitFriend;
   final Future<void> Function(bool value) onHintBroadcastChanged;
   final Future<void> Function(bool value) onReadReceiptsChanged;
   final Future<void> Function(bool value) onOnlineStatusChanged;
   final Future<void> Function(bool value) onAllowNewContactsChanged;
   final Future<void> Function(bool value) onAutoConnectChanged;
+  final Future<void> Function(int value) onRateLimitUnknownChanged;
+  final Future<void> Function(int value) onRateLimitKnownChanged;
+  final Future<void> Function(int value) onRateLimitFriendChanged;
   final void Function(String message) onShowMessage;
 
   @override
@@ -113,8 +125,86 @@ class PrivacySection extends StatelessWidget {
               );
             },
           ),
+          const Divider(height: 1),
+          _RateLimitTile(
+            icon: Icons.person_off,
+            label: 'Strangers',
+            subtitle: 'Messages per hour from unknown contacts',
+            value: rateLimitUnknown,
+            min: 1,
+            max: 200,
+            onChanged: onRateLimitUnknownChanged,
+          ),
+          const Divider(height: 1),
+          _RateLimitTile(
+            icon: Icons.person,
+            label: 'Known Contacts',
+            subtitle: 'Messages per hour from known contacts',
+            value: rateLimitKnown,
+            min: 1,
+            max: 500,
+            onChanged: onRateLimitKnownChanged,
+          ),
+          const Divider(height: 1),
+          _RateLimitTile(
+            icon: Icons.verified_user,
+            label: 'Verified Friends',
+            subtitle: 'Messages per hour from verified friends',
+            value: rateLimitFriend,
+            min: 1,
+            max: 1000,
+            onChanged: onRateLimitFriendChanged,
+          ),
         ],
       ),
     );
+  }
+}
+
+class _RateLimitTile extends StatelessWidget {
+  const _RateLimitTile({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final int value;
+  final int min;
+  final int max;
+  final Future<void> Function(int) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text('$label: $value/hr'),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          Slider(
+            value: value.toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            divisions: (max - min) ~/ _step,
+            label: '$value',
+            onChanged: (v) => onChanged(v.round()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int get _step {
+    if (max <= 50) return 1;
+    if (max <= 200) return 5;
+    return 10;
   }
 }

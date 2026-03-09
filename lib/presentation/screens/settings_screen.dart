@@ -108,6 +108,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   allowNewContacts: _controller.allowNewContacts,
                   autoConnectKnownContacts:
                       _controller.autoConnectKnownContacts,
+                  rateLimitUnknown: _controller.rateLimitUnknown,
+                  rateLimitKnown: _controller.rateLimitKnown,
+                  rateLimitFriend: _controller.rateLimitFriend,
                   onHintBroadcastChanged: (value) async {
                     await _controller.setHintBroadcastEnabled(value);
                   },
@@ -123,6 +126,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       'AUTO-CONNECT SETTING: ${value ? "ENABLED" : "DISABLED"}',
                     );
                     await _controller.setAutoConnectKnownContacts(value);
+                  },
+                  onRateLimitUnknownChanged: (value) async {
+                    await _controller.setRateLimitUnknown(value);
+                  },
+                  onRateLimitKnownChanged: (value) async {
+                    await _controller.setRateLimitKnown(value);
+                  },
+                  onRateLimitFriendChanged: (value) async {
+                    await _controller.setRateLimitFriend(value);
                   },
                   onShowMessage: _showSnack,
                 ),

@@ -22,6 +22,14 @@ class PreferenceKeys {
   static const String killSwitchDualRole = 'kill_switch_dual_role';
   static const String killSwitchDiscoveryScheduler =
       'kill_switch_discovery_scheduler';
+
+  // Rate limiting (user-facing)
+  static const String rateLimitUnknownPerHour =
+      'rate_limit_unknown_per_hour'; // messages from strangers
+  static const String rateLimitKnownPerHour =
+      'rate_limit_known_per_hour'; // messages from known contacts
+  static const String rateLimitFriendPerHour =
+      'rate_limit_friend_per_hour'; // messages from verified friends
 }
 
 /// Default values for [PreferenceKeys].
@@ -47,4 +55,9 @@ class PreferenceDefaults {
   static const bool killSwitchAutoConnect = false;
   static const bool killSwitchDualRole = false;
   static const bool killSwitchDiscoveryScheduler = false;
+
+  // Rate limiting defaults
+  static const int rateLimitUnknownPerHour = 5; // conservative for strangers
+  static const int rateLimitKnownPerHour = 25; // relaxed for known contacts
+  static const int rateLimitFriendPerHour = 100; // generous for verified friends
 }
