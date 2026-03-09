@@ -537,12 +537,19 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
           ? RelayMetadata.sealedSenderPlaceholder
           : _currentNodeId;
 
+      // Phase 6: In small networks with stealth addressing, use broadcast mode
+      // to eliminate routing metadata. All peers flood; recipients self-identify.
+      final useBroadcastMode = _decisionEngine.isSmallNetworkBroadcast;
+      final wireRecipient = useBroadcastMode
+          ? SpecialRecipients.broadcast
+          : finalRecipientPublicKey;
+
       // Create relay metadata
       final relayMetadata = RelayMetadata.create(
         originalMessageContent: originalContent,
         priority: priority,
         originalSender: wireSender,
-        finalRecipient: finalRecipientPublicKey,
+        finalRecipient: wireRecipient,
         currentNodeId: _currentNodeId,
       );
 
@@ -568,7 +575,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
                 priority: relayMetadata.priority,
                 relayTimestamp: relayMetadata.relayTimestamp,
                 originalSender: wireSender,
-                finalRecipient: relayMetadata.finalRecipient,
+                finalRecipient: wireRecipient,
                 stealthEnvelope: relayMetadata.stealthEnvelope,
                 sealedSender: true,
               )

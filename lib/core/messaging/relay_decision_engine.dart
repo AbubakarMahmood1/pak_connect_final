@@ -61,14 +61,24 @@ class RelayDecisionEngine {
       _seenMessageStore.hasDelivered(messageId);
   bool isDuplicateId(MessageId messageId) => isDuplicate(messageId.value);
 
+  /// Network size threshold for broadcast mode.
+  /// Below this, all messages flood to all peers (no routing metadata needed).
+  static const int broadcastModeThreshold = 30;
+
   double calculateRelayProbability() {
     final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
-    if (networkSize <= 3) return 1.0;
-    if (networkSize <= 10) return 1.0;
-    if (networkSize <= 30) return 0.85;
+    if (networkSize <= broadcastModeThreshold) return 1.0; // Flood all
     if (networkSize <= 50) return 0.7;
     if (networkSize <= 100) return 0.55;
     return 0.4;
+  }
+
+  /// Whether the network is small enough to use broadcast mode.
+  /// In broadcast mode, messages flood to all peers and recipients
+  /// self-identify via stealth addressing / view tags.
+  bool get isSmallNetworkBroadcast {
+    final networkSize = _topologyAnalyzer?.getNetworkSize() ?? 1;
+    return networkSize <= broadcastModeThreshold;
   }
 
   Future<bool> isMessageForCurrentNode(String finalRecipientPublicKey) async {
