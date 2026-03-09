@@ -486,6 +486,7 @@ class _FakeRelayEngine implements MeshRelayEngine {
     MessagePriority priority = MessagePriority.normal,
     String? encryptedPayload,
     ProtocolMessageType? originalMessageType,
+    bool sealedSender = false,
   }) async {
     final senderNodeId = _currentNodeId ?? 'unknown-node';
     final metadata = RelayMetadata.create(

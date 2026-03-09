@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pak_connect/core/security/sealed_sender_payload.dart';
+import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/message_priority.dart';
 

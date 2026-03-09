@@ -159,13 +159,13 @@ void main() {
       expect(engine.calculateRelayProbability(), 1.0);
     });
 
-    test('calculateRelayProbability returns 0.85 for ~30 nodes', () {
+    test('calculateRelayProbability returns 1.0 for ≤30 nodes (broadcast mode)', () {
       final analyzer = _FakeTopologyAnalyzer(30);
       engine.updateContext(
         currentNodeId: 'my_node',
         topologyAnalyzer: analyzer,
       );
-      expect(engine.calculateRelayProbability(), 0.85);
+      expect(engine.calculateRelayProbability(), 1.0);
     });
 
     test('calculateRelayProbability returns 0.7 for ~50 nodes', () {

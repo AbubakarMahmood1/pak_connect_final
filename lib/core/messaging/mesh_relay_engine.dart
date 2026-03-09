@@ -23,7 +23,7 @@ import 'relay_decision_engine.dart';
 import 'relay_send_pipeline.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
-import 'package:pak_connect/core/security/sealed_sender_payload.dart';
+import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Core engine for mesh relay operations
@@ -539,7 +539,10 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
       // Phase 6: In small networks with stealth addressing, use broadcast mode
       // to eliminate routing metadata. All peers flood; recipients self-identify.
-      final useBroadcastMode = _decisionEngine.isSmallNetworkBroadcast;
+      // Only activate when stealth/sealed sender is in use — without it,
+      // the recipient needs the plaintext finalRecipient to know it's theirs.
+      final useBroadcastMode = _decisionEngine.isSmallNetworkBroadcast
+          && sealedSender;
       final wireRecipient = useBroadcastMode
           ? SpecialRecipients.broadcast
           : finalRecipientPublicKey;
