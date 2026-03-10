@@ -148,6 +148,29 @@ class MigrationService {
       // Mark as migrated
       await prefs.setBool('sqlite_migration_completed', true);
 
+      // Clean up legacy SharedPreferences keys — sensitive data is now in
+      // SQLCipher and should not remain in plaintext SharedPreferences.
+      const legacyKeys = [
+        'enhanced_contacts_v2',
+        'chat_messages',
+        'offline_message_queue_v2',
+        'deleted_message_ids_v1',
+        'device_public_key_mapping',
+        'chat_unread_counts',
+        'contact_last_seen',
+      ];
+      for (final key in legacyKeys) {
+        await prefs.remove(key);
+      }
+      // Remove the plaintext backup entry
+      final allKeys = prefs.getKeys().toList();
+      for (final key in allKeys) {
+        if (key.startsWith('migration_backup_')) {
+          await prefs.remove(key);
+        }
+      }
+      _logger.info('🧹 Cleaned up legacy SharedPreferences keys after migration');
+
       final duration = DateTime.now().difference(startTime);
       final totalRecords = counts.values.fold<int>(
         0,
