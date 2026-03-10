@@ -12,7 +12,6 @@ import 'package:pak_connect/core/security/noise/noise_session.dart';
 import 'package:pak_connect/domain/routing/topology_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'handshake_timeout_manager.dart';
-import 'handshake_attempt_tracker.dart';
 import 'kk_pattern_tracker.dart';
 import 'noise_handshake_driver.dart';
 import 'handshake_peer_state.dart';
@@ -65,7 +64,6 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
 
   // Noise handshake state
   late final KKPatternTracker _kkTracker;
-  late final HandshakeAttemptTracker _attemptTracker;
   late final NoiseHandshakeDriver _noiseDriver;
   late final _HandshakeCoordinatorPhase2Helper _phase2Helper;
 
@@ -140,7 +138,6 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       phaseTimeout: phaseTimeout ?? const Duration(seconds: 10),
     );
     _kkTracker = KKPatternTracker(logger: _logger);
-    _attemptTracker = HandshakeAttemptTracker(logger: _logger);
     _noiseDriver = NoiseHandshakeDriver(
       logger: _logger,
       kkPatternTracker: _kkTracker,
@@ -393,16 +390,10 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       displayName: message.identityDisplayName,
     );
 
-    // ── Brute-force check ──────────────────────────────────────────
-    // Now that we know the peer's identity, verify they are not locked
-    // out due to repeated failures.
-    final peerId = _peerState.theirEphemeralId ?? 'unknown';
-    if (!_attemptTracker.allowAttempt(peerId)) {
-      await _failHandshake(
-        'Peer $peerId locked out: too many failed handshake attempts',
-      );
-      return;
-    }
+    // NOTE: Brute-force lockout removed here. The ephemeral ID is
+    // unauthenticated at this stage, so an attacker could spoof a
+    // victim's ID to trigger lockouts (DoS). Rate-limiting should
+    // happen at the transport/connection level instead.
 
     // Log ephemeral ID (it's already short, typically 8 chars)
     _logger.info('  Their ephemeral ID: ${_peerState.theirEphemeralId}');
