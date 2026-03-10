@@ -292,20 +292,28 @@ class AdvertisingManager {
       final nonce = HintAdvertisementService.deriveNonce(sessionKey);
       final introHint = await _introHintRepo.getMostRecentActiveHint();
       final useIntro = introHint != null && introHint.isUsable;
-      final identifier = useIntro ? introHint.hintHex : myPublicKey;
+
+      // Privacy hardening: only advertise hints derived from intro hint secrets,
+      // never from public keys which an eavesdropper can trivially recompute.
+      if (!useIntro) {
+        _logger.info(
+          '🔍 [ADV-DEBUG] No active intro hint - skipping manufacturer hint data',
+        );
+        return [];
+      }
 
       final hintBytes = HintAdvertisementService.computeHintBytes(
-        identifier: identifier,
+        identifier: introHint.hintHex,
         nonce: nonce,
       );
 
       final advData = HintAdvertisementService.packAdvertisement(
         nonce: nonce,
         hintBytes: hintBytes,
-        isIntro: useIntro,
+        isIntro: true,
       );
 
-      final modeLabel = useIntro ? 'intro' : 'persistent';
+      const modeLabel = 'intro';
       _logger.info(
         '✅ [ADV-DEBUG] Blinded hint ready ($modeLabel, nonce=${HintAdvertisementService.bytesToHex(nonce)})',
       );

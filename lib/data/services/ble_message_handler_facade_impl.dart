@@ -222,10 +222,10 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
           if (peerId != null) {
             peers.add(peerId);
           } else {
-            // Fallback to MAC only if we truly have no identity; log for visibility.
-            peers.add(addr);
+            // Skip devices without identity mapping to prevent MAC leakage
+            // into relay routing paths (privacy: routingPath must use ephemeral keys).
             _logger.fine(
-              '⚠️ Using MAC as next-hop identifier (no contact/hint mapping yet): ${addr.substring(0, addr.length > 8 ? 8 : addr.length)}...',
+              '⏭️ Skipping next-hop without identity mapping (no contact/hint for ${addr.substring(0, addr.length > 8 ? 8 : addr.length)}...)',
             );
           }
         }
