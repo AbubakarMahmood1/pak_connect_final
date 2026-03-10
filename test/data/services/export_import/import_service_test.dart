@@ -183,6 +183,7 @@ void main() {
           encryptedKeys,
           encryptedPreferences,
           encryptedDatabase,
+          baseTimestamp?.toIso8601String() ?? '',
         ], key);
 
     final bundle = ExportBundle(
@@ -597,7 +598,7 @@ void main() {
 
         // Legitimate HMAC
         final legitimateHmac = EncryptionUtils.calculateHmac(
-          [encMeta, encKeys, encPrefs, encDb],
+          [encMeta, encKeys, encPrefs, encDb, ''],
           key,
         );
 

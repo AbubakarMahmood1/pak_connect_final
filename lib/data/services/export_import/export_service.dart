@@ -157,13 +157,14 @@ class ExportService {
         encryptionKey,
       );
 
-      // 9. Calculate HMAC-SHA256 over all encrypted payloads
+      // 9. Calculate HMAC-SHA256 over all encrypted payloads + baseTimestamp
       _logger.info('Calculating HMAC...');
       final hmac = EncryptionUtils.calculateHmac([
         encryptedMetadata,
         encryptedKeys,
         encryptedPreferences,
         encryptedDatabase,
+        baseTimestamp?.toIso8601String() ?? '',
       ], encryptionKey);
 
       // 10. Create bundle
