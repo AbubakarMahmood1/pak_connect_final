@@ -191,8 +191,11 @@ class ChatMessagingViewModel {
         '📦 Loaded ${deliveredMessages.length} delivered messages from repository',
       );
 
-      // 2. Load in-flight messages from queue (via callback)
-      final queuedMessages = onGetQueuedMessages?.call() ?? [];
+      // 2. Load in-flight messages from queue (via callback), filtered to this chat
+      final allQueuedMessages = onGetQueuedMessages?.call() ?? [];
+      final queuedMessages = allQueuedMessages
+          .where((qm) => qm.chatId == chatId.value)
+          .toList();
       _logger.info(
         '📮 Loaded ${queuedMessages.length} queued messages from mesh service',
       );
