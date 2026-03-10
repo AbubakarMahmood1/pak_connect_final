@@ -229,7 +229,8 @@ class BLEMessageHandler {
                 onMessageIdFound,
                 senderPublicKey,
               ),
-      onAckReceived: (messageId) => _handleInboundAck(messageId),
+      onAckReceived: (messageId, sender) =>
+          _handleInboundAck(messageId, sender),
       logger: _logger,
     );
 
@@ -812,13 +813,31 @@ class BLEMessageHandler {
   }
 
   /// Handle inbound ACK by updating message status to delivered.
-  Future<void> _handleInboundAck(String messageId) async {
+  Future<void> _handleInboundAck(
+      String messageId, String senderPublicKey) async {
     try {
       final existing = await _messageRepository.getMessageById(
         MessageId(messageId),
       );
       if (existing == null) {
         _logger.fine('ACK received for unknown message $messageId');
+        return;
+      }
+      // Only our outbound messages should be marked delivered via ACK
+      if (!existing.isFromMe) {
+        _logger.warning(
+          'Ignoring ACK for inbound message ${messageId.shortId(8)} '
+          'from ${senderPublicKey.shortId(8)}',
+        );
+        return;
+      }
+      // Verify the ACK came from the expected recipient
+      if (existing.chatId.value != senderPublicKey) {
+        _logger.warning(
+          'Ignoring ACK sender mismatch for ${messageId.shortId(8)}: '
+          'expected ${existing.chatId.value.shortId(8)} '
+          'got ${senderPublicKey.shortId(8)}',
+        );
         return;
       }
       if (existing.status == MessageStatus.delivered) {

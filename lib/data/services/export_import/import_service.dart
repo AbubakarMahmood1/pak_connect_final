@@ -80,6 +80,14 @@ class ImportService {
         );
       }
 
+      // Reject v2+ bundles that were stripped to look like legacy v1
+      if (_requiresSelfContainedBundle(bundle) && !bundle.isSelfContained) {
+        return ImportResult.failure(
+          'Invalid bundle structure for version ${bundle.version}: '
+          'missing embedded encrypted database',
+        );
+      }
+
       // ── 3. Derive decryption key ──
       _logger.info('Deriving decryption key...');
       final decryptionKey = EncryptionUtils.deriveKey(
@@ -319,6 +327,15 @@ class ImportService {
         };
       }
 
+      if (_requiresSelfContainedBundle(bundle) && !bundle.isSelfContained) {
+        return {
+          'valid': false,
+          'error':
+              'Invalid bundle structure for version ${bundle.version}: '
+              'missing embedded encrypted database',
+        };
+      }
+
       final decryptionKey = EncryptionUtils.deriveKey(
         userPassphrase,
         bundle.salt,
@@ -364,16 +381,19 @@ class ImportService {
 
   /// Verify bundle integrity using the appropriate mechanism.
   static bool _verifyIntegrity(ExportBundle bundle, Uint8List key) {
-    if (bundle.isSelfContained && bundle.hmac != null) {
-      // v2: HMAC-SHA256 keyed verification
+    if (_requiresSelfContainedBundle(bundle)) {
+      // v2+: HMAC-SHA256 keyed verification is mandatory
+      if (!bundle.isSelfContained || bundle.hmac == null) {
+        return false;
+      }
       return EncryptionUtils.verifyHmac([
         bundle.encryptedMetadata,
         bundle.encryptedKeys,
         bundle.encryptedPreferences,
         bundle.encryptedDatabase!,
       ], key, bundle.hmac!);
-    } else if (bundle.checksum != null) {
-      // v1 legacy: unkeyed SHA-256 (backward compat only)
+    } else if (bundle.version == '1.0.0' && bundle.checksum != null) {
+      // v1 legacy only: unkeyed SHA-256 (backward compat)
       final calculated = EncryptionUtils.calculateChecksum([
         bundle.encryptedMetadata,
         bundle.encryptedKeys,
@@ -482,6 +502,12 @@ class ImportService {
   /// Check if bundle version is compatible.
   static bool _isCompatibleVersion(String version) {
     return version == '1.0.0' || version == '2.0.0' || version == '2.1.0';
+  }
+
+  /// v2+ bundles MUST be self-contained with HMAC — legacy checksum is not
+  /// acceptable for these versions.
+  static bool _requiresSelfContainedBundle(ExportBundle bundle) {
+    return bundle.version == '2.0.0' || bundle.version == '2.1.0';
   }
 
   // ──────────────────── Resumable import checkpoint ────────────────────
