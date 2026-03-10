@@ -266,12 +266,22 @@ class ChatSyncService {
   }) async {
     try {
       if (includeArchives && includeLive) {
-        final unifiedResult = await searchMessagesUnified(
+        // Run separate live + archive searches so archive filters are preserved
+        final liveResult = await searchMessagesUnified(
           query: query,
           filter: _convertFromArchiveFilter(filter),
-          includeArchives: true,
+          includeArchives: false,
         );
-        return _convertToAdvancedSearchResult(unifiedResult, query);
+        final archiveResult = await _archiveSearchService.search(
+          query: query,
+          filter: filter,
+          options: options,
+        );
+        return _mergeSearchResults(
+          liveResult: liveResult,
+          archiveResult: archiveResult,
+          query: query,
+        );
       } else if (includeArchives) {
         return await _archiveSearchService.search(
           query: query,
@@ -504,6 +514,42 @@ class ChatSyncService {
       query: query,
       searchTime: legacyResult.searchTime,
       suggestions: [],
+    );
+  }
+
+  AdvancedSearchResult _mergeSearchResults({
+    required UnifiedSearchResult liveResult,
+    required AdvancedSearchResult archiveResult,
+    required String query,
+  }) {
+    final liveAsArchived = liveResult.liveResults.map(
+      (m) => ArchivedMessage.fromEnhancedMessage(
+        m,
+        m.timestamp,
+        customArchiveId: ArchiveId('live_${m.id.value}'),
+        additionalMetadata: {'source': 'live'},
+      ),
+    );
+
+    final combinedMessages = <ArchivedMessage>[
+      ...archiveResult.messages,
+      ...liveAsArchived,
+    ];
+
+    final mergedSearchResult = ArchiveSearchResult.fromResults(
+      messages: combinedMessages,
+      chats: archiveResult.searchResult.chats,
+      query: query,
+      searchTime: liveResult.searchTime + archiveResult.searchTime,
+    );
+
+    return AdvancedSearchResult.fromSearchResult(
+      searchResult: mergedSearchResult,
+      query: query,
+      searchTime: liveResult.searchTime + archiveResult.searchTime,
+      suggestions: archiveResult.suggestions,
+      searchStrategy: archiveResult.searchStrategy,
+      analytics: archiveResult.analytics,
     );
   }
 

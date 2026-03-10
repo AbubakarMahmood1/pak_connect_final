@@ -23,7 +23,6 @@ final burstScanningInitializedProvider =
 final burstScanningStatusProvider = StreamProvider.autoDispose<dynamic>((
   ref,
 ) async* {
-  final controller = ref.watch(burstScanningControllerProvider);
-  await controller.initialize(ref.watch(connectionServiceProvider));
+  final controller = await ref.watch(burstScanningInitializedProvider.future);
   yield* controller.statusStream;
 });

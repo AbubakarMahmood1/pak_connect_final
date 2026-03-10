@@ -61,6 +61,8 @@ class BurstScanningController {
 
   /// Initialize the burst scanning controller
   Future<void> initialize(IConnectionService bleService) async {
+    if (_powerManager != null) return; // Already initialized
+
     _bleService = bleService;
     _powerManager = AdaptivePowerManager();
 
