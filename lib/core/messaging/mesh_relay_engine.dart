@@ -25,7 +25,6 @@ import 'relay_decision_engine.dart';
 import 'relay_send_pipeline.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
-import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 /// Core engine for mesh relay operations
@@ -540,9 +539,17 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         return null;
       }
 
-      // Phase 5: sealed sender — replace sender with sentinel, embed real
-      // identity inside the encrypted payload.
-      final wireSender = sealedSender
+      // Phase 5: sealed sender requires a pre-encrypted payload.
+      // Never fall back to packing plaintext sender+content.
+      final effectiveSealedSender = sealedSender && encryptedPayload != null;
+      if (sealedSender && !effectiveSealedSender) {
+        _logger.warning(
+          'Sealed sender requested without encryptedPayload; '
+          'sending unsealed to avoid plaintext identity leak.',
+        );
+      }
+
+      final wireSender = effectiveSealedSender
           ? RelayMetadata.sealedSenderPlaceholder
           : _currentNodeId;
 
@@ -551,7 +558,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       // Only activate when stealth/sealed sender is in use — without it,
       // the recipient needs the plaintext finalRecipient to know it's theirs.
       final useBroadcastMode = _decisionEngine.isSmallNetworkBroadcast
-          && sealedSender;
+          && effectiveSealedSender;
       final wireRecipient = useBroadcastMode
           ? SpecialRecipients.broadcast
           : finalRecipientPublicKey;
@@ -608,20 +615,14 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
             )
           : baseMetadata;
 
-      // When sealed, pack real sender inside encryptedPayload
-      final effectiveEncryptedPayload = sealedSender
-          ? (encryptedPayload ??
-              SealedSenderPayload.pack(
-                senderPublicKey: _currentNodeId,
-                content: originalContent,
-              ))
-          : encryptedPayload;
+      // Sealed sender passthrough — only use the already-encrypted payload.
+      final effectiveEncryptedPayload = encryptedPayload;
 
       // PHASE 2: Create relay message with message type
       final relayMessage = MeshRelayMessage.createRelay(
         originalMessageId: originalMessageId,
         originalContent: originalContent,
-        metadata: sealedSender
+        metadata: effectiveSealedSender
             ? RelayMetadata(
                 ttl: relayMetadata.ttl,
                 hopCount: relayMetadata.hopCount,

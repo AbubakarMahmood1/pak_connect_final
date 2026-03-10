@@ -82,6 +82,9 @@ class RelayMetadata {
   /// Sentinel value used when sender identity is sealed.
   static const String sealedSenderPlaceholder = 'sealed';
 
+  /// Sentinel used on-wire when stealth addressing hides the real recipient.
+  static const String stealthRecipientPlaceholder = 'stealth';
+
   /// Create relay metadata for a new message
   factory RelayMetadata.create({
     required String originalMessageContent,
@@ -172,7 +175,9 @@ class RelayMetadata {
     'priority': priority.index,
     'relayTimestamp': relayTimestamp.millisecondsSinceEpoch,
     'originalSender': originalSender,
-    'finalRecipient': finalRecipient,
+    'finalRecipient': usesStealth
+        ? stealthRecipientPlaceholder
+        : finalRecipient,
     if (stealthEnvelope != null) 'stealth': stealthEnvelope!.toJson(),
     if (sealedSender) 'sealedSender': true,
     'senderRateCount': senderRateCount,
@@ -190,7 +195,7 @@ class RelayMetadata {
     priority: MessagePriority.values[json['priority']],
     relayTimestamp: DateTime.fromMillisecondsSinceEpoch(json['relayTimestamp']),
     originalSender: json['originalSender'],
-    finalRecipient: json['finalRecipient'],
+    finalRecipient: (json['finalRecipient'] as String?) ?? '',
     stealthEnvelope: json['stealth'] != null
         ? StealthEnvelope.fromJson(json['stealth'] as Map<String, dynamic>)
         : null,

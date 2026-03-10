@@ -25,6 +25,9 @@ class ImportService {
 
   // Checkpoint file name (stored alongside DB in app data directory)
   static const String _checkpointFileName = 'import_checkpoint.json';
+  // Secure storage key for sensitive checkpoint data (keys/prefs)
+  static const String _checkpointSensitiveKey =
+      'import_checkpoint_sensitive_v1';
 
   /// Import and restore from encrypted bundle.
   ///
@@ -618,10 +621,9 @@ class ImportService {
     required bool clearExistingData,
     required Map<String, dynamic> bundleMetadata,
   }) async {
+    // Non-sensitive metadata written to disk
     final data = {
       'dbRestorePath': dbRestorePath,
-      'keys': keys,
-      'preferences': preferences,
       'exportType': exportType,
       'clearExistingData': clearExistingData,
       'bundleMetadata': bundleMetadata,
@@ -630,7 +632,13 @@ class ImportService {
 
     final path = await _checkpointPath();
     await File(path).writeAsString(jsonEncode(data));
-    _logger.info('💾 Import checkpoint saved');
+
+    // Sensitive keys/preferences go to secure storage, never plaintext disk
+    const storage = FlutterSecureStorage();
+    final sensitive = jsonEncode({'keys': keys, 'preferences': preferences});
+    await storage.write(key: _checkpointSensitiveKey, value: sensitive);
+
+    _logger.info('💾 Import checkpoint saved (keys in secure storage)');
   }
 
   static Future<Map<String, dynamic>?> _loadCheckpoint() async {
@@ -640,7 +648,19 @@ class ImportService {
       if (!file.existsSync()) return null;
 
       final json = await file.readAsString();
-      return jsonDecode(json) as Map<String, dynamic>;
+      final data = jsonDecode(json) as Map<String, dynamic>;
+
+      // Merge sensitive data back from secure storage
+      const storage = FlutterSecureStorage();
+      final sensitiveJson = await storage.read(key: _checkpointSensitiveKey);
+      if (sensitiveJson != null) {
+        final sensitive =
+            jsonDecode(sensitiveJson) as Map<String, dynamic>;
+        data['keys'] = sensitive['keys'];
+        data['preferences'] = sensitive['preferences'];
+      }
+
+      return data;
     } catch (e) {
       _logger.warning('Failed to load checkpoint: $e');
       return null;
@@ -655,6 +675,9 @@ class ImportService {
         await file.delete();
         _logger.info('🧹 Import checkpoint cleared');
       }
+      // Also wipe sensitive data from secure storage
+      const storage = FlutterSecureStorage();
+      await storage.delete(key: _checkpointSensitiveKey);
     } catch (e) {
       _logger.fine('Failed to clear checkpoint: $e');
     }
