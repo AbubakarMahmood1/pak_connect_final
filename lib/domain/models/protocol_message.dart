@@ -8,7 +8,7 @@ import 'package:pak_connect/domain/values/id_types.dart';
 import '../constants/special_recipients.dart';
 import 'mesh_relay_models.dart';
 export 'package:pak_connect/domain/models/protocol_message_type.dart'
-    show ProtocolMessageType;
+    show ProtocolMessageType, ProtocolMessageTypeWireId;
 
 class ProtocolMessage {
   final ProtocolMessageType type;
@@ -40,7 +40,7 @@ class ProtocolMessage {
   /// Falls back to uncompressed if compression doesn't help.
   Uint8List toBytes({bool enableCompression = true}) {
     final json = {
-      'type': type.index,
+      'type': type.wireType,
       'version': version,
       'payload': payload,
       'timestamp': timestamp.millisecondsSinceEpoch,
@@ -138,7 +138,7 @@ class ProtocolMessage {
       // Parse JSON
       final json = jsonDecode(utf8.decode(jsonBytes));
       return ProtocolMessage(
-        type: ProtocolMessageType.values[json['type']],
+        type: ProtocolMessageTypeWireId.fromWireType(json['type']),
         version: json['version'] ?? 1,
         payload: Map<String, dynamic>.from(json['payload']),
         timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
@@ -152,7 +152,7 @@ class ProtocolMessage {
       try {
         final json = jsonDecode(utf8.decode(bytes));
         return ProtocolMessage(
-          type: ProtocolMessageType.values[json['type']],
+          type: ProtocolMessageTypeWireId.fromWireType(json['type']),
           version: json['version'] ?? 1,
           payload: Map<String, dynamic>.from(json['payload']),
           timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
@@ -614,7 +614,9 @@ class ProtocolMessage {
   ProtocolMessageType? get meshRelayOriginalMessageType {
     if (type == ProtocolMessageType.meshRelay) {
       final typeIndex = payload['originalMessageType'] as int?;
-      return typeIndex != null ? ProtocolMessageType.values[typeIndex] : null;
+      return typeIndex != null
+          ? ProtocolMessageTypeWireId.fromWireType(typeIndex)
+          : null;
     }
     return null;
   }
@@ -667,7 +669,7 @@ class ProtocolMessage {
       'originalPayload': originalPayload,
       'useEphemeralAddressing': useEphemeralAddressing, // STEP 7
       if (originalMessageType != null)
-        'originalMessageType': originalMessageType.index, // PHASE 2
+        'originalMessageType': originalMessageType.wireType, // PHASE 2
     },
     timestamp: DateTime.now(),
   );

@@ -1,6 +1,7 @@
 /// Message type enum shared between protocol payloads and relay metadata.
 ///
-/// Keep value ordering stable because type indexes are serialized on the wire.
+/// DO NOT reorder, rename, or remove existing values. New values must be
+/// appended at the end AND registered in [_wireTypeByMessageType] below.
 enum ProtocolMessageType {
   // ===== HANDSHAKE PROTOCOL (Sequential, No ACKs) =====
   // Phase 0: Connection establishment
@@ -37,4 +38,74 @@ enum ProtocolMessageType {
 
   // ===== SPY MODE =====
   friendReveal, // Reveal persistent identity in spy mode
+}
+
+/// Stable numeric IDs for wire serialization.
+///
+/// Values mirror the current [ProtocolMessageType] enum indices so that
+/// already-transmitted messages remain parseable.  Future enum additions
+/// MUST be appended here with an explicit, unique integer — never rely on
+/// dart enum `.index` for wire format.
+const Map<ProtocolMessageType, int> _wireTypeByMessageType = {
+  ProtocolMessageType.connectionReady: 0,
+  ProtocolMessageType.identity: 1,
+  ProtocolMessageType.noiseHandshake1: 2,
+  ProtocolMessageType.noiseHandshake2: 3,
+  ProtocolMessageType.noiseHandshake3: 4,
+  ProtocolMessageType.noiseHandshakeRejected: 5,
+  ProtocolMessageType.contactStatus: 6,
+  ProtocolMessageType.pairingRequest: 7,
+  ProtocolMessageType.pairingAccept: 8,
+  ProtocolMessageType.pairingCancel: 9,
+  ProtocolMessageType.pairingCode: 10,
+  ProtocolMessageType.pairingVerify: 11,
+  ProtocolMessageType.persistentKeyExchange: 12,
+  ProtocolMessageType.textMessage: 13,
+  ProtocolMessageType.ack: 14,
+  ProtocolMessageType.ping: 15,
+  ProtocolMessageType.keyExchange: 16,
+  ProtocolMessageType.contactRequest: 17,
+  ProtocolMessageType.contactAccept: 18,
+  ProtocolMessageType.contactReject: 19,
+  ProtocolMessageType.cryptoVerification: 20,
+  ProtocolMessageType.cryptoVerificationResponse: 21,
+  ProtocolMessageType.meshRelay: 22,
+  ProtocolMessageType.queueSync: 23,
+  ProtocolMessageType.relayAck: 24,
+  ProtocolMessageType.friendReveal: 25,
+};
+
+final Map<int, ProtocolMessageType> _messageTypeByWireType = {
+  for (final entry in _wireTypeByMessageType.entries) entry.value: entry.key,
+};
+
+/// Extension providing stable wire-format integer IDs for
+/// [ProtocolMessageType] values.
+extension ProtocolMessageTypeWireId on ProtocolMessageType {
+  /// The stable integer sent/received over the wire.
+  int get wireType => _wireTypeByMessageType[this]!;
+
+  /// Deserialize a wire-type integer back to [ProtocolMessageType].
+  ///
+  /// Accepts both [int] and stringified int for JSON flexibility.
+  /// Falls back to legacy `.index` lookup when the value is in range
+  /// (backward compat with pre-wireType peers).
+  static ProtocolMessageType fromWireType(Object? rawType) {
+    final wireType = rawType is int ? rawType : int.tryParse('$rawType');
+    if (wireType == null) {
+      throw ArgumentError('Invalid protocol message type: $rawType');
+    }
+
+    final type = _messageTypeByWireType[wireType];
+    if (type != null) return type;
+
+    // Backward compat: older peers may send an index that happens to match
+    // (since current wire IDs equal enum indices, this is a no-op today
+    //  but guards against future remapping).
+    if (wireType >= 0 && wireType < ProtocolMessageType.values.length) {
+      return ProtocolMessageType.values[wireType];
+    }
+
+    throw ArgumentError('Unknown protocol message type id: $wireType');
+  }
 }
