@@ -519,8 +519,15 @@ class SpamPreventionManager {
       _costPolicy!.getNetworkHourlyVolume(),
     );
 
-    // No PoW required when floor is 0 and message has no PoW
-    if (networkFloor <= 0 &&
+    // Compute per-sender required difficulty based on rolling volume & trust.
+    final trustScore = getTrustScoreForNode(fromNodeId);
+    final senderRequired =
+        _costPolicy!.getRequiredDifficulty(fromNodeId, trustScore);
+    final requiredDifficulty =
+        senderRequired > networkFloor ? senderRequired : networkFloor;
+
+    // No PoW required when required difficulty is 0 and message has no PoW
+    if (requiredDifficulty <= 0 &&
         (metadata.powDifficulty == null || metadata.powDifficulty == 0)) {
       return const SpamCheck(
         type: SpamCheckType.proofOfWork,
@@ -538,17 +545,18 @@ class SpamPreventionManager {
 
     final claimedDifficulty = metadata.powDifficulty ?? 0;
 
-    // Check 1: Does the claimed difficulty meet the network floor?
-    if (claimedDifficulty < networkFloor) {
-      final score = networkFloor > 0
-          ? (1.0 - claimedDifficulty / networkFloor).clamp(0.0, 1.0)
+    // Check 1: Does the claimed difficulty meet the required level?
+    if (claimedDifficulty < requiredDifficulty) {
+      final score = requiredDifficulty > 0
+          ? (1.0 - claimedDifficulty / requiredDifficulty).clamp(0.0, 1.0)
           : 0.0;
       return SpamCheck(
         type: SpamCheckType.proofOfWork,
         passed: false,
         spamScore: score,
         message:
-            'PoW difficulty $claimedDifficulty below floor $networkFloor',
+            'PoW difficulty $claimedDifficulty below required $requiredDifficulty '
+            '(floor=$networkFloor, sender=$senderRequired)',
       );
     }
 
@@ -577,7 +585,7 @@ class SpamPreventionManager {
       type: SpamCheckType.proofOfWork,
       passed: true,
       spamScore: 0.0,
-      message: 'PoW valid (difficulty=$claimedDifficulty, floor=$networkFloor)',
+      message: 'PoW valid (difficulty=$claimedDifficulty, required=$requiredDifficulty)',
     );
   }
 

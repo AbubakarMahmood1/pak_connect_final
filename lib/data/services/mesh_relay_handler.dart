@@ -429,7 +429,10 @@ class MeshRelayHandler {
         finalRecipient: message.relayMetadata.finalRecipient,
         relayMetadata: message.relayMetadata.toJson(),
         originalPayload: {
-          'content': message.originalContent,
+          // Only carry plaintext when no encrypted payload exists.
+          // Prevents leaking cleartext to intermediate relay hops.
+          if (message.encryptedPayload == null)
+            'content': message.originalContent,
           if (message.encryptedPayload != null)
             'encrypted': message.encryptedPayload,
         },
