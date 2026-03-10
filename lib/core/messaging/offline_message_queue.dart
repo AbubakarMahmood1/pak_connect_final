@@ -521,8 +521,32 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       'Delivery failed for ${message.id.shortId()}...: $reason (attempt ${message.attempts}/${message.maxRetries})',
     );
 
-    // For mesh networking, never permanently fail messages - devices may be offline for long periods
-    // Instead, use exponential backoff with increasing delays for persistent retry
+    // Check retry policy (max retries + expiry) before scheduling another attempt
+    final canRetry = _queueScheduler.shouldRetry(
+      message.id,
+      message.lastAttemptAt,
+      message.attempts,
+      message.maxRetries,
+      message.expiresAt,
+    );
+
+    if (!canRetry) {
+      message.status = QueuedMessageStatus.failed;
+      message.failureReason = reason;
+      message.failedAt = DateTime.now();
+      message.nextRetryAt = null;
+
+      _cancelRetryTimer(MessageId(message.id));
+      await _saveMessageToStorage(message);
+      onMessageFailed?.call(message, reason);
+      _updateStatistics();
+
+      _logger.info(
+        'Message permanently failed: ${message.id.shortId()}... '
+        '(attempt ${message.attempts}/${message.maxRetries})',
+      );
+      return;
+    }
 
     // Calculate exponential backoff delay (cap at 1 hour for very high attempt counts)
     final backoffDelay = _calculateBackoffDelay(message.attempts);

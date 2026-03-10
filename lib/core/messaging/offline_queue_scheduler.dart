@@ -66,6 +66,22 @@ class QueueScheduler {
     scheduler.cancelRetryTimer(messageId);
   }
 
+  bool shouldRetry(
+    String messageId,
+    DateTime? lastAttemptAt,
+    int attempts,
+    int maxRetries,
+    DateTime? expiresAt,
+  ) {
+    return scheduler.shouldRetry(
+      messageId,
+      lastAttemptAt,
+      attempts,
+      maxRetries,
+      expiresAt,
+    );
+  }
+
   void cancelAllRetryTimers() {
     scheduler.cancelAllRetryTimers();
   }
