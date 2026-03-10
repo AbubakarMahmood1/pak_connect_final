@@ -123,6 +123,18 @@ class PairingFlowController {
   void handleReceivedPairingCode(String theirCode) =>
       _pairingService.handleReceivedPairingCode(theirCode);
   Future<void> handlePairingVerification(String theirSecretHash) async {
+    // Guard: reject unsolicited verification hashes when no pairing session
+    // is active. Without this check an attacker can trigger
+    // _handleVerificationFailure and downgrade the contact to LOW security.
+    final pairing = _pairingState;
+    if (pairing == null || pairing.sharedSecret == null) {
+      _logger.warning(
+        'Ignoring out-of-context pairing verification hash '
+        '(no active completed pairing)',
+      );
+      return;
+    }
+
     await _pairingService.handlePairingVerification(theirSecretHash);
   }
 
