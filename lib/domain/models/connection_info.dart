@@ -2,6 +2,8 @@
 // UI from needing to combine multiple streams. Previous attempts with
 // separate streams led to synchronization issues and UI inconsistencies.
 class ConnectionInfo {
+  static const Object _unset = Object();
+
   final bool isConnected; // Basic BLE connection
   final bool isReady; // Ready for messaging (has identity)
   final String? otherUserName; // Display name for UI
@@ -29,8 +31,8 @@ class ConnectionInfo {
   ConnectionInfo copyWith({
     bool? isConnected,
     bool? isReady,
-    String? otherUserName,
-    String? statusMessage,
+    Object? otherUserName = _unset,
+    Object? statusMessage = _unset,
     bool? isScanning,
     bool? isAdvertising,
     bool? isReconnecting,
@@ -38,8 +40,12 @@ class ConnectionInfo {
   }) => ConnectionInfo(
     isConnected: isConnected ?? this.isConnected,
     isReady: isReady ?? this.isReady,
-    otherUserName: otherUserName ?? this.otherUserName,
-    statusMessage: statusMessage ?? this.statusMessage,
+    otherUserName: identical(otherUserName, _unset)
+        ? this.otherUserName
+        : otherUserName as String?,
+    statusMessage: identical(statusMessage, _unset)
+        ? this.statusMessage
+        : statusMessage as String?,
     isScanning: isScanning ?? this.isScanning,
     isAdvertising: isAdvertising ?? this.isAdvertising,
     isReconnecting: isReconnecting ?? this.isReconnecting,
