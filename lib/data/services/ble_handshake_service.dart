@@ -381,17 +381,16 @@ class BLEHandshakeService implements IBLEHandshakeService {
       final nonce = HintAdvertisementService.deriveNonce(sessionKey);
       final introHint = await _introHintRepo.getMostRecentActiveHint();
       final useIntro = introHint != null && introHint.isUsable;
-      final identifier = useIntro
-          ? introHint.hintHex
-          : await _stateManager.getMyPersistentId();
 
-      if (identifier.isEmpty) {
-        _logger.fine('⚖️ Collision hint unavailable - identifier missing');
+      // Privacy hardening: collision hints must only use intro hint secrets,
+      // not public/persistent IDs which allow trivial recomputation.
+      if (!useIntro) {
+        _logger.fine('⚖️ Collision hint unavailable - no active intro hint');
         return null;
       }
 
       final hintBytes = HintAdvertisementService.computeHintBytes(
-        identifier: identifier,
+        identifier: introHint.hintHex,
         nonce: nonce,
       );
 

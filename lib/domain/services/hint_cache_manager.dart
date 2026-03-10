@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/entities/enhanced_contact.dart';
-import 'package:pak_connect/domain/utils/hint_advertisement_service.dart';
 
 class HintCacheManager {
   static final _logger = Logger('HintCacheManager');
@@ -83,18 +82,10 @@ class HintCacheManager {
   }
 
   static ContactHint? _matchFromCache(Uint8List nonce, Uint8List hintBytes) {
-    for (final entry in _contactCache.values) {
-      final identifier = entry.contact.contact.chatId;
-      final expected = HintAdvertisementService.computeHintBytes(
-        identifier: identifier,
-        nonce: nonce,
-      );
-
-      if (_bytesEqual(expected, hintBytes)) {
-        return entry;
-      }
-    }
-
+    // Privacy hardening: deterministic hint matching using public chatId is
+    // disabled. Contact IDs are public, so deriving hints from them allows
+    // eavesdroppers to recompute and link advertisements. Only intro-hint
+    // based matching (handled by the intro hint repository) is safe.
     return null;
   }
 
@@ -117,14 +108,6 @@ class HintCacheManager {
   static void setCacheValidity(int minutes) {
     _cacheValidityMinutes = minutes;
     clearCache();
-  }
-
-  static bool _bytesEqual(Uint8List a, Uint8List b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 }
 

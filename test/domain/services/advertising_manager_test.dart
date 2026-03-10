@@ -159,7 +159,7 @@ void main() {
     );
 
     test(
-      'startAdvertising includes persistent blinded hint when enabled',
+      'startAdvertising returns empty hints when no intro hint available (privacy hardening)',
       () async {
         SharedPreferences.setMockInitialValues(<String, Object>{
           'show_online_status': true,
@@ -180,12 +180,8 @@ void main() {
           ),
         );
         final advertisement = invocation.captured.single as Advertisement;
-        expect(advertisement.manufacturerSpecificData, hasLength(1));
-
-        final packed = advertisement.manufacturerSpecificData.single.data;
-        final parsed = HintAdvertisementService.parseAdvertisement(packed);
-        expect(parsed, isNotNull);
-        expect(parsed!.isIntro, isFalse);
+        // Privacy: no manufacturer hint data when only public key is available
+        expect(advertisement.manufacturerSpecificData, isEmpty);
       },
     );
 
