@@ -158,17 +158,10 @@ class _BleMessagingTransportHelper {
           continue;
         }
         try {
-          // Decrement TTL byte before forwarding to enforce hop cap.
-          final forwarded = Uint8List.fromList(data);
-          if (forwarded.length > 10) {
-            // TTL is after: magic(1) + fragmentId(8) + index/total(4) => offset 13
-            const ttlOffset = 1 + 8 + 4;
-            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
-          }
           await _owner._getCentralManager().writeCharacteristic(
             conn.peripheral,
             characteristic,
-            value: forwarded,
+            value: data,
             type: GATTCharacteristicWriteType.withResponse,
           );
           await Future.delayed(const Duration(milliseconds: 10));
@@ -237,16 +230,12 @@ class _BleMessagingTransportHelper {
           )) {
             return;
           }
-          // Decrement TTL byte before forwarding to enforce hop cap.
-          final forwarded = Uint8List.fromList(data);
-          if (forwarded.length > 10) {
-            const ttlOffset = 1 + 8 + 4;
-            forwarded[ttlOffset] = (forwarded[ttlOffset] - 1) & 0xFF;
-          }
+          // TTL already decremented by MessageFragmentationHandler — no second
+          // decrement needed (data from takeForwardFragment is pre-adjusted).
           await _owner._getPeripheralManager().notifyCharacteristic(
             connectedCentral,
             characteristic,
-            value: forwarded,
+            value: data,
           );
           await Future.delayed(const Duration(milliseconds: 10));
         } catch (e) {
