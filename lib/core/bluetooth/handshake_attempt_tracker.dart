@@ -25,6 +25,9 @@ class HandshakeAttemptTracker {
   static const Duration _defaultWindow = Duration(minutes: 10);
   static const Duration _defaultLockout = Duration(minutes: 15);
 
+  /// Hard cap on the number of distinct peer IDs tracked.
+  static const int _maxTrackedPeers = 500;
+
   // Static maps so state survives HandshakeCoordinator reconstruction.
   static final Map<String, List<DateTime>> _failureTimestamps = {};
   static final Map<String, DateTime> _lockoutUntil = {};
@@ -35,6 +38,7 @@ class HandshakeAttemptTracker {
   /// failure threshold within the rolling [window].
   bool allowAttempt(String peerId) {
     _pruneOld(peerId);
+    _evictIfOverCap();
 
     final lockedUntil = _lockoutUntil[peerId];
     if (lockedUntil != null) {
@@ -67,6 +71,7 @@ class HandshakeAttemptTracker {
 
   /// Record a failed handshake attempt from [peerId].
   void recordFailure(String peerId, String reason) {
+    _evictIfOverCap();
     _failureTimestamps.putIfAbsent(peerId, () => []).add(DateTime.now());
     _pruneOld(peerId);
 
@@ -111,6 +116,9 @@ class HandshakeAttemptTracker {
     _lockoutUntil.clear();
   }
 
+  /// Current number of tracked peer IDs (visible for testing).
+  static int get trackedPeerCount => _failureTimestamps.length;
+
   // Remove timestamps outside the rolling window.
   void _pruneOld(String peerId) {
     final stamps = _failureTimestamps[peerId];
@@ -118,5 +126,28 @@ class HandshakeAttemptTracker {
     final cutoff = DateTime.now().subtract(_window);
     stamps.removeWhere((t) => t.isBefore(cutoff));
     if (stamps.isEmpty) _failureTimestamps.remove(peerId);
+  }
+
+  /// Evict oldest entries when the maps exceed [_maxTrackedPeers].
+  static void _evictIfOverCap() {
+    if (_failureTimestamps.length <= _maxTrackedPeers) return;
+
+    // Remove peers whose lockouts have expired first.
+    final now = DateTime.now();
+    _lockoutUntil.removeWhere((_, until) => until.isBefore(now));
+
+    // Remove failure entries that no longer have a lockout.
+    final expiredPeers = _failureTimestamps.keys
+        .where((id) => !_lockoutUntil.containsKey(id))
+        .toList();
+    for (final peerId in expiredPeers) {
+      _failureTimestamps.remove(peerId);
+      if (_failureTimestamps.length <= _maxTrackedPeers) return;
+    }
+
+    // If still over cap, evict the oldest entries regardless.
+    while (_failureTimestamps.length > _maxTrackedPeers) {
+      _failureTimestamps.remove(_failureTimestamps.keys.first);
+    }
   }
 }
