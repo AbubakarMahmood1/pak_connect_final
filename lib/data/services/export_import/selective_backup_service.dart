@@ -96,8 +96,14 @@ class SelectiveBackupService {
 
       // Include change_log entries for incremental exports so the import
       // side can replay DELETEs that a simple `updated_at >` query misses.
+      // Scope to tables relevant to the chosen export type only.
       if (since != null) {
-        recordCount += await _exportChangeLog(db, backupDb, since: since);
+        recordCount += await _exportChangeLog(
+          db,
+          backupDb,
+          since: since,
+          exportType: exportType,
+        );
       }
 
       await backupDb.close();
@@ -376,11 +382,20 @@ class SelectiveBackupService {
     ''');
   }
 
-  /// Export change_log entries since [since] into [targetDb].
+  /// Tables relevant to each export type for scoped change_log filtering.
+  static const _tablesForExportType = {
+    ExportType.contactsOnly: {'contacts'},
+    ExportType.messagesOnly: {'chats', 'messages'},
+    ExportType.full: {'contacts', 'chats', 'messages'},
+  };
+
+  /// Export change_log entries since [since] into [targetDb],
+  /// scoped to tables relevant to [exportType].
   static Future<int> _exportChangeLog(
     sqlcipher.Database sourceDb,
     sqflite_common.Database targetDb, {
     required int since,
+    required ExportType exportType,
   }) async {
     _logger.info('Exporting change_log entries since $since...');
 
@@ -393,10 +408,14 @@ class SelectiveBackupService {
       return 0;
     }
 
+    final allowedTables = _tablesForExportType[exportType] ?? <String>{};
+    if (allowedTables.isEmpty) return 0;
+
+    final placeholders = List.filled(allowedTables.length, '?').join(', ');
     final entries = await sourceDb.query(
       'change_log',
-      where: 'changed_at > ?',
-      whereArgs: [since],
+      where: 'changed_at > ? AND table_name IN ($placeholders)',
+      whereArgs: [since, ...allowedTables],
       orderBy: 'id ASC',
     );
 

@@ -88,10 +88,11 @@ class SelectiveRestoreService {
           throw UnsupportedError('Use DatabaseBackupService for full restore');
       }
 
-      // Replay change_log DELETEs that the upsert pass cannot capture.
+      // Replay change_log DELETEs scoped to tables relevant to this export type.
       recordsRestored += await _replayChangeLogDeletes(
         backupDb,
         targetDb,
+        exportType: exportType,
       );
 
       await backupDb.close();
@@ -271,21 +272,28 @@ class SelectiveRestoreService {
     return totalRecords;
   }
 
-  /// Replay DELETE entries from the backup's change_log table.
-  ///
-  /// The upsert (INSERT OR REPLACE) path handles INSERT and UPDATE
-  /// operations, but cannot propagate deletions.  This method reads
-  /// all DELETE entries from the backup's change_log and removes the
-  /// corresponding rows from the target database.
+  /// Tables relevant to each export type for scoped delete replay.
+  static const _tablesForExportType = {
+    ExportType.contactsOnly: {'contacts'},
+    ExportType.messagesOnly: {'chats', 'messages'},
+    ExportType.full: {'contacts', 'chats', 'messages'},
+  };
+
+  /// Replay DELETE entries from the backup's change_log table,
+  /// scoped to tables relevant to [exportType].
   static Future<int> _replayChangeLogDeletes(
     sqflite_common.Database backupDb,
-    sqlcipher.Database targetDb,
-  ) async {
+    sqlcipher.Database targetDb, {
+    required ExportType exportType,
+  }) async {
     // Guard: backup may have been created before v11 (no change_log).
     final tables = await backupDb.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='change_log'",
     );
     if (tables.isEmpty) return 0;
+
+    final allowedTables = _tablesForExportType[exportType] ?? <String>{};
+    if (allowedTables.isEmpty) return 0;
 
     final deletes = await backupDb.query(
       'change_log',
@@ -307,6 +315,7 @@ class SelectiveRestoreService {
     for (final entry in deletes) {
       final table = entry['table_name'] as String;
       final rowKey = entry['row_key'] as String;
+      if (!allowedTables.contains(table)) continue;
       final pkColumn = pkColumnByTable[table];
       if (pkColumn == null) {
         _logger.warning('Unknown table in change_log DELETE: $table');

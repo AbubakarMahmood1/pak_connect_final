@@ -631,16 +631,14 @@ class AppCore {
             }
 
             if (entry.operation == 'DELETE') {
-              final deleted = await db.delete(
-                entry.tableName,
-                where: '$pkCol = ?',
-                whereArgs: [entry.rowKey],
+              // Security: peer-supplied DELETEs are not trusted. A rogue BLE
+              // peer could craft entries to wipe contacts/chats/messages.
+              // Only allow deletes through authenticated import/restore paths.
+              _logger.fine(
+                '⏭️ Skipping peer-supplied DELETE for '
+                '${entry.tableName}:${entry.rowKey} (untrusted)',
               );
-              if (deleted > 0) {
-                deletes++;
-              } else {
-                skipped++;
-              }
+              skipped++;
             } else if (entry.operation == 'UPDATE') {
               // Phase 3 LWW: compare changed_at vs local updated_at.
               // If remote is newer, the local row is stale. We can't apply
