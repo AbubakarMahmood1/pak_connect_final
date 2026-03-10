@@ -397,6 +397,12 @@ class MeshQueueSyncCoordinator {
           'No active connection available (will retry later): $truncatedId...',
         );
         success = false;
+      } else if (!_isIntendedRecipientConnected(message.recipientPublicKey)) {
+        _logger.warning(
+          'Connected peer does not match queued recipient (will retry later): '
+          '$truncatedId...',
+        );
+        success = false;
       } else if (_bleService.hasPeripheralConnection) {
         success = await _bleService.sendPeripheralMessage(
           message.content,
@@ -435,6 +441,28 @@ class MeshQueueSyncCoordinator {
       _logger.severe('Error sending message $truncatedId...: $e');
       await _messageQueue?.markMessageFailed(messageId, 'Send error: $e');
     }
+  }
+
+  /// Returns true when the currently connected BLE peer matches the
+  /// [intendedRecipient] by any of its known identifiers (session id,
+  /// ephemeral id, or persistent key).
+  bool _isIntendedRecipientConnected(String intendedRecipient) {
+    if (intendedRecipient.isEmpty) {
+      return false;
+    }
+
+    final connectedIdentifiers = <String?>{
+      _bleService.currentSessionId,
+      _bleService.theirEphemeralId,
+      _bleService.theirPersistentKey,
+    };
+
+    return connectedIdentifiers.any(
+      (candidate) =>
+          candidate != null &&
+          candidate.isNotEmpty &&
+          candidate == intendedRecipient,
+    );
   }
 
   void _handleConnectivityCheck() {

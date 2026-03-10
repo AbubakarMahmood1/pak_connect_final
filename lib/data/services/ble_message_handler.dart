@@ -24,6 +24,7 @@ import '../../domain/entities/message.dart';
 import '../../data/repositories/user_preferences.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/services/signing_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 
@@ -665,13 +666,25 @@ class BLEMessageHandler {
         return null;
       }
 
-      // Verify cryptographic proof of ownership
-      // For now, verify that the contact exists and proof is not empty
-      // Full cryptographic verification would involve signature checking
-      final isValid =
-          await _contactRepository.getCachedSharedSecret(theirPersistentKey) !=
-              null &&
-          proof.isNotEmpty;
+      if (senderPublicKey == null || senderPublicKey.isEmpty) {
+        _logger.warning(
+          '🕵️ FRIEND_REVEAL rejected: Missing sender ephemeral key for challenge verification',
+        );
+        return null;
+      }
+
+      // Verify cryptographic proof: the sender must sign the challenge
+      // '<theirEphemeralId>_<timestamp>' with the claimed persistent key.
+      final cachedSharedSecret =
+          await _contactRepository.getCachedSharedSecret(theirPersistentKey);
+      final challenge = '${senderPublicKey}_$timestamp';
+      final hasValidSignature = SigningManager.verifySignature(
+        challenge,
+        proof,
+        theirPersistentKey,
+        false,
+      );
+      final isValid = cachedSharedSecret != null && hasValidSignature;
 
       if (!isValid) {
         _logger.severe(
@@ -691,12 +704,10 @@ class BLEMessageHandler {
         );
 
         // Register mapping for Noise session lookup
-        if (senderPublicKey != null) {
-          SecurityServiceLocator.resolveService().registerIdentityMapping(
-            persistentPublicKey: theirPersistentKey,
-            ephemeralID: senderPublicKey,
-          );
-        }
+        SecurityServiceLocator.resolveService().registerIdentityMapping(
+          persistentPublicKey: theirPersistentKey,
+          ephemeralID: senderPublicKey,
+        );
 
         // Notify UI via callback (if set by BLEService)
         onIdentityRevealed?.call(contact.displayName);

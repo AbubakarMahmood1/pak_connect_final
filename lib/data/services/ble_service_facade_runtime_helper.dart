@@ -354,6 +354,7 @@ class _BleServiceFacadeRuntimeHelper {
     _owner._logger.info(
       '🤝 Handshake complete with $displayName ($truncatedId)',
     );
+    final normalizedNoiseKey = noiseKey?.trim();
     _owner._stateManager.setOtherUserName(displayName);
     _owner._stateManager.setTheirEphemeralId(ephemeralId, displayName);
     // Persist or create contact record using the session ephemeral as the
@@ -370,6 +371,13 @@ class _BleServiceFacadeRuntimeHelper {
           SecurityLevel.low,
           currentEphemeralId: ephemeralId,
         );
+        if (normalizedNoiseKey != null && normalizedNoiseKey.isNotEmpty) {
+          await _owner._contactRepository.updateNoiseSession(
+            publicKey: ephemeralId,
+            noisePublicKey: normalizedNoiseKey,
+            sessionState: 'established',
+          );
+        }
         _owner._logger.info(
           '🔒 HANDSHAKE: Created LOW-security contact for $displayName ($truncatedId)',
         );
@@ -378,6 +386,13 @@ class _BleServiceFacadeRuntimeHelper {
           await _owner._contactRepository.updateContactEphemeralId(
             existingContact.publicKey,
             ephemeralId,
+          );
+        }
+        if (normalizedNoiseKey != null && normalizedNoiseKey.isNotEmpty) {
+          await _owner._contactRepository.updateNoiseSession(
+            publicKey: existingContact.publicKey,
+            noisePublicKey: normalizedNoiseKey,
+            sessionState: 'established',
           );
         }
         if (existingContact.persistentPublicKey != null &&

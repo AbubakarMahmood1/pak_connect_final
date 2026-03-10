@@ -27,7 +27,7 @@ class _FakeConnectionService extends Fake implements IConnectionService {
       StreamController.broadcast();
   bool _canSend = true;
   bool _hasPeripheral = false;
-  String? _sessionId = 'device-abc123';
+  String? _sessionId = 'recipient-1';
   bool sendResult = true;
   int sendCallCount = 0;
   int peripheralSendCount = 0;
@@ -51,6 +51,16 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   @override
   String? get currentSessionId => _sessionId;
   set currentSessionId(String? v) => _sessionId = v;
+
+  String? _theirEphemeralId;
+  @override
+  String? get theirEphemeralId => _theirEphemeralId;
+  set theirEphemeralId(String? v) => _theirEphemeralId = v;
+
+  String? _theirPersistentKey;
+  @override
+  String? get theirPersistentKey => _theirPersistentKey;
+  set theirPersistentKey(String? v) => _theirPersistentKey = v;
 
   @override
   Future<bool> sendMessage(
@@ -471,6 +481,69 @@ void main() {
 
       expect(queue.failedIds, contains('msg-fail'));
     });
+
+    test('does not send when connected peer does not match recipient', () async {
+      bleService.currentSessionId = 'connected-peer';
+      bleService.theirEphemeralId = null;
+      bleService.theirPersistentKey = null;
+      await initCoordinator();
+
+      queue.addTestMessage(
+        _testMessage(id: 'msg-mismatch', recipientPublicKey: 'intended-peer'),
+      );
+
+      queue.capturedOnSendMessage?.call('msg-mismatch');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 0);
+      expect(bleService.peripheralSendCount, 0);
+      expect(queue.failedIds, contains('msg-mismatch'));
+    });
+
+    test('sends when connected session matches recipient', () async {
+      bleService.currentSessionId = 'intended-peer';
+      await initCoordinator();
+
+      queue.addTestMessage(
+        _testMessage(id: 'msg-match', recipientPublicKey: 'intended-peer'),
+      );
+
+      queue.capturedOnSendMessage?.call('msg-match');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 1);
+      expect(queue.failedIds, isNot(contains('msg-match')));
+    });
+
+    test('sends when theirEphemeralId matches recipient', () async {
+      bleService.currentSessionId = 'session-xyz';
+      bleService.theirEphemeralId = 'intended-peer';
+      await initCoordinator();
+
+      queue.addTestMessage(
+        _testMessage(id: 'msg-eph', recipientPublicKey: 'intended-peer'),
+      );
+
+      queue.capturedOnSendMessage?.call('msg-eph');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 1);
+    });
+
+    test('sends when theirPersistentKey matches recipient', () async {
+      bleService.currentSessionId = 'session-xyz';
+      bleService.theirPersistentKey = 'intended-peer';
+      await initCoordinator();
+
+      queue.addTestMessage(
+        _testMessage(id: 'msg-pkey', recipientPublicKey: 'intended-peer'),
+      );
+
+      queue.capturedOnSendMessage?.call('msg-pkey');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 1);
+    });
   });
 
   // ─────────── _handleConnectivityCheck via callback ───────────
@@ -551,7 +624,7 @@ void main() {
   group('_handleConnectionChange (via connection stream)', () {
     test('sets online and delivers on ready connection', () async {
       queue.addTestMessage(
-          _testMessage(id: 'pending-1', recipientPublicKey: 'device-abc123'));
+          _testMessage(id: 'pending-1', recipientPublicKey: 'recipient-1'));
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
@@ -614,13 +687,13 @@ void main() {
     test('delivers direct messages sorted by priority', () async {
       final highPri = _testMessage(
         id: 'high-1',
-        recipientPublicKey: 'device-abc123',
+        recipientPublicKey: 'recipient-1',
         priority: MessagePriority.high,
         queuedAt: DateTime(2024, 1, 2),
       );
       final normalPri = _testMessage(
         id: 'normal-1',
-        recipientPublicKey: 'device-abc123',
+        recipientPublicKey: 'recipient-1',
         priority: MessagePriority.normal,
         queuedAt: DateTime(2024, 1, 1),
       );
@@ -672,7 +745,7 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(syncManager.initiateSyncCount, 1);
-      expect(syncManager.lastSyncTarget, 'device-abc123');
+      expect(syncManager.lastSyncTarget, 'recipient-1');
     });
 
     test('debounces repeated connections within 10s', () async {
