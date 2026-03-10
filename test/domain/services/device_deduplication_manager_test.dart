@@ -182,6 +182,15 @@ void main() {
             payload: null,
           ),
         );
+        // Mark both as known contacts so the filter accepts them
+        DeviceDeduplicationManager.updateResolvedContact(
+          '55555555-5555-5555-5555-555555555555',
+          _enhancedContact(publicKey: 'pk-5555', chatKey: 'ck-5555', displayName: 'Peer5555'),
+        );
+        DeviceDeduplicationManager.updateResolvedContact(
+          '66666666-6666-6666-6666-666666666666',
+          _enhancedContact(publicKey: 'pk-6666', chatKey: 'ck-6666', displayName: 'Peer6666'),
+        );
         await _settleAsync();
         connected.clear();
         for (final id in <String>[

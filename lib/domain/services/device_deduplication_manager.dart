@@ -401,6 +401,9 @@ class DeviceDeduplicationManager {
 
     final now = DateTime.now();
     final candidates = _uniqueDevices.values.where((device) {
+      // Only auto-connect to verified/known contacts.
+      if (!device.isKnownContact) return false;
+
       // Respect retry backoff if previously attempted.
       if (device.autoConnectAttempted &&
           device.nextRetryAt != null &&

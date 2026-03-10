@@ -294,15 +294,55 @@ void main() {
       };
 
       // Add multiple devices with different RSSI
+      final p1 = _peripheral(150);
+      final p2 = _peripheral(160);
       DeviceDeduplicationManager.processDiscoveredDevice(
-        DiscoveredEventArgs(_peripheral(150), -80, _emptyAd()),
+        DiscoveredEventArgs(p1, -80, _emptyAd()),
       );
       DeviceDeduplicationManager.processDiscoveredDevice(
-        DiscoveredEventArgs(_peripheral(160), -30, _emptyAd()),
+        DiscoveredEventArgs(p2, -30, _emptyAd()),
       );
+      // Mark as known contacts so the isKnownContact filter passes
+      DeviceDeduplicationManager.updateResolvedContact(
+        p1.uuid.toString(),
+        EnhancedContact(
+          contact: Contact(
+            publicKey: 'pk-150',
+            displayName: 'Peer150',
+            trustStatus: TrustStatus.newContact,
+            securityLevel: SecurityLevel.low,
+            firstSeen: DateTime.now(),
+            lastSeen: DateTime.now(),
+          ),
+          lastSeenAgo: Duration.zero,
+          isRecentlyActive: true,
+          interactionCount: 0,
+          averageResponseTime: Duration.zero,
+          groupMemberships: [],
+        ),
+      );
+      DeviceDeduplicationManager.updateResolvedContact(
+        p2.uuid.toString(),
+        EnhancedContact(
+          contact: Contact(
+            publicKey: 'pk-160',
+            displayName: 'Peer160',
+            trustStatus: TrustStatus.newContact,
+            securityLevel: SecurityLevel.low,
+            firstSeen: DateTime.now(),
+            lastSeen: DateTime.now(),
+          ),
+          lastSeenAgo: Duration.zero,
+          isRecentlyActive: true,
+          interactionCount: 0,
+          averageResponseTime: Duration.zero,
+          groupMemberships: [],
+        ),
+      );
+      connectedDevices.clear();
 
       await DeviceDeduplicationManager.autoConnectStrongestRssi();
-      // Callback should have been invoked (at least during processDiscoveredDevice)
+      // Callback should have been invoked for the strongest RSSI known device
       expect(connectedDevices, isNotEmpty);
     });
 

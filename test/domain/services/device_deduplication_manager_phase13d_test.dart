@@ -415,6 +415,12 @@ void main() {
       DeviceDeduplicationManager.processDiscoveredDevice(
         _eventWithPeripheral(p),
       );
+      // Mark as known contact so RSSI auto-connect considers this device
+      DeviceDeduplicationManager.updateResolvedContact(
+        deviceId,
+        _enhancedContact(publicKey: 'pk-61'),
+      );
+      await DeviceDeduplicationManager.autoConnectStrongestRssi();
       await Future.delayed(const Duration(milliseconds: 200));
       final d = DeviceDeduplicationManager.getDevice(deviceId)!;
       expect(d.attemptCount, greaterThan(0));
@@ -695,12 +701,24 @@ void main() {
         callCount++;
       };
 
+      final p1 = _peripheral(121);
+      final p2 = _peripheral(122);
       DeviceDeduplicationManager.processDiscoveredDevice(
-        _event(121, rssi: -80),
+        DiscoveredEventArgs(p1, -80, _emptyAd()),
       );
       DeviceDeduplicationManager.processDiscoveredDevice(
-        _event(122, rssi: -30),
+        DiscoveredEventArgs(p2, -30, _emptyAd()),
       );
+      // Mark both devices as known contacts so they pass the filter
+      DeviceDeduplicationManager.updateResolvedContact(
+        p1.uuid.toString(),
+        _enhancedContact(publicKey: 'pk-121'),
+      );
+      DeviceDeduplicationManager.updateResolvedContact(
+        p2.uuid.toString(),
+        _enhancedContact(publicKey: 'pk-122'),
+      );
+      await DeviceDeduplicationManager.autoConnectStrongestRssi();
       await Future.delayed(const Duration(milliseconds: 200));
 
       // At least one auto-connect should have been attempted

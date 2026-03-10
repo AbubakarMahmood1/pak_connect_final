@@ -35,8 +35,9 @@ class RelaySendPipeline {
         );
         return false;
       }
-      // Persist relays for all hops so queued forwards survive app restarts.
-      const persistToStorage = true;
+      // Only persist originator hops; intermediate relays stay in-memory to
+      // prevent untrusted peers from exhausting local storage.
+      final persistToStorage = relayMessage.relayMetadata.isOriginator;
 
       await _spamPrevention.recordRelayOperation(
         fromNodeId: relayMessage.relayNodeId,
@@ -91,8 +92,8 @@ class RelaySendPipeline {
     Function(MessageId, MeshRelayMessage, String)? onRelayMessageIds,
   }) async {
     try {
-      // Persist relays for all hops so queued broadcasts survive restarts.
-      const persistToStorage = true;
+      // Only persist originator broadcasts; intermediate relays stay in-memory.
+      final persistToStorage = relayMessage.relayMetadata.isOriginator;
       final validNeighbors = availableNeighbors
           .where(
             (neighborId) =>
