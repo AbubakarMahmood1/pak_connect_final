@@ -125,7 +125,13 @@ class ContactRequestController {
     _logger.info('📱 CONTACT REQUEST: Accepted by $displayName');
 
     final completer = _outgoingRequestCompleters[publicKey];
-    if (completer != null && !completer.isCompleted) {
+    if (completer == null) {
+      _logger.warning(
+        '⚠️ Ignoring unsolicited contact accept from ${publicKey.length > 12 ? publicKey.substring(0, 12) : publicKey}... (no pending request)',
+      );
+      return;
+    }
+    if (!completer.isCompleted) {
       completer.complete(true);
     }
 

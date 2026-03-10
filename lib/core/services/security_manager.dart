@@ -792,17 +792,11 @@ class SecurityManager implements ISecurityService {
           );
           throw Exception('Noise decryption failed for binary payload');
         }
-        _logger.warning(
-          '🔒 BIN DECRYPT: Expected Noise session missing for ${publicKey.shortId(8)}... trying legacy fallback',
+        // No established Noise session — reject instead of falling back to
+        // legacy/plaintext decryption (prevents encryption downgrade attack).
+        throw Exception(
+          'Binary payload requires Noise session for ${publicKey.shortId(8)}',
         );
-        // Try legacy decryption
-        final decryptedFallback = SimpleCrypto.decryptLegacyCompatible(
-          encryptedString,
-        );
-        _logger.fine(
-          '🔒 BIN DECRYPT: GLOBAL (legacy fallback) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
-        );
-        return Uint8List.fromList(base64.decode(decryptedFallback));
 
       case EncryptionType.ecdh:
         final decrypted = await SimpleCrypto.decryptFromContact(
@@ -829,12 +823,11 @@ class SecurityManager implements ISecurityService {
         return Uint8List.fromList(base64.decode(decrypted));
 
       case EncryptionType.global:
-        // Try legacy decryption for backward compatibility
-        final decrypted = SimpleCrypto.decryptLegacyCompatible(encryptedString);
-        _logger.fine(
-          '🔒 BIN DECRYPT: GLOBAL (legacy) ← ${data.length} bytes from ${publicKey.shortId(8)}...',
+        // No encryption method available — reject binary payloads (plaintext
+        // markers in legacy decryption would bypass encryption entirely).
+        throw Exception(
+          'Cannot decrypt binary payload — no secure encryption method for ${publicKey.shortId(8)}',
         );
-        return Uint8List.fromList(base64.decode(decrypted));
     }
   }
 
