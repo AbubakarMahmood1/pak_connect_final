@@ -334,6 +334,7 @@ class AppCore {
     preferencesRepository = getIt.get<IPreferencesRepository>();
     MessageRouter.configureDependencyResolvers(
       preferencesRepositoryResolver: () => preferencesRepository,
+      userPreferencesResolver: () => userPreferences,
     );
     ContactManagementService.configureDependencyResolvers(
       contactRepositoryResolver: () => contactRepository,
@@ -533,6 +534,7 @@ class AppCore {
       );
       MessageRouter.configureDependencyResolvers(
         preferencesRepositoryResolver: () => preferencesRepository,
+        userPreferencesResolver: () => userPreferences,
         sharedQueueProviderResolver: () => sharedQueueProvider,
       );
       if (!bleFacade.isInitialized) {
