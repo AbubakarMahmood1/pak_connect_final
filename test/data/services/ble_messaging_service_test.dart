@@ -601,7 +601,7 @@ void main() {
         expect(peripheralWrites.first.value.length <= 120, isTrue);
         expect(
           peripheralWrites.first.value[ttlOffset],
-          equals(1), // TTL decremented on both relay paths
+          equals(2), // Direct forwards preserve handler-adjusted TTL (no extra decrement)
         );
 
         // Keep analyzer happy about unused instance.
