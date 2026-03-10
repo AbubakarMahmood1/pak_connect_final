@@ -135,28 +135,44 @@ class CompressionUtil {
     }
   }
 
+  /// Maximum allowed decompressed output size (64 KB).
+  /// Prevents zip-bomb DoS from BLE-injected compressed payloads.
+  static const int maxDecompressedSize = 65536;
+
   /// Decompress data using ZLib inflate algorithm
   ///
   /// Attempts to decompress using raw deflate first (matching compress()).
   /// If that fails, falls back to zlib format (with headers) for robustness.
   ///
-  /// Returns decompressed data or null if decompression failed.
+  /// Returns decompressed data or null if decompression failed or exceeds
+  /// [maxOutputSize] (defaults to [maxDecompressedSize]).
   ///
   /// Parameters:
   /// - compressed: The compressed data to decompress
   /// - originalSize: Optional original size for validation (if known)
   /// - config: Compression configuration (mainly for raw/zlib format)
+  /// - maxOutputSize: Maximum allowed output bytes (zip-bomb guard)
   static Uint8List? decompress(
     Uint8List compressed, {
     int? originalSize,
     CompressionConfig config = CompressionConfig.defaultConfig,
+    int? maxOutputSize,
   }) {
+    final limit = maxOutputSize ?? maxDecompressedSize;
+
+    // Pre-decompression: reject if claimed originalSize exceeds limit
+    if (originalSize != null && originalSize > limit) {
+      return null;
+    }
+
     try {
       // Try primary format (raw deflate or zlib, based on config)
       try {
         final codec = ZLibCodec(raw: config.useRawDeflate);
         final decompressed = codec.decode(compressed);
         final decompressedBytes = Uint8List.fromList(decompressed);
+
+        if (decompressedBytes.length > limit) return null;
 
         // Validate size if provided
         if (originalSize != null && decompressedBytes.length != originalSize) {
@@ -168,11 +184,11 @@ class CompressionUtil {
         return decompressedBytes;
       } catch (primaryError) {
         // Primary format failed, try fallback
-        // If we tried raw deflate, try zlib (with headers)
-        // If we tried zlib, try raw deflate
         final fallbackCodec = ZLibCodec(raw: !config.useRawDeflate);
         final decompressed = fallbackCodec.decode(compressed);
         final decompressedBytes = Uint8List.fromList(decompressed);
+
+        if (decompressedBytes.length > limit) return null;
 
         // Validate size if provided
         if (originalSize != null && decompressedBytes.length != originalSize) {
