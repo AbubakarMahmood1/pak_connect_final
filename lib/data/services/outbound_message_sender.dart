@@ -980,7 +980,11 @@ class OutboundMessageSender {
       securityLevel = SecurityLevel.low;
     }
 
+    // Spy mode forces ephemeral IDs to prevent long-term tracking
+    final isSpyMode = !hintsEnabled && noiseSessionExists;
+
     final prefersPersistent =
+        !isSpyMode &&
         (securityLevel == SecurityLevel.high ||
             securityLevel == SecurityLevel.medium) &&
         (contact?.persistentPublicKey?.isNotEmpty ?? false);
@@ -1037,7 +1041,7 @@ class OutboundMessageSender {
     return _MessageIdentities(
       originalSender: originalSender,
       intendedRecipient: intendedRecipient,
-      isSpyMode: !hintsEnabled && noiseSessionExists,
+      isSpyMode: isSpyMode,
     );
   }
 

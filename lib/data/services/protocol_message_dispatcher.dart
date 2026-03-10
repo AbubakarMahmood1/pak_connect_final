@@ -16,7 +16,7 @@ class ProtocolMessageDispatcher {
       String? senderPublicKey,
     )
     onUnhandledMessage,
-    Future<void> Function(String messageId)? onAckReceived,
+    Future<void> Function(String messageId, String senderPublicKey)? onAckReceived,
     Future<void> Function({
       required String originalMessageId,
       required String relayNode,
@@ -44,7 +44,7 @@ class ProtocolMessageDispatcher {
 
   final Logger _logger;
   final MessageAckTracker _ackTracker;
-  final Future<void> Function(String messageId)? _onAckReceived;
+  final Future<void> Function(String messageId, String senderPublicKey)? _onAckReceived;
   final Future<String?> Function(
     ProtocolMessage protocolMessage,
     String? Function(String)? onMessageIdFound,
@@ -84,12 +84,19 @@ class ProtocolMessageDispatcher {
           return null;
         }
 
+        if (senderPublicKey == null || senderPublicKey.isEmpty) {
+          _logger.warning(
+            'Dropping ACK for $originalId: sender identity missing',
+          );
+          return null;
+        }
+
         final messageId = MessageId(originalId);
         final completed = _ackTracker.complete(messageId.value);
         if (completed) {
           _logger.info('Received protocol ACK for: ${messageId.value}');
           if (_onAckReceived != null) {
-            await _onAckReceived(messageId.value);
+            await _onAckReceived(messageId.value, senderPublicKey);
           }
         } else {
           _logger.fine('Protocol ACK for unknown message: ${messageId.value}');
