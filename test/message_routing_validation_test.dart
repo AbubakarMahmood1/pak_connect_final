@@ -111,7 +111,7 @@ void main() {
 
         // Create message intended for Arshad (not Abubakar)
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -139,7 +139,7 @@ void main() {
 
         // Create message intended for Arshad
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -167,7 +167,7 @@ void main() {
 
         // Create message where sender == current user
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -257,7 +257,7 @@ void main() {
         await _configureNodeIdentity(messageHandler, longNodeId);
 
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId':

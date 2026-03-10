@@ -74,7 +74,9 @@ class NotificationHandlerFactory {
     // Only Android has full background notification support
     if (Platform.isAndroid) {
       _logger.info('✅ Using BackgroundNotificationHandlerImpl for Android');
-      return BackgroundNotificationHandlerImpl();
+      return BackgroundNotificationHandlerImpl(
+        preferencesRepository: preferencesRepository,
+      );
     }
 
     // iOS future implementation

@@ -8,7 +8,9 @@ import 'dart:io' show Platform;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:logging/logging.dart';
 import '../../domain/entities/message.dart' as app_entities;
+import '../../domain/entities/preference_keys.dart';
 import '../../domain/interfaces/i_notification_handler.dart';
+import '../../domain/interfaces/i_preferences_repository.dart';
 import 'notification_navigation_service.dart';
 
 /// Background notification handler implementation
@@ -39,13 +41,18 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
   /// Flutter local notifications plugin instance
   final FlutterLocalNotificationsPlugin _notificationsPlugin;
 
+  /// Preferences repository for checking app-level notification toggle
+  final IPreferencesRepository? _preferencesRepository;
+
   /// Track initialization state
   bool _isInitialized = false;
 
   /// Creates a handler, optionally accepting a [plugin] for testing.
   BackgroundNotificationHandlerImpl({
     FlutterLocalNotificationsPlugin? plugin,
-  }) : _notificationsPlugin = plugin ?? FlutterLocalNotificationsPlugin();
+    IPreferencesRepository? preferencesRepository,
+  }) : _notificationsPlugin = plugin ?? FlutterLocalNotificationsPlugin(),
+       _preferencesRepository = preferencesRepository;
 
   @override
   Future<void> initialize() async {
@@ -128,7 +135,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         priority: androidPriority,
         playSound: playSound,
         enableVibration: vibrate,
-        visibility: NotificationVisibility.public,
+        visibility: NotificationVisibility.private,
         showWhen: true,
         when: DateTime.now().millisecondsSinceEpoch,
       );
@@ -193,7 +200,7 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
         styleInformation: messagingStyle,
         playSound: true,
         enableVibration: true,
-        visibility: NotificationVisibility.public,
+        visibility: NotificationVisibility.private,
         showWhen: true,
       );
 
@@ -319,6 +326,19 @@ class BackgroundNotificationHandlerImpl implements INotificationHandler {
   @override
   Future<bool> areNotificationsEnabled() async {
     if (!_isInitialized) return false;
+
+    // Check app-level toggle first (user preference takes priority)
+    if (_preferencesRepository != null) {
+      try {
+        final appEnabled = await _preferencesRepository.getBool(
+          PreferenceKeys.notificationsEnabled,
+          defaultValue: PreferenceDefaults.notificationsEnabled,
+        );
+        if (!appEnabled) return false;
+      } catch (e) {
+        _logger.warning('Failed to read app notification preference: $e');
+      }
+    }
 
     try {
       if (Platform.isAndroid) {

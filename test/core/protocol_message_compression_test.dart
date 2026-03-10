@@ -175,7 +175,7 @@ void main() {
       test('backward compatible with old format (no flags byte)', () {
         // Simulate old-format message (raw JSON without flags)
         final json = {
-          'type': ProtocolMessageType.ping.index,
+          'type': ProtocolMessageType.ping.wireType,
           'version': 1,
           'payload': {},
           'timestamp': DateTime.now().millisecondsSinceEpoch,

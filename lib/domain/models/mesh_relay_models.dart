@@ -337,7 +337,7 @@ class MeshRelayMessage {
     'relayedAt': relayedAt.millisecondsSinceEpoch,
     if (encryptedPayload != null) 'encryptedPayload': encryptedPayload,
     if (originalMessageType != null)
-      'originalMessageType': originalMessageType!.index, // PHASE 2
+      'originalMessageType': originalMessageType!.wireType, // PHASE 2
   };
 
   /// Create from JSON
@@ -345,7 +345,8 @@ class MeshRelayMessage {
     // PHASE 2: Deserialize message type with backward compatibility
     ProtocolMessageType? messageType;
     if (json.containsKey('originalMessageType')) {
-      messageType = ProtocolMessageType.values[json['originalMessageType']];
+      messageType =
+          ProtocolMessageTypeWireId.fromWireType(json['originalMessageType']);
     }
 
     return MeshRelayMessage(

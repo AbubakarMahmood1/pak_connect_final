@@ -114,7 +114,7 @@ void main() {
 
         // Create message from Ali to Arshad
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -145,7 +145,7 @@ void main() {
 
         // Create message from Ali to Arshad (Abubakar should not receive this)
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -176,7 +176,7 @@ void main() {
 
         // Create message from Ali (sender == current user)
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -233,7 +233,7 @@ void main() {
 
           // Create encrypted message from Ali to Arshad
           final messageJson = jsonEncode({
-            'type': ProtocolMessageType.textMessage.index,
+            'type': ProtocolMessageType.textMessage.wireType,
             'version': 1,
             'payload': {
               'messageId': 'msg123',
@@ -295,7 +295,7 @@ void main() {
 
           // Create relay message that reached Abubakar
           final relayMessageJson = jsonEncode({
-            'type': ProtocolMessageType.meshRelay.index,
+            'type': ProtocolMessageType.meshRelay.wireType,
             'version': 1,
             'payload': {
               'originalMessageId': 'relay123',
@@ -402,7 +402,7 @@ void main() {
 
         // Create message where sender == current user (potential loop)
         final loopMessageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -431,7 +431,7 @@ void main() {
 
         // Create message intended for Arshad (not Abubakar)
         final wrongRecipientJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -459,7 +459,7 @@ void main() {
 
         // Create message intended for Arshad
         final correctRecipientJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'msg123',
@@ -584,7 +584,7 @@ void main() {
 
         // Create and process a message to trigger logging that uses substring operations
         final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.index,
+          'type': ProtocolMessageType.textMessage.wireType,
           'version': 1,
           'payload': {
             'messageId': 'bounds_test_message',

@@ -225,7 +225,7 @@ void main() {
     test('fromBytes supports old raw json format and validates protocol schema', () {
       final oldFormat = utf8.encode(
         jsonEncode({
-          'type': ProtocolMessageType.ping.index,
+          'type': ProtocolMessageType.ping.wireType,
           'version': 1,
           'payload': {},
           'timestamp': DateTime.now().millisecondsSinceEpoch,
