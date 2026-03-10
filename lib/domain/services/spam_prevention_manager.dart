@@ -366,7 +366,8 @@ class SpamPreventionManager {
 
   /// Resolve per-sender hourly limit based on trust tier.
   int _effectiveLimitForNode(String nodeId) {
-    final trust = _trustScores[nodeId] ?? 0.5;
+    // Default to 0.0 (untrusted) so new/unknown peers start in the strictest tier.
+    final trust = _trustScores[nodeId] ?? 0.0;
     if (trust >= 0.7) return _limitFriend;
     if (trust >= 0.4) return _limitKnown;
     return _limitUnknown;
