@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/services/message_router.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -171,7 +172,9 @@ void main() {
         expect(failed.isSuccess, isFalse);
 
         MessageRouter.configureDependencyResolvers(
+          // ignore: deprecated_member_use
           preferencesRepositoryResolver: () => preferences,
+          userPreferencesResolver: () => _FakeUserPreferences('sender_pub_key'),
         );
 
         final queued = await router.sendMessage(
@@ -287,4 +290,40 @@ class _MemoryPreferencesRepository implements IPreferencesRepository {
   Future<void> setString(String key, String value) async {
     _store[key] = value;
   }
+}
+
+class _FakeUserPreferences implements IUserPreferences {
+  final String _publicKey;
+  _FakeUserPreferences(this._publicKey);
+
+  @override
+  Future<String> getPublicKey() async => _publicKey;
+
+  @override
+  Future<String> getPrivateKey() async => '';
+
+  @override
+  Future<String> getUserName() async => 'test';
+
+  @override
+  Future<void> setUserName(String name) async {}
+
+  @override
+  Future<String> getOrCreateDeviceId() async => 'device-id';
+
+  @override
+  Future<String?> getDeviceId() async => 'device-id';
+
+  @override
+  Future<Map<String, String>> getOrCreateKeyPair() async =>
+      {'publicKey': _publicKey, 'privateKey': ''};
+
+  @override
+  Future<bool> getHintBroadcastEnabled() async => true;
+
+  @override
+  Future<void> setHintBroadcastEnabled(bool enabled) async {}
+
+  @override
+  Future<void> regenerateKeyPair() async {}
 }

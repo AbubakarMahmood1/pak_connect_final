@@ -137,13 +137,7 @@ class PerformanceMonitor {
       }
       await prefs.setStringList(_keyEncryptTimes, times);
 
-      // Append to sizes list
-      final sizes = prefs.getStringList(_keyMessageSizes) ?? [];
-      sizes.add(messageSize.toString());
-      if (sizes.length > _maxSamplesStored) {
-        sizes.removeAt(0);
-      }
-      await prefs.setStringList(_keyMessageSizes, sizes);
+      // Message sizes are NOT persisted — they reveal communication metadata.
 
       // Track jank
       if (durationMs > _jankThresholdMs) {
@@ -221,11 +215,8 @@ class PerformanceMonitor {
           .where((v) => v > 0)
           .toList();
 
-      // Parse message sizes
-      final messageSizes = (prefs.getStringList(_keyMessageSizes) ?? [])
-          .map((s) => int.tryParse(s) ?? 0)
-          .where((v) => v > 0)
-          .toList();
+      // Message sizes are no longer persisted (privacy: metadata leak).
+      // Report zeros for backward compatibility with EncryptionMetrics model.
 
       final jankyCount = prefs.getInt(_keyJankyCount) ?? 0;
 
@@ -251,22 +242,9 @@ class PerformanceMonitor {
           ? 0
           : decryptTimes.reduce((a, b) => a > b ? a : b);
 
-      // Calculate message size stats
-      final avgMessageSize = messageSizes.isEmpty
-          ? 0.0
-          : messageSizes.reduce((a, b) => a + b) / messageSizes.length;
-      final minMessageSize = messageSizes.isEmpty
-          ? 0
-          : messageSizes.reduce((a, b) => a < b ? a : b);
-      final maxMessageSize = messageSizes.isEmpty
-          ? 0
-          : messageSizes.reduce((a, b) => a > b ? a : b);
-
       // Calculate jank percentage
       final totalOps = totalEncryptions + totalDecryptions;
       final jankPercentage = totalOps > 0 ? (jankyCount / totalOps) * 100 : 0.0;
-
-      // Recommendation: use isolate if >5% operations are janky
       final shouldUseIsolate = jankPercentage > _isolateThresholdPercent;
 
       return EncryptionMetrics(
@@ -278,9 +256,9 @@ class PerformanceMonitor {
         avgDecryptMs: avgDecryptMs,
         minDecryptMs: minDecryptMs,
         maxDecryptMs: maxDecryptMs,
-        avgMessageSize: avgMessageSize,
-        minMessageSize: minMessageSize,
-        maxMessageSize: maxMessageSize,
+        avgMessageSize: 0,
+        minMessageSize: 0,
+        maxMessageSize: 0,
         jankyEncryptions: jankyCount,
         jankPercentage: jankPercentage,
         devicePlatform: Platform.operatingSystem,

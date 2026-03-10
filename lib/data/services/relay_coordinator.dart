@@ -12,6 +12,7 @@ import '../../domain/values/id_types.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'package:pak_connect/domain/constants/special_recipients.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 
 /// Coordinates relay decisions and message routing
@@ -207,7 +208,7 @@ class RelayCoordinator implements IRelayCoordinator {
         originalMessageContent: content,
         priority: MessagePriority.normal,
         originalSender: originalSender,
-        finalRecipient: intendedRecipient ?? 'broadcast',
+        finalRecipient: intendedRecipient ?? SpecialRecipients.broadcast,
         currentNodeId: _currentNodeId ?? 'unknown',
       );
 
@@ -242,6 +243,12 @@ class RelayCoordinator implements IRelayCoordinator {
         'finalRecipient': nextRelayMessage.relayMetadata.finalRecipient,
         'currentNodeId': _currentNodeId,
         'hopCount': nextRelayMessage.relayMetadata.hopCount,
+        'ttl': nextRelayMessage.relayMetadata.ttl,
+        'routingPath': nextRelayMessage.relayMetadata.routingPath,
+        'messageHash': nextRelayMessage.relayMetadata.messageHash,
+        'priority': nextRelayMessage.relayMetadata.priority.index,
+        if (nextRelayMessage.relayMetadata.sealedSender)
+          'sealedSender': true,
       };
 
       // Convert original payload to Map<String, dynamic>

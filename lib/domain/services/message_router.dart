@@ -3,6 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -30,7 +31,7 @@ class MessageRouter {
   static OfflineMessageQueueContract Function()? _standaloneQueueFactory;
   static Future<OfflineMessageQueueContract> Function()?
   _initializedQueueFactory;
-  static IPreferencesRepository Function()? _preferencesRepositoryResolver;
+  static IUserPreferences Function()? _userPreferencesResolver;
   static ISharedMessageQueueProvider? Function()? _sharedQueueProviderResolver;
 
   // Singleton
@@ -68,11 +69,13 @@ class MessageRouter {
 
   /// Configure dependency resolvers from bootstrap/composition code.
   static void configureDependencyResolvers({
+    @Deprecated('No longer used; public key now fetched via userPreferencesResolver')
     IPreferencesRepository Function()? preferencesRepositoryResolver,
+    IUserPreferences Function()? userPreferencesResolver,
     ISharedMessageQueueProvider? Function()? sharedQueueProviderResolver,
   }) {
-    if (preferencesRepositoryResolver != null) {
-      _preferencesRepositoryResolver = preferencesRepositoryResolver;
+    if (userPreferencesResolver != null) {
+      _userPreferencesResolver = userPreferencesResolver;
     }
     if (sharedQueueProviderResolver != null) {
       _sharedQueueProviderResolver = sharedQueueProviderResolver;
@@ -81,7 +84,7 @@ class MessageRouter {
 
   /// Clear configured dependency resolvers.
   static void clearDependencyResolvers() {
-    _preferencesRepositoryResolver = null;
+    _userPreferencesResolver = null;
     _sharedQueueProviderResolver = null;
   }
 
@@ -99,7 +102,8 @@ class MessageRouter {
     }
 
     if (preferencesRepository != null) {
-      _preferencesRepositoryResolver = () => preferencesRepository;
+      // Legacy: preferencesRepository is no longer needed for public key lookup.
+      // Kept for API backward compatibility.
     }
     if (sharedQueueProvider != null) {
       _sharedQueueProviderResolver = () => sharedQueueProvider;
@@ -142,9 +146,9 @@ class MessageRouter {
         '📶 BLE connected at route time: ${_bleService.isConnected}',
       );
 
-      // Get sender's public key
-      final prefs = _resolvePreferencesRepository();
-      final senderKey = await prefs.getString('public_key');
+      // Get sender's public key from secure storage (not from preferences)
+      final userPrefs = _resolveUserPreferences();
+      final senderKey = await userPrefs.getPublicKey();
 
       if (senderKey.isEmpty) {
         _logger.severe('❌ No sender public key available');
@@ -372,15 +376,14 @@ class MessageRouter {
     }
   }
 
-  static IPreferencesRepository _resolvePreferencesRepository() {
-    final resolver = _preferencesRepositoryResolver;
+  static IUserPreferences _resolveUserPreferences() {
+    final resolver = _userPreferencesResolver;
     if (resolver != null) {
       return resolver();
     }
     throw StateError(
-      'IPreferencesRepository not configured for MessageRouter. '
-      'Call MessageRouter.configureDependencyResolvers(...) or pass '
-      'preferencesRepository to MessageRouter.initialize(...).',
+      'IUserPreferences not configured for MessageRouter. '
+      'Call MessageRouter.configureDependencyResolvers(userPreferencesResolver: ...) first.',
     );
   }
 }
