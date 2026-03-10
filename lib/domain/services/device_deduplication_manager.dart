@@ -77,14 +77,21 @@ class DeviceDeduplicationManager {
       );
     }
 
-    // Self-filter: if the hint matches our own ephemeral/session fingerprint, ignore
+    // Self-filter: if the detected hint's nonce matches our session-derived nonce, ignore
     try {
-      final myHint = myEphemeralHintProvider?.call() ?? '';
-      if (myHint.isNotEmpty && myHint == ephemeralHint) {
-        _logger.fine(
-          '⏭️ [DEDUP] Ignoring self advertisement (hint match) for $deviceIdShort',
+      final mySessionKey = myEphemeralHintProvider?.call() ?? '';
+      if (mySessionKey.isNotEmpty && parsedHint != null) {
+        final myNonce = HintAdvertisementService.deriveNonce(mySessionKey);
+        final myNonceHex = HintAdvertisementService.bytesToHex(myNonce);
+        final advNonceHex = HintAdvertisementService.bytesToHex(
+          parsedHint.nonce,
         );
-        return;
+        if (myNonceHex == advNonceHex) {
+          _logger.fine(
+            '⏭️ [DEDUP] Ignoring self advertisement (nonce match) for $deviceIdShort',
+          );
+          return;
+        }
       }
     } catch (_) {}
 

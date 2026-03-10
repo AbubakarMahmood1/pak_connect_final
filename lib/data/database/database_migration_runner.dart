@@ -117,6 +117,11 @@ class DatabaseMigrationRunner {
         END
       ''');
 
+      // Rebuild FTS index so pre-upgrade archived rows remain searchable
+      await db.execute(
+        "INSERT INTO archived_messages_fts(archived_messages_fts) VALUES('rebuild')",
+      );
+
       logger.info(
         'Migration to v2 complete: Added chat_id to archived_messages',
       );
