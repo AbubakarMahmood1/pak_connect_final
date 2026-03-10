@@ -571,17 +571,23 @@ class ContactRepository implements IContactRepository {
   }
 
   /// Store contact in database (private helper)
+  /// Uses UPDATE-then-INSERT to avoid REPLACE semantics which trigger FK cascades.
   Future<void> _storeContact(Contact contact) async {
     final db = await _db;
 
     final data = contact.toDatabase();
-    data['created_at'] = DateTime.now().millisecondsSinceEpoch;
 
-    await db.insert(
+    final rowsUpdated = await db.update(
       'contacts',
       data,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      where: 'public_key = ?',
+      whereArgs: [contact.publicKey],
     );
+
+    if (rowsUpdated == 0) {
+      data['created_at'] = DateTime.now().millisecondsSinceEpoch;
+      await db.insert('contacts', data);
+    }
   }
 
   // =========================
