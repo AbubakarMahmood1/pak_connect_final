@@ -354,7 +354,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         // For point-to-point messages, stop here (message reached destination)
         if (!isBroadcast) {
           return RelayProcessingResult.deliveredToSelf(
-            relayMessage.originalContent,
+            relayMessage.encryptedPayload ?? relayMessage.originalContent,
           );
         }
         // Broadcast: Continue to Step 3 to forward to all neighbors
@@ -737,7 +737,8 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       _logger.info('Delivering message to self: $truncatedMessageId...');
 
       // Extract original content
-      final originalContent = relayMessage.originalContent;
+      final originalContent =
+          relayMessage.encryptedPayload ?? relayMessage.originalContent;
       final originalSender = relayMessage.relayMetadata.originalSender;
       final messageId = relayMessage.originalMessageIdValue;
 

@@ -168,6 +168,7 @@ class MeshRelayHandler {
 
       final metadata = RelayMetadata.fromJson(relayMetadata);
       final originalContent = originalPayload['content'] as String? ?? '';
+      final encryptedPayload = originalPayload['encrypted'] as String?;
 
       final relayMessage = MeshRelayMessage(
         originalMessageId: originalMessageId,
@@ -175,6 +176,7 @@ class MeshRelayHandler {
         relayMetadata: metadata,
         relayNodeId: senderPublicKey,
         relayedAt: DateTime.now(),
+        encryptedPayload: encryptedPayload,
         originalMessageType: originalMessageType,
       );
 
