@@ -37,7 +37,7 @@ class MeshRelayHandler {
   SpamPreventionManager? _spamPrevention;
   OfflineMessageQueueContract? _messageQueue;
   String? _currentNodeId;
-  bool _forceFloodRouting = true;
+  bool _forceFloodRouting = false;
   List<String> Function()? _nextHopsProvider;
 
   Function(String originalMessageId, String content, String originalSender)?
@@ -52,7 +52,7 @@ class MeshRelayHandler {
   Future<void> initializeRelaySystem({
     required String currentNodeId,
     required OfflineMessageQueueContract messageQueue,
-    bool forceFloodRouting = true,
+    bool forceFloodRouting = false,
     Function(String originalMessageId, String content, String originalSender)?
     onRelayMessageReceived,
     Function(

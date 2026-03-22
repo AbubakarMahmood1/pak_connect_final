@@ -250,6 +250,7 @@ void main() {
 
       expect(factory.createCount, 1);
       expect(engine.initializedNodeId, 'resolved-node');
+      expect(factory.lastForceFloodMode, isFalse);
     });
 
     test('initializeRelaySystem throws when no factory is configured', () async {
