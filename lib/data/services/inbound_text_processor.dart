@@ -131,6 +131,7 @@ class InboundTextProcessor {
     String decryptedContent = content;
     final originalSender = protocolMessage.payload['originalSender'] as String?;
     final declaredSenderId = protocolMessage.senderId ?? originalSender;
+    final preferDeclaredSender = protocolMessage.version >= 2;
     final resolvedSenderForDecrypt = await _resolveSenderKeyForDecrypt(
       senderPublicKey,
     );
@@ -148,8 +149,18 @@ class InboundTextProcessor {
     final resolvedDeclaredSenderForSignature =
         await _resolveSenderKeyForSignature(declaredSenderId);
     final versionPeerKey = _versionPeerKey(
-      signatureSenderKey: resolvedDeclaredSenderForSignature,
-      declaredSenderId: declaredSenderId,
+      signatureSenderKey: preferDeclaredSender
+          ? _firstNonEmpty([
+              resolvedDeclaredSenderForSignature,
+              resolvedSenderForSignature,
+              resolvedOriginalSenderForSignature,
+            ])
+          : _firstNonEmpty([
+              resolvedSenderForSignature,
+              resolvedOriginalSenderForSignature,
+              resolvedDeclaredSenderForSignature,
+            ]),
+      declaredSenderId: preferDeclaredSender ? declaredSenderId : null,
       transportSenderId: senderPublicKey,
     );
     if (_shouldRejectLegacyDowngrade(
@@ -160,11 +171,17 @@ class InboundTextProcessor {
       return const InboundTextResult(content: null, shouldAck: false);
     }
 
-    final decryptKey = resolvedDeclaredSenderForDecrypt?.isNotEmpty == true
-        ? resolvedDeclaredSenderForDecrypt
-        : (resolvedSenderForDecrypt?.isNotEmpty == true
-              ? resolvedSenderForDecrypt
-              : resolvedOriginalSenderForDecrypt);
+    final decryptKey = preferDeclaredSender
+        ? _firstNonEmpty([
+            resolvedDeclaredSenderForDecrypt,
+            resolvedSenderForDecrypt,
+            resolvedOriginalSenderForDecrypt,
+          ])
+        : _firstNonEmpty([
+            resolvedSenderForDecrypt,
+            resolvedOriginalSenderForDecrypt,
+            resolvedDeclaredSenderForDecrypt,
+          ]);
     String? decryptKeyUsed = decryptKey;
     var isV2IdentityAuthenticated = protocolMessage.version < 2;
 
@@ -387,20 +404,36 @@ class InboundTextProcessor {
           return InboundTextResult(
             content: decryptedContent,
             shouldAck: true,
-            resolvedSenderKey:
-                decryptKeyUsed ??
-                resolvedDeclaredSenderForDecrypt ??
-                resolvedSenderForDecrypt ??
-                resolvedOriginalSenderForDecrypt,
+            resolvedSenderKey: preferDeclaredSender
+                ? _firstNonEmpty([
+                    decryptKeyUsed,
+                    resolvedDeclaredSenderForDecrypt,
+                    resolvedSenderForDecrypt,
+                    resolvedOriginalSenderForDecrypt,
+                  ])
+                : _firstNonEmpty([
+                    decryptKeyUsed,
+                    resolvedSenderForDecrypt,
+                    resolvedOriginalSenderForDecrypt,
+                    resolvedDeclaredSenderForDecrypt,
+                  ]),
           );
         }
         verifyingKey = protocolMessage.ephemeralSigningKey!;
       } else {
-        final resolvedForSignature =
-            resolvedDeclaredSenderForSignature ??
-            resolvedSenderForSignature ??
-            senderPublicKey ??
-            resolvedOriginalSenderForSignature;
+        final resolvedForSignature = preferDeclaredSender
+            ? _firstNonEmpty([
+                resolvedDeclaredSenderForSignature,
+                resolvedSenderForSignature,
+                senderPublicKey,
+                resolvedOriginalSenderForSignature,
+              ])
+            : _firstNonEmpty([
+                resolvedSenderForSignature,
+                senderPublicKey,
+                resolvedOriginalSenderForSignature,
+                resolvedDeclaredSenderForSignature,
+              ]);
         if (resolvedForSignature == null) {
           _logger.severe('❌ Trusted message but no sender identity');
           return const InboundTextResult(
@@ -457,14 +490,25 @@ class InboundTextProcessor {
     return InboundTextResult(
       content: decryptedContent,
       shouldAck: true,
-      resolvedSenderKey:
-          decryptKeyUsed ??
-          resolvedDeclaredSenderForDecrypt ??
-          resolvedSenderForDecrypt ??
-          resolvedOriginalSenderForDecrypt ??
-          senderPublicKey ??
-          declaredSenderId ??
-          originalSender,
+      resolvedSenderKey: preferDeclaredSender
+          ? _firstNonEmpty([
+              decryptKeyUsed,
+              resolvedDeclaredSenderForDecrypt,
+              resolvedSenderForDecrypt,
+              resolvedOriginalSenderForDecrypt,
+              senderPublicKey,
+              declaredSenderId,
+              originalSender,
+            ])
+          : _firstNonEmpty([
+              decryptKeyUsed,
+              resolvedSenderForDecrypt,
+              resolvedOriginalSenderForDecrypt,
+              resolvedDeclaredSenderForDecrypt,
+              senderPublicKey,
+              originalSender,
+              declaredSenderId,
+            ]),
     );
   }
 
@@ -476,10 +520,22 @@ class InboundTextProcessor {
     if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
       return signatureSenderKey;
     }
+    if (transportSenderId != null && transportSenderId.isNotEmpty) {
+      return transportSenderId;
+    }
     if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
       return declaredSenderId;
     }
-    return transportSenderId ?? '';
+    return '';
+  }
+
+  String? _firstNonEmpty(List<String?> candidates) {
+    for (final candidate in candidates) {
+      if (candidate != null && candidate.isNotEmpty) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   bool _shouldRejectLegacyDowngrade({

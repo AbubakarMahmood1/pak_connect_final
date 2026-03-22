@@ -437,6 +437,61 @@ void main() {
       expect(securityService.decryptMessageCalls, equals(0));
     });
 
+    test(
+      'legacy v1 plaintext keeps transport sender for attribution',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-plaintext-transport',
+            'content': 'hello-v1',
+            'encrypted': false,
+            'senderId': 'spoofed-sender',
+            'originalSender': 'spoofed-sender',
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await processor.process(
+          protocolMessage: message,
+          senderPublicKey: 'transport-sender',
+        );
+
+        expect(result.content, equals('hello-v1'));
+        expect(result.shouldAck, isTrue);
+        expect(result.resolvedSenderKey, equals('transport-sender'));
+      },
+    );
+
+    test(
+      'legacy v1 encrypted messages decrypt with transport sender first',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-encrypted-transport',
+            'content': 'ciphertext-v1',
+            'encrypted': true,
+            'senderId': 'spoofed-sender',
+            'originalSender': 'spoofed-sender',
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await processor.process(
+          protocolMessage: message,
+          senderPublicKey: 'transport-sender',
+        );
+
+        expect(result.content, equals('legacy:ciphertext-v1'));
+        expect(result.shouldAck, isTrue);
+        expect(result.resolvedSenderKey, equals('transport-sender'));
+        expect(securityService.lastDecryptPublicKey, equals('transport-sender'));
+      },
+    );
+
     test('blocks legacy v2 decrypt modes when policy disables them', () async {
       final strictProcessor = InboundTextProcessor(
         contactRepository: contactRepository,
