@@ -66,17 +66,17 @@ void main() {
 
       expect(result, isTrue);
       expect(sent, ['my-public-key|Me']);
-      await untilCalled(contactRepository.markContactVerified('peer-id'));
       verify(
         contactRepository.saveContactWithSecurity(
           'peer-id',
           'Peer',
-          SecurityLevel.high,
+          SecurityLevel.low,
           currentEphemeralId: null,
           persistentPublicKey: null,
         ),
       ).called(1);
-      verify(contactRepository.markContactVerified('peer-id')).called(1);
+      verifyNever(contactRepository.markContactVerified(any));
+      expect(conversationKeys, isEmpty);
     });
 
     test(
@@ -154,12 +154,13 @@ void main() {
           contactRepository.saveContactWithSecurity(
             'their-key',
             'Alice',
-            SecurityLevel.high,
+            SecurityLevel.low,
             currentEphemeralId: null,
             persistentPublicKey: null,
           ),
         ).called(1);
-        verify(contactRepository.markContactVerified('their-key')).called(1);
+        verifyNever(contactRepository.markContactVerified(any));
+        expect(conversationKeys, isEmpty);
       },
     );
 

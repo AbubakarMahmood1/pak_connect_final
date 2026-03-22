@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/security_level.dart';
-import '../../domain/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
 
 /// Handles contact request initiation, acceptance, and finalization so
@@ -242,23 +241,15 @@ class ContactRequestController {
   ) async {
     try {
       _logger.info(
-        '📱 FINALIZE: Adding contact with mutual consent: $displayName',
+        '📱 FINALIZE: Adding low-trust contact pending verification: $displayName',
       );
 
       await _contactRepository.saveContactWithSecurity(
         publicKey,
         displayName,
-        SecurityLevel.high,
+        SecurityLevel.low,
       );
-      await _contactRepository.markContactVerified(publicKey);
-
-      final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
-      if (sharedSecret != null) {
-        await _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
-        await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
-        _conversationKeys[publicKey] = sharedSecret;
-        _logger.info('📱 FINALIZE: ECDH secret computed and cached');
-      }
+      _conversationKeys.remove(publicKey);
 
       _markBilateralSyncComplete(publicKey);
       onContactRequestCompleted?.call(true);
