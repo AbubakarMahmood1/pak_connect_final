@@ -144,10 +144,9 @@ class IdentityManager implements IIdentityManager {
 
   void _initializeSigning() {
     try {
-      _logger.fine('Initializing SimpleCrypto signing...');
-      // Note: SimpleCrypto initialization happens during initialize()
-      // This method is kept for interface compliance but the actual
-      // initialization happens via getOrCreateKeyPair and getPublicKey/getPrivateKey
+      _logger.fine('Initializing signing primitives...');
+      // This hook is retained for interface compatibility. Signing material is
+      // initialized lazily via getOrCreateKeyPair and key retrieval helpers.
       _logger.fine('Signing initialization complete');
     } catch (e) {
       _logger.warning('Failed to initialize signing: $e');
@@ -156,9 +155,9 @@ class IdentityManager implements IIdentityManager {
 
   void _initializeCrypto() {
     try {
-      _logger.fine('Initializing baseline encryption (SimpleCrypto)...');
-      // SimpleCrypto initialization is handled by UserPreferences
-      // This method is kept for interface compliance
+      _logger.fine('Initializing legacy compatibility crypto...');
+      // Legacy compatibility initialization is handled by UserPreferences.
+      // This method remains for interface compatibility only.
       _logger.fine('Crypto initialization complete');
     } catch (e) {
       _logger.warning('Failed to initialize crypto: $e');

@@ -16,6 +16,7 @@
 /// Lines 682-690,696-711: encryptBinaryPayload noise paths
 /// Lines 714-723,728-734: encryptBinaryPayload ECDH and pairing paths
 library;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -66,8 +67,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage[key];
+  }) async => _storage[key];
 
   @override
   Future<void> delete({
@@ -90,8 +90,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      Map.unmodifiable(_storage);
+  }) async => Map.unmodifiable(_storage);
 
   @override
   Future<void> deleteAll({
@@ -114,8 +113,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage.containsKey(key);
+  }) async => _storage.containsKey(key);
 
   @override
   Future<bool> isCupertinoProtectedDataAvailable() async => true;
@@ -136,8 +134,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<void> write({
@@ -149,8 +146,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<Map<String, String>> readAll({
@@ -160,8 +156,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<void> deleteAll({
@@ -171,8 +166,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<void> delete({
@@ -183,8 +177,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<bool> containsKey({
@@ -195,8 +188,7 @@ class _FailingSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      throw Exception('storage failure');
+  }) async => throw Exception('storage failure');
 
   @override
   Future<bool> isCupertinoProtectedDataAvailable() async => true;
@@ -225,10 +217,7 @@ class _FakeRepo extends Fake implements IContactRepository {
   Future<String?> getCachedSharedSecret(String pk) async => secrets[pk];
 
   @override
-  Future<void> updateContactSecurityLevel(
-    String pk,
-    SecurityLevel lv,
-  ) async {
+  Future<void> updateContactSecurityLevel(String pk, SecurityLevel lv) async {
     if (throwOnUpdateLevel) throw Exception('repo updateLevel failure');
     lvlUpdates.add(MapEntry(pk, lv));
     final c = byAnyId[pk];
@@ -321,72 +310,78 @@ void main() {
   // Line 303: LOW → noise session exists → noise
   // =========================================================================
   group('getEncryptionMethod — fallback chains', () {
-    test('HIGH: ECDH check fails → falls back to noise/pairing (lines 277-278)',
-        () async {
-      // Contact verified + securityLevel HIGH but NO ecdh secret
-      // => getCurrentLevel returns HIGH only if verified + hasECDH
-      // => we need verified + ECDH but getEncryptionMethod _verifyECDHKey
-      //    returns false, so we need:
-      //    - contact verified with ECDH secret (so getCurrentLevel = HIGH)
-      //    - BUT _verifyECDHKey rechecks → make it fail on second call
-      //
-      // Actually: _verifyECDHKey just calls repo.getCachedSharedSecret.
-      // getCurrentLevel also checks it. They both check the same thing.
-      // So we need to make getCurrentLevel return HIGH but _verifyECDHKey fail.
-      //
-      // The trick: getCurrentLevel checks hasECDH at the time it runs.
-      // Then getEncryptionMethod calls _verifyECDHKey which also checks.
-      // If we remove the secret between calls, we can hit the fallback.
-      //
-      // Simpler approach: set up a contact with pairing key so
-      // getCurrentLevel = MEDIUM, then manually verify we can hit
-      // the MEDIUM→noise and MEDIUM→global paths.
+    test(
+      'HIGH: ECDH check fails → falls back to noise/pairing (lines 277-278)',
+      () async {
+        // Contact verified + securityLevel HIGH but NO ecdh secret
+        // => getCurrentLevel returns HIGH only if verified + hasECDH
+        // => we need verified + ECDH but getEncryptionMethod _verifyECDHKey
+        //    returns false, so we need:
+        //    - contact verified with ECDH secret (so getCurrentLevel = HIGH)
+        //    - BUT _verifyECDHKey rechecks → make it fail on second call
+        //
+        // Actually: _verifyECDHKey just calls repo.getCachedSharedSecret.
+        // getCurrentLevel also checks it. They both check the same thing.
+        // So we need to make getCurrentLevel return HIGH but _verifyECDHKey fail.
+        //
+        // The trick: getCurrentLevel checks hasECDH at the time it runs.
+        // Then getEncryptionMethod calls _verifyECDHKey which also checks.
+        // If we remove the secret between calls, we can hit the fallback.
+        //
+        // Simpler approach: set up a contact with pairing key so
+        // getCurrentLevel = MEDIUM, then manually verify we can hit
+        // the MEDIUM→noise and MEDIUM→global paths.
 
-      // Set up MEDIUM contact (pairing key exists)
-      final pk = 'pk-medium-fallback-to-noise-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-      );
-      await SimpleCrypto.restoreConversationKey(pk, 'pair-secret');
+        // Set up MEDIUM contact (pairing key exists)
+        final pk = 'pk-medium-fallback-to-noise-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+        );
+        await SimpleCrypto.restoreConversationKey(pk, 'pair-secret');
 
-      // getCurrentLevel will calculate MEDIUM (hasPairing=true)
-      // getEncryptionMethod: level=MEDIUM → _verifyPairingKey → true → pairing
-      final method = await sm.getEncryptionMethod(pk, repo);
-      expect(method.type, EncryptionType.pairing);
-    });
+        // getCurrentLevel will calculate MEDIUM (hasPairing=true)
+        // getEncryptionMethod: level=MEDIUM → _verifyPairingKey → true → pairing
+        final method = await sm.getEncryptionMethod(pk, repo);
+        expect(method.type, EncryptionType.pairing);
+      },
+    );
 
     test(
-        'MEDIUM: no pairing key, no noise session → global fallback (lines 288-295)',
-        () async {
-      // Contact stored as MEDIUM but no actual pairing key and no noise
-      // getCurrentLevel will recalculate to LOW (no capabilities)
-      // Then getEncryptionMethod at LOW with no noise → global
-      final pk = 'pk-medium-no-caps-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-      );
-      // No pairing, no ECDH, no noise → getCurrentLevel = LOW
-      final method = await sm.getEncryptionMethod(pk, repo);
-      expect(method.type, EncryptionType.global);
-    });
+      'MEDIUM: no pairing key, no noise session → missing active lane',
+      () async {
+        // Contact stored as MEDIUM but no actual pairing key and no noise
+        // getCurrentLevel will recalculate to LOW (no capabilities)
+        // Then getEncryptionMethod at LOW with no noise → global
+        final pk = 'pk-medium-no-caps-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+        );
+        // No pairing, no ECDH, no noise → getCurrentLevel = LOW
+        expect(
+          () => sm.getEncryptionMethod(pk, repo),
+          throwsA(isA<EncryptionException>()),
+        );
+      },
+    );
 
     test(
-        'HIGH with ECDH → verified HIGH, ECDH verify succeeds → ecdh method',
-        () async {
-      final pk = 'pk-high-ecdh-ok-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.verified,
-        securityLevel: SecurityLevel.high,
-      );
-      repo.secrets[pk] = 'shared-secret';
-      final method = await sm.getEncryptionMethod(pk, repo);
-      expect(method.type, EncryptionType.ecdh);
-    });
+      'HIGH with ECDH → verified HIGH, ECDH verify succeeds → ecdh method',
+      () async {
+        final pk = 'pk-high-ecdh-ok-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.verified,
+          securityLevel: SecurityLevel.high,
+        );
+        repo.secrets[pk] = 'shared-secret';
+        final method = await sm.getEncryptionMethod(pk, repo);
+        expect(method.type, EncryptionType.ecdh);
+      },
+    );
   });
 
   // =========================================================================
@@ -394,43 +389,47 @@ void main() {
   // Lines 403-404,407: encryptMessageByType non-EncryptionException wrapping
   // =========================================================================
   group('encryptMessageByType — noise & error wrapping', () {
-    test('noise encrypt without established session throws (line 403-407)',
-        () async {
-      // Noise service is initialized but no session for this peer
-      // _resolveNoisePeerId will return the key, then encrypt will return null
-      // Actually the Noise encrypt returns null → throws EncryptionException
-      // But we want non-EncryptionException catch at 403-407.
-      // We can trigger that by making _resolveNoisePeerId throw via repo error
-      repo.throwOnGetContact = true;
-      try {
-        await sm.encryptMessageByType(
-          'hello',
-          'pk-noise-err-13c',
-          repo,
-          EncryptionType.noise,
-        );
-        fail('Expected an exception');
-      } on EncryptionException catch (e) {
-        // Lines 403-407: non-EncryptionException gets wrapped
-        expect(e.encryptionMethod?.toLowerCase(), 'noise');
-      }
-    });
+    test(
+      'noise encrypt without established session throws (line 403-407)',
+      () async {
+        // Noise service is initialized but no session for this peer
+        // _resolveNoisePeerId will return the key, then encrypt will return null
+        // Actually the Noise encrypt returns null → throws EncryptionException
+        // But we want non-EncryptionException catch at 403-407.
+        // We can trigger that by making _resolveNoisePeerId throw via repo error
+        repo.throwOnGetContact = true;
+        try {
+          await sm.encryptMessageByType(
+            'hello',
+            'pk-noise-err-13c',
+            repo,
+            EncryptionType.noise,
+          );
+          fail('Expected an exception');
+        } on EncryptionException catch (e) {
+          // Lines 403-407: non-EncryptionException gets wrapped
+          expect(e.encryptionMethod?.toLowerCase(), 'noise');
+        }
+      },
+    );
 
-    test('ECDH encrypt with repo error → non-EncryptionException wrapping',
-        () async {
-      repo.throwOnGetContact = true;
-      try {
-        await sm.encryptMessageByType(
-          'hello',
-          'pk-ecdh-err-13c',
-          repo,
-          EncryptionType.ecdh,
-        );
-        fail('Expected an exception');
-      } on EncryptionException catch (e) {
-        expect(e.encryptionMethod?.toLowerCase(), 'ecdh');
-      }
-    });
+    test(
+      'ECDH encrypt with repo error → non-EncryptionException wrapping',
+      () async {
+        repo.throwOnGetContact = true;
+        try {
+          await sm.encryptMessageByType(
+            'hello',
+            'pk-ecdh-err-13c',
+            repo,
+            EncryptionType.ecdh,
+          );
+          fail('Expected an exception');
+        } on EncryptionException catch (e) {
+          expect(e.encryptionMethod?.toLowerCase(), 'ecdh');
+        }
+      },
+    );
   });
 
   // =========================================================================
@@ -486,34 +485,35 @@ void main() {
   // =========================================================================
   group('decryptSealedMessage — decode & decrypt paths', () {
     test(
-        'valid sealed header but decryption fails → rethrow + finally cleanup (lines 542-570)',
-        () async {
-      final header = CryptoHeader(
-        mode: CryptoMode.sealedV1,
-        ephemeralPublicKey: base64.encode(List.filled(32, 0xAA)),
-        nonce: base64.encode(List.filled(24, 0xBB)),
-      );
-      // This will attempt actual decryption which will fail, exercising:
-      // - lines 542-546: base64 decode of ciphertext, ephemeralPublicKey, nonce
-      // - line 547: _buildSealedV1Aad
-      // - line 552: getStaticPrivateKeyData
-      // - line 555: _sealedEncryptionService.decrypt
-      // - lines 564-566: catch block logging
-      // - line 570: finally block zero-fill
-      try {
-        await sm.decryptSealedMessage(
-          encryptedMessage: base64.encode(List.filled(64, 0xCC)),
-          cryptoHeader: header,
-          messageId: 'msg-sealed-13c',
-          senderId: 'sender-1234567890abcdef',
-          recipientId: 'recipient-1234567890abcdef',
+      'valid sealed header but decryption fails → rethrow + finally cleanup (lines 542-570)',
+      () async {
+        final header = CryptoHeader(
+          mode: CryptoMode.sealedV1,
+          ephemeralPublicKey: base64.encode(List.filled(32, 0xAA)),
+          nonce: base64.encode(List.filled(24, 0xBB)),
         );
-        fail('Expected an exception');
-      } catch (e) {
-        // Decryption failure expected — covers lines 564-566, 570
-        expect(e, isNotNull);
-      }
-    });
+        // This will attempt actual decryption which will fail, exercising:
+        // - lines 542-546: base64 decode of ciphertext, ephemeralPublicKey, nonce
+        // - line 547: _buildSealedV1Aad
+        // - line 552: getStaticPrivateKeyData
+        // - line 555: _sealedEncryptionService.decrypt
+        // - lines 564-566: catch block logging
+        // - line 570: finally block zero-fill
+        try {
+          await sm.decryptSealedMessage(
+            encryptedMessage: base64.encode(List.filled(64, 0xCC)),
+            cryptoHeader: header,
+            messageId: 'msg-sealed-13c',
+            senderId: 'sender-1234567890abcdef',
+            recipientId: 'recipient-1234567890abcdef',
+          );
+          fail('Expected an exception');
+        } catch (e) {
+          // Decryption failure expected — covers lines 564-566, 570
+          expect(e, isNotNull);
+        }
+      },
+    );
   });
 
   // =========================================================================
@@ -523,71 +523,64 @@ void main() {
   // =========================================================================
   group('_resolveNoisePeerId — exercised through encrypt/decrypt', () {
     test(
-        'contact with persistentPublicKey but no ephemeralId → uses persistent key (line 604)',
-        () async {
-      final pk = 'pk-resolve-persistent-13c';
-      final persistent = 'persistent-pk-for-resolve-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-        persistentPublicKey: persistent,
-        // No currentEphemeralId → sessionId = publicKey
-        // persistentKey != null && isNotEmpty → registerIdentityMapping
-        // sessionId (= pk) isNotEmpty → return pk
-      );
-      // Encrypt with noise type to trigger _resolveNoisePeerId
-      // It will fail at actual encrypt, but the resolve path is exercised
-      try {
-        await sm.encryptMessageByType(
-          'test',
-          pk,
-          repo,
-          EncryptionType.noise,
+      'contact with persistentPublicKey but no ephemeralId → uses persistent key (line 604)',
+      () async {
+        final pk = 'pk-resolve-persistent-13c';
+        final persistent = 'persistent-pk-for-resolve-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+          persistentPublicKey: persistent,
+          // No currentEphemeralId → sessionId = publicKey
+          // persistentKey != null && isNotEmpty → registerIdentityMapping
+          // sessionId (= pk) isNotEmpty → return pk
         );
-      } catch (_) {
-        // Expected — no actual Noise session
-      }
-    });
+        // Encrypt with noise type to trigger _resolveNoisePeerId
+        // It will fail at actual encrypt, but the resolve path is exercised
+        try {
+          await sm.encryptMessageByType('test', pk, repo, EncryptionType.noise);
+        } catch (_) {
+          // Expected — no actual Noise session
+        }
+      },
+    );
 
     test(
-        'contact lookup throws → catch at line 609-610, then late-bind attempted',
-        () async {
-      repo.throwOnGetContact = true;
-      try {
-        await sm.encryptMessageByType(
-          'test',
-          'pk-resolve-throw-13c',
-          repo,
-          EncryptionType.noise,
-        );
-      } catch (_) {
-        // Expected failure
-      }
-    });
+      'contact lookup throws → catch at line 609-610, then late-bind attempted',
+      () async {
+        repo.throwOnGetContact = true;
+        try {
+          await sm.encryptMessageByType(
+            'test',
+            'pk-resolve-throw-13c',
+            repo,
+            EncryptionType.noise,
+          );
+        } catch (_) {
+          // Expected failure
+        }
+      },
+    );
 
     test(
-        'contact with ephemeralId set → uses ephemeralId as sessionId',
-        () async {
-      final pk = 'pk-resolve-eph-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-        persistentPublicKey: 'persist-for-eph-13c',
-        currentEphemeralId: 'ephemeral-session-13c',
-      );
-      try {
-        await sm.encryptMessageByType(
-          'test',
-          pk,
-          repo,
-          EncryptionType.noise,
+      'contact with ephemeralId set → uses ephemeralId as sessionId',
+      () async {
+        final pk = 'pk-resolve-eph-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+          persistentPublicKey: 'persist-for-eph-13c',
+          currentEphemeralId: 'ephemeral-session-13c',
         );
-      } catch (_) {
-        // Expected — no actual Noise session
-      }
-    });
+        try {
+          await sm.encryptMessageByType('test', pk, repo, EncryptionType.noise);
+        } catch (_) {
+          // Expected — no actual Noise session
+        }
+      },
+    );
   });
 
   // =========================================================================
@@ -626,48 +619,50 @@ void main() {
   // =========================================================================
   group('encryptBinaryPayload — noise path errors', () {
     test(
-        'noise: _noiseService null → EncryptionException (lines 682-688)',
-        () async {
-      sm.shutdown();
-      // Need to make getEncryptionMethod return noise even when noiseService
-      // is null. That requires a contact with an active noise session which
-      // is impossible if noise is null. Instead, test the overall binary
-      // encrypt flow with noise initialized but no session.
+      'noise: _noiseService null → EncryptionException (lines 682-688)',
+      () async {
+        sm.shutdown();
+        // Need to make getEncryptionMethod return noise even when noiseService
+        // is null. That requires a contact with an active noise session which
+        // is impossible if noise is null. Instead, test the overall binary
+        // encrypt flow with noise initialized but no session.
 
-      // Re-initialize for the test
-      await sm.initialize(secureStorage: mockStorage);
+        // Re-initialize for the test
+        await sm.initialize(secureStorage: mockStorage);
 
-      // Create contact that getCurrentLevel resolves to LOW
-      // getEncryptionMethod at LOW checks noise session → not found → global
-      // global throws. So we need a MEDIUM contact with pairing.
-      final pk = 'pk-bin-noise-null-13c';
-      repo.byAnyId[pk] = _contact(
-        key: pk,
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-      );
-      await SimpleCrypto.restoreConversationKey(pk, 'pair-secret');
+        // Create contact that getCurrentLevel resolves to LOW
+        // getEncryptionMethod at LOW checks noise session → not found → global
+        // global throws. So we need a MEDIUM contact with pairing.
+        final pk = 'pk-bin-noise-null-13c';
+        repo.byAnyId[pk] = _contact(
+          key: pk,
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+        );
+        await SimpleCrypto.restoreConversationKey(pk, 'pair-secret');
 
-      // getCurrentLevel = MEDIUM (pairing key found)
-      // getEncryptionMethod: MEDIUM → _verifyPairingKey → true → pairing
-      // encryptBinaryPayload → pairing path (lines 731-734)
-      final data = Uint8List.fromList([10, 20, 30, 40]);
-      final encrypted = await sm.encryptBinaryPayload(data, pk, repo);
-      expect(encrypted, isNotEmpty);
-    });
+        // getCurrentLevel = MEDIUM (pairing key found)
+        // getEncryptionMethod: MEDIUM → _verifyPairingKey → true → pairing
+        // encryptBinaryPayload → pairing path (lines 731-734)
+        final data = Uint8List.fromList([10, 20, 30, 40]);
+        final encrypted = await sm.encryptBinaryPayload(data, pk, repo);
+        expect(encrypted, isNotEmpty);
+      },
+    );
 
     test(
-        'noise: no established session → EncryptionException (lines 689-696)',
-        () async {
-      // We need getEncryptionMethod to return noise type
-      // That happens at MEDIUM when pairing fails but noise session exists
-      // OR at LOW when noise session exists
-      // But if noise session doesn't exist, getEncryptionMethod won't return
-      // noise type. So the only way to hit 689-696 is if somehow the session
-      // disappears between getEncryptionMethod check and the actual encrypt.
-      // This is hard to test without mocking NoiseEncryptionService.
-      // Skip — this is a race condition guard.
-    });
+      'noise: no established session → EncryptionException (lines 689-696)',
+      () async {
+        // We need getEncryptionMethod to return noise type
+        // That happens at MEDIUM when pairing fails but noise session exists
+        // OR at LOW when noise session exists
+        // But if noise session doesn't exist, getEncryptionMethod won't return
+        // noise type. So the only way to hit 689-696 is if somehow the session
+        // disappears between getEncryptionMethod check and the actual encrypt.
+        // This is hard to test without mocking NoiseEncryptionService.
+        // Skip — this is a race condition guard.
+      },
+    );
 
     test('ECDH binary encrypt (lines 714-723)', () async {
       final pk = 'pk-bin-ecdh-13c';
@@ -716,9 +711,10 @@ void main() {
         securityLevel: SecurityLevel.low,
         currentEphemeralId: 'eph-noise-id-13c',
       );
-      // No noise session → falls through to global
-      final method = await sm.getEncryptionMethod(pk, repo);
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod(pk, repo),
+        throwsA(isA<EncryptionException>()),
+      );
     });
   });
 

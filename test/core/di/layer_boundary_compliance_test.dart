@@ -894,6 +894,7 @@ void main() {
           final allowedCoreImportsByFile = <String, List<String>>{
             path.normalize('lib/presentation/providers/di_providers.dart'): [
               'package:pak_connect/core/di/app_services.dart',
+              'package:pak_connect/core/di/service_locator.dart',
             ],
             path.normalize('lib/data/services/inbound_text_processor.dart'): [
               'package:pak_connect/core/security/peer_protocol_version_guard.dart',

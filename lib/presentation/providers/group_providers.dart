@@ -215,7 +215,12 @@ ISharedMessageQueueProvider _resolveSharedQueueProvider() {
 }
 
 IGroupRepository _resolveGroupRepository() {
-  return resolveFromServiceLocator<IGroupRepository>(
+  return resolveFromAppServicesOrServiceLocator<IGroupRepository>(
+    fromServices: (services) =>
+        services.groupRepository ??
+        resolveFromServiceLocator<IGroupRepository>(
+          dependencyName: 'IGroupRepository',
+        ),
     dependencyName: 'IGroupRepository',
   );
 }

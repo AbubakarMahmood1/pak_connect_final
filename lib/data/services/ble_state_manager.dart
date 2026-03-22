@@ -5,7 +5,9 @@ import 'package:pak_connect/domain/interfaces/i_pairing_state_manager.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../domain/services/simple_crypto.dart';
+import '../../domain/services/conversation_crypto_service.dart';
+import '../../domain/services/legacy_payload_compat_service.dart';
+import '../../domain/services/signing_crypto_service.dart';
 import '../../domain/models/protocol_message.dart';
 import '../../domain/models/security_level.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
@@ -300,7 +302,7 @@ class BLEStateManager implements IPairingStateManager {
       final privateKey = await _userPreferences.getPrivateKey();
 
       if (publicKey.isNotEmpty && privateKey.isNotEmpty) {
-        SimpleCrypto.initializeSigning(privateKey, publicKey);
+        SigningCryptoService.initializeSigning(privateKey, publicKey);
         _logger.info('Message signing initialized');
       } else {
         _logger.warning('Cannot initialize signing - missing keys');
@@ -497,7 +499,7 @@ class BLEStateManager implements IPairingStateManager {
 
       return await _identityState.createRevealMessage(
         myPersistentKey: myPersistentKey,
-        sign: SimpleCrypto.signMessage,
+        sign: SigningCryptoService.signMessage,
         nowMillis: () => DateTime.now().millisecondsSinceEpoch,
       );
     } catch (e) {
@@ -692,8 +694,11 @@ class BLEStateManager implements IPairingStateManager {
           'Found cached pairing/ECDH secret for ${publicKey.shortId(8)}...',
         );
 
-        // Restore it in SimpleCrypto
-        await SimpleCrypto.restoreConversationKey(publicKey, cachedSecret);
+        // Restore it in the conversation crypto lane
+        await ConversationCryptoService.restoreConversationKey(
+          publicKey,
+          cachedSecret,
+        );
 
         // Update local cache
         _conversationKeys[publicKey] = cachedSecret;

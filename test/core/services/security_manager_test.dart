@@ -401,14 +401,19 @@ void main() {
       },
     );
 
-    test('getEncryptionMethod returns global for unknown contact', () async {
-      final repo = _FakeContactRepository();
-      final method = await SecurityManager.instance.getEncryptionMethod(
-        'unknown-contact',
-        repo,
-      );
-      expect(method.type, EncryptionType.global);
-    });
+    test(
+      'getEncryptionMethod throws when unknown contact has no active lane',
+      () async {
+        final repo = _FakeContactRepository();
+        expect(
+          () => SecurityManager.instance.getEncryptionMethod(
+            'unknown-contact',
+            repo,
+          ),
+          throwsA(isA<EncryptionException>()),
+        );
+      },
+    );
 
     test(
       'getEncryptionMethod returns pairing when conversation key exists',

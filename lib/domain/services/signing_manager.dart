@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:pointycastle/export.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
+import 'package:pak_connect/domain/services/signing_crypto_service.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 
 class SigningManager {
@@ -18,7 +18,7 @@ class SigningManager {
         return _signWithEphemeralKey(content);
       case SecurityLevel.medium:
       case SecurityLevel.high:
-        return SimpleCrypto.signMessage(content); // Real key
+        return SigningCryptoService.signMessage(content);
     }
   }
 
@@ -82,7 +82,11 @@ class SigningManager {
     if (isEphemeralSigning) {
       return _verifyEphemeralSignature(content, signatureHex, verifyingKey);
     } else {
-      return SimpleCrypto.verifySignature(content, signatureHex, verifyingKey);
+      return SigningCryptoService.verifySignature(
+        content,
+        signatureHex,
+        verifyingKey,
+      );
     }
   }
 

@@ -1,6 +1,6 @@
 # Crypto Redesign Roadmap (Validated)
 
-**Date**: 2026-02-12  
+**Date**: 2026-03-23  
 **Status**: Drafted from validated repo state  
 **Goal**: Evolve PakConnect toward a production-grade security architecture without blocking progressive delivery.
 
@@ -171,6 +171,25 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - local Noise static private key accessor now has an explicit defensive-copy
   invariant test:
   - `test/core/security/noise/noise_encryption_service_test.dart`
+
+## Implementation Checkpoint (2026-03-23)
+
+- `SimpleCrypto` is now a transitional facade instead of the active runtime
+  owner for all crypto paths.
+- Responsibility split now exists across dedicated services:
+  - `LegacyPayloadCompatService`: legacy/global compatibility decode and
+    deprecated wrapper tracking only
+  - `ConversationCryptoService`: pairing/session conversation payload helpers
+  - `ContactCryptoService`: contact-targeted ECDH payload helpers
+  - `SigningCryptoService`: signing and shared-secret derivation
+- Active outbound encryption selection no longer uses `global` as a normal
+  send mode. If no live method is available, outbound fails closed.
+- Legacy/global decrypt remains supported only as an inbound compatibility lane
+  and is policy-gated by
+  `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT` (default `true` for migration).
+- Repo guardrails now enforce that new runtime `lib/**` code does not add fresh
+  direct `SimpleCrypto.` call sites outside the compatibility facade and its
+  self-test helper.
 
 ---
 

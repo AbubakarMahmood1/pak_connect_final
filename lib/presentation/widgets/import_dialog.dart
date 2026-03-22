@@ -559,7 +559,12 @@ class _ImportDialogState extends State<ImportDialog> {
   }
 
   IImportService _resolveImportService() {
-    return resolveFromServiceLocator<IImportService>(
+    return resolveFromAppServicesOrServiceLocator<IImportService>(
+      fromServices: (services) =>
+          services.importService ??
+          resolveFromServiceLocator<IImportService>(
+            dependencyName: 'IImportService',
+          ),
       dependencyName: 'IImportService',
     );
   }

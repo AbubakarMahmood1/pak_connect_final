@@ -297,3 +297,18 @@ bool isRegistered<T extends Object>() {
   return getIt.isRegistered<T>();
 }
 
+T resolveRegistered<T extends Object>({String? dependencyName}) {
+  if (getIt.isRegistered<T>()) {
+    return getIt.get<T>();
+  }
+
+  final label = dependencyName ?? T.toString();
+  throw StateError('$label is not registered in service locator');
+}
+
+T? maybeResolveRegistered<T extends Object>() {
+  if (!getIt.isRegistered<T>()) {
+    return null;
+  }
+  return getIt.get<T>();
+}

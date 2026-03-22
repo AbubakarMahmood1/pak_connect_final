@@ -1,26 +1,41 @@
-part of 'simple_crypto.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 
-class _SimpleCryptoContactHelper {
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/utils/string_extensions.dart';
+
+import 'conversation_crypto_service.dart';
+import 'crypto_wire_format.dart';
+import 'signing_crypto_service.dart';
+
+class ContactCryptoService {
+  static final _logger = Logger('ContactCryptoService');
+  static final Map<String, String> _sharedSecretCache = {};
+
   static Future<String?> encryptForContact(
     String plaintext,
     String contactPublicKey,
     IContactRepository contactRepo,
   ) async {
-    // Mandatory key state synchronization before encryption.
     await ensureConversationKeySync(contactPublicKey, contactRepo);
 
-    // Get cached or compute shared secret.
     final sharedSecret = await getCachedOrComputeSharedSecret(
       contactPublicKey,
       contactRepo,
     );
-    if (sharedSecret == null) return null;
+    if (sharedSecret == null) {
+      return null;
+    }
 
     try {
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      SimpleCrypto._log(
+      _logger.fine(
         '🔧 ECDH ENCRYPT DEBUG: Starting encryption for $truncatedPublicKey...',
       );
 
@@ -30,31 +45,23 @@ class _SimpleCryptoContactHelper {
       );
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
-
-      // SECURITY FIX: Use random IV for each message.
       final iv = IV.fromSecureRandom(16);
       final encrypter = Encrypter(AES(key));
       final encrypted = encrypter.encrypt(plaintext, iv: iv);
 
-      // Prepend IV to ciphertext.
       final combined = Uint8List.fromList(iv.bytes + encrypted.bytes);
       final result = base64.encode(combined);
 
-      final pairingKey = SimpleCrypto._getPairingKeyForContact(
-        contactPublicKey,
-      );
+      final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
-        SimpleCrypto._log(
-          '✅ ENHANCED ECDH encryption successful (ECDH + Pairing)',
-        );
+        _logger.fine('✅ ENHANCED ECDH encryption successful (ECDH + Pairing)');
       } else {
-        SimpleCrypto._log('✅ STANDARD ECDH encryption successful (ECDH only)');
+        _logger.fine('✅ STANDARD ECDH encryption successful (ECDH only)');
       }
 
-      // Add v2 wire format prefix.
-      return '${SimpleCrypto._wireFormatV2}$result';
+      return '$cryptoWireFormatV2$result';
     } catch (e) {
-      SimpleCrypto._log('❌ Enhanced ECDH encryption failed: $e');
+      _logger.fine('❌ Enhanced ECDH encryption failed: $e');
       return null;
     }
   }
@@ -64,20 +71,21 @@ class _SimpleCryptoContactHelper {
     String contactPublicKey,
     IContactRepository contactRepo,
   ) async {
-    // Mandatory key state synchronization before decryption.
     await ensureConversationKeySync(contactPublicKey, contactRepo);
 
     final sharedSecret = await getCachedOrComputeSharedSecret(
       contactPublicKey,
       contactRepo,
     );
-    if (sharedSecret == null) return null;
+    if (sharedSecret == null) {
+      return null;
+    }
 
     try {
       final truncatedPublicKey = contactPublicKey.length > 16
           ? contactPublicKey.shortId()
           : contactPublicKey;
-      SimpleCrypto._log(
+      _logger.fine(
         '🔧 ECDH DECRYPT DEBUG: Starting decryption for $truncatedPublicKey...',
       );
 
@@ -88,38 +96,28 @@ class _SimpleCryptoContactHelper {
       final keyBytes = sha256.convert(utf8.encode(enhancedSecret)).bytes;
       final key = Key(Uint8List.fromList(keyBytes));
 
-      String ciphertext = encryptedBase64;
+      var ciphertext = encryptedBase64;
       var isV2Format = false;
-      if (encryptedBase64.startsWith(SimpleCrypto._wireFormatV2)) {
-        ciphertext = encryptedBase64.substring(
-          SimpleCrypto._wireFormatV2.length,
-        );
+      if (encryptedBase64.startsWith(cryptoWireFormatV2)) {
+        ciphertext = encryptedBase64.substring(cryptoWireFormatV2.length);
         isV2Format = true;
       }
 
       final encrypter = Encrypter(AES(key));
       final decrypted = isV2Format
-          ? SimpleCrypto._decryptV2Format(encrypter, ciphertext)
-          : SimpleCrypto._decryptLegacyFormat(
-              encrypter,
-              ciphertext,
-              enhancedSecret,
-            );
+          ? decryptV2Format(encrypter, ciphertext)
+          : decryptLegacyFormat(encrypter, ciphertext, enhancedSecret);
 
-      final pairingKey = SimpleCrypto._getPairingKeyForContact(
-        contactPublicKey,
-      );
+      final pairingKey = _getPairingKeyForContact(contactPublicKey);
       if (pairingKey != null) {
-        SimpleCrypto._log(
-          '✅ ENHANCED ECDH decryption successful (ECDH + Pairing)',
-        );
+        _logger.fine('✅ ENHANCED ECDH decryption successful (ECDH + Pairing)');
       } else {
-        SimpleCrypto._log('✅ STANDARD ECDH decryption successful (ECDH only)');
+        _logger.fine('✅ STANDARD ECDH decryption successful (ECDH only)');
       }
 
       return decrypted;
     } catch (e) {
-      SimpleCrypto._log('❌ Enhanced ECDH decryption failed: $e');
+      _logger.fine('❌ Enhanced ECDH decryption failed: $e');
       return null;
     }
   }
@@ -139,15 +137,12 @@ class _SimpleCryptoContactHelper {
     String ciphertext,
     String enhancedSecret,
   ) {
-    // Legacy IV derivation (for backward compatibility).
     final ivSeed = '${enhancedSecret}_IV_DERIVATION';
     final ivBytes = sha256.convert(utf8.encode(ivSeed)).bytes.sublist(0, 16);
     final iv = IV(Uint8List.fromList(ivBytes));
 
     if (kDebugMode) {
-      SimpleCrypto._log(
-        '⚠️ Decrypting legacy ECDH message with deterministic IV',
-      );
+      _logger.fine('⚠️ Decrypting legacy ECDH message with deterministic IV');
     }
 
     final encrypted = Encrypted.fromBase64(ciphertext);
@@ -158,52 +153,45 @@ class _SimpleCryptoContactHelper {
     String ecdhSecret,
     String contactPublicKey,
   ) {
-    final pairingKey = SimpleCrypto._getPairingKeyForContact(contactPublicKey);
+    final pairingKey = _getPairingKeyForContact(contactPublicKey);
 
     if (pairingKey != null) {
-      // ENHANCED SECURITY: Combine ECDH + Pairing for dual-layer protection.
       final sortedSecrets = [ecdhSecret, pairingKey]..sort();
       final combinedSecret = sortedSecrets.join('_COMBINED_');
 
-      SimpleCrypto._log(
+      _logger.fine(
         '🔧 ENHANCED SECURITY: Using ECDH + Pairing key derivation',
       );
       return '${combinedSecret}_ENHANCED_ECDH_AES_SALT';
-    } else {
-      // FALLBACK: ECDH only.
-      SimpleCrypto._log('🔧 STANDARD ECDH: Using ECDH-only key derivation');
-      return '${ecdhSecret}_ECDH_AES_SALT';
     }
+
+    _logger.fine('🔧 STANDARD ECDH: Using ECDH-only key derivation');
+    return '${ecdhSecret}_ECDH_AES_SALT';
   }
 
   static Future<String?> getCachedOrComputeSharedSecret(
     String contactPublicKey,
     IContactRepository contactRepo,
   ) async {
-    // Check memory cache first (fastest).
-    if (SimpleCrypto._sharedSecretCache.containsKey(contactPublicKey)) {
-      return SimpleCrypto._sharedSecretCache[contactPublicKey];
+    if (_sharedSecretCache.containsKey(contactPublicKey)) {
+      return _sharedSecretCache[contactPublicKey];
     }
 
-    // Check secure storage cache.
     final cachedSecret = await contactRepo.getCachedSharedSecret(
       contactPublicKey,
     );
     if (cachedSecret != null) {
-      SimpleCrypto._log('Loaded shared secret from secure storage');
-      SimpleCrypto._sharedSecretCache[contactPublicKey] = cachedSecret;
+      _logger.fine('Loaded shared secret from secure storage');
+      _sharedSecretCache[contactPublicKey] = cachedSecret;
       return cachedSecret;
     }
 
-    // Compute new shared secret (expensive).
-    SimpleCrypto._log(
-      'Computing new ECDH shared secret - will cache for future use',
-    );
-    final newSecret = SimpleCrypto.computeSharedSecret(contactPublicKey);
+    _logger.fine('Computing new ECDH shared secret - will cache for future use');
+    final newSecret = SigningCryptoService.computeSharedSecret(contactPublicKey);
     if (newSecret != null) {
-      SimpleCrypto._sharedSecretCache[contactPublicKey] = newSecret;
+      _sharedSecretCache[contactPublicKey] = newSecret;
       await contactRepo.cacheSharedSecret(contactPublicKey, newSecret);
-      SimpleCrypto._log('ECDH shared secret computed and cached');
+      _logger.fine('ECDH shared secret computed and cached');
     }
 
     return newSecret;
@@ -213,41 +201,32 @@ class _SimpleCryptoContactHelper {
     String publicKey,
     IContactRepository repo,
   ) async {
-    if (!SimpleCrypto.hasConversationKey(publicKey)) {
+    if (!ConversationCryptoService.hasConversationKey(publicKey)) {
       final cachedSecret = await repo.getCachedSharedSecret(publicKey);
       if (cachedSecret != null) {
-        await restoreConversationKey(publicKey, cachedSecret);
-        SimpleCrypto._log(
-          '🔄 SYNC: Restored conversation key for ${_safeTruncate(publicKey, 8)}...',
+        await ConversationCryptoService.restoreConversationKey(
+          publicKey,
+          cachedSecret,
         );
+        _logger.fine('🔄 SYNC: Restored conversation key for $publicKey');
       }
     }
   }
 
-  static Future<void> restoreConversationKey(
-    String publicKey,
-    String cachedSecret,
-  ) async {
-    try {
-      final keyBytes = sha256
-          .convert(utf8.encode('${cachedSecret}CONVERSATION_KEY'))
-          .bytes;
-      final key = Key(Uint8List.fromList(keyBytes));
-
-      final ivBytes = sha256
-          .convert(utf8.encode('${cachedSecret}CONVERSATION_IV'))
-          .bytes
-          .sublist(0, 16);
-      final iv = IV(Uint8List.fromList(ivBytes));
-
-      SimpleCrypto._conversationEncrypters[publicKey] = Encrypter(AES(key));
-      SimpleCrypto._conversationIVs[publicKey] = iv;
-
-      SimpleCrypto._log(
-        'Restored conversation key for ${_safeTruncate(publicKey, 8)}...',
-      );
-    } catch (e) {
-      SimpleCrypto._log('Failed to restore conversation key: $e');
+  static void clearSharedSecretCache({String? publicKey}) {
+    if (publicKey == null) {
+      _sharedSecretCache.clear();
+      return;
     }
+    _sharedSecretCache.remove(publicKey);
+  }
+
+  static String? _getPairingKeyForContact(String contactPublicKey) {
+    final conversationKey = _sharedSecretCache[contactPublicKey];
+    if (conversationKey != null &&
+        ConversationCryptoService.hasConversationKey(contactPublicKey)) {
+      return 'PAIRED_$conversationKey';
+    }
+    return null;
   }
 }

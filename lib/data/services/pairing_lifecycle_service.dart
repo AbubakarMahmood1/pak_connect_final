@@ -4,9 +4,9 @@ import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
-import '../../domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/intro_hint_repository.dart';
@@ -137,10 +137,16 @@ class PairingLifecycleService {
       );
     }
 
-    SimpleCrypto.initializeConversation(contactUserId.value, sharedSecret);
+    ConversationCryptoService.initializeConversation(
+      contactUserId.value,
+      sharedSecret,
+    );
     if (alternateUserId != null &&
         alternateUserId.value != contactUserId.value) {
-      SimpleCrypto.initializeConversation(alternateUserId.value, sharedSecret);
+      ConversationCryptoService.initializeConversation(
+        alternateUserId.value,
+        sharedSecret,
+      );
     }
   }
 

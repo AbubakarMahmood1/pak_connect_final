@@ -21,17 +21,16 @@ Contact _contact(
   TrustStatus trust = TrustStatus.newContact,
   String? persistentPublicKey,
   String? currentEphemeralId,
-}) =>
-    Contact(
-      publicKey: pk,
-      persistentPublicKey: persistentPublicKey,
-      currentEphemeralId: currentEphemeralId,
-      displayName: 'Test',
-      trustStatus: trust,
-      securityLevel: level,
-      firstSeen: DateTime.now(),
-      lastSeen: DateTime.now(),
-    );
+}) => Contact(
+  publicKey: pk,
+  persistentPublicKey: persistentPublicKey,
+  currentEphemeralId: currentEphemeralId,
+  displayName: 'Test',
+  trustStatus: trust,
+  securityLevel: level,
+  firstSeen: DateTime.now(),
+  lastSeen: DateTime.now(),
+);
 
 class _Repo extends Fake implements IContactRepository {
   Contact? contact;
@@ -42,8 +41,7 @@ class _Repo extends Fake implements IContactRepository {
   Future<Contact?> getContactByAnyId(String id) async => contact;
 
   @override
-  Future<SecurityLevel> getContactSecurityLevel(String pk) async =>
-      storedLevel;
+  Future<SecurityLevel> getContactSecurityLevel(String pk) async => storedLevel;
 
   @override
   Future<void> updateContactSecurityLevel(
@@ -91,10 +89,7 @@ void main() {
     });
 
     test('unregisterIdentityMapping does not throw when noise null', () {
-      expect(
-        () => sm.unregisterIdentityMapping('pk1'),
-        returnsNormally,
-      );
+      expect(() => sm.unregisterIdentityMapping('pk1'), returnsNormally);
     });
 
     test('registerIdentityMappingForUser delegates without error', () {
@@ -116,21 +111,23 @@ void main() {
   });
 
   group('SecurityManager — pairing encryption path', () {
-    test('encryptMessageByType pairing succeeds with conversation key',
-        () async {
-      await SimpleCrypto.restoreConversationKey(pk, 'some-secret-key-value');
-      expect(SimpleCrypto.hasConversationKey(pk), isTrue);
+    test(
+      'encryptMessageByType pairing succeeds with conversation key',
+      () async {
+        await SimpleCrypto.restoreConversationKey(pk, 'some-secret-key-value');
+        expect(SimpleCrypto.hasConversationKey(pk), isTrue);
 
-      final encrypted = await sm.encryptMessageByType(
-        'hello world',
-        pk,
-        repo,
-        EncryptionType.pairing,
-      );
+        final encrypted = await sm.encryptMessageByType(
+          'hello world',
+          pk,
+          repo,
+          EncryptionType.pairing,
+        );
 
-      expect(encrypted, isNotEmpty);
-      expect(encrypted, isNot('hello world'));
-    });
+        expect(encrypted, isNotEmpty);
+        expect(encrypted, isNot('hello world'));
+      },
+    );
 
     test('decryptMessageByType pairing round-trips', () async {
       await SimpleCrypto.restoreConversationKey(pk, 'round-trip-key');
@@ -177,53 +174,43 @@ void main() {
       expect(method.type, EncryptionType.pairing);
     });
 
-    test('MEDIUM without pairing or noise falls to global', () async {
+    test('MEDIUM without pairing or noise throws', () async {
       repo.contact = _contact(pk, level: SecurityLevel.medium);
       repo.storedLevel = SecurityLevel.medium;
-      // No conversation key, no noise session → falls through to LOW → global
 
-      final method = await sm.getEncryptionMethod(pk, repo);
-
-      expect(method.type, EncryptionType.global);
+      expect(() => sm.getEncryptionMethod(pk, repo), throwsA(isA<Exception>()));
     });
   });
 
   group('SecurityManager — global encryption throws', () {
-    test('encryptMessageByType with global type throws EncryptionException',
-        () async {
-      expect(
-        () => sm.encryptMessageByType(
-          'message',
-          pk,
-          repo,
-          EncryptionType.global,
-        ),
-        throwsA(isA<Exception>()),
-      );
-    });
+    test(
+      'encryptMessageByType with global type throws EncryptionException',
+      () async {
+        expect(
+          () => sm.encryptMessageByType(
+            'message',
+            pk,
+            repo,
+            EncryptionType.global,
+          ),
+          throwsA(isA<Exception>()),
+        );
+      },
+    );
   });
 
   group('SecurityManager — noise encryption without service', () {
     test('encryptMessageByType noise without service throws', () async {
       expect(
-        () => sm.encryptMessageByType(
-          'message',
-          pk,
-          repo,
-          EncryptionType.noise,
-        ),
+        () =>
+            sm.encryptMessageByType('message', pk, repo, EncryptionType.noise),
         throwsA(isA<Exception>()),
       );
     });
 
     test('decryptMessageByType noise without service throws', () async {
       expect(
-        () => sm.decryptMessageByType(
-          'data',
-          pk,
-          repo,
-          EncryptionType.noise,
-        ),
+        () => sm.decryptMessageByType('data', pk, repo, EncryptionType.noise),
         throwsA(isA<Exception>()),
       );
     });
@@ -249,8 +236,7 @@ void main() {
       expect(level, SecurityLevel.medium);
     });
 
-    test('contact with ECDH secret and verified trust returns HIGH',
-        () async {
+    test('contact with ECDH secret and verified trust returns HIGH', () async {
       repo.contact = _contact(
         pk,
         level: SecurityLevel.low,

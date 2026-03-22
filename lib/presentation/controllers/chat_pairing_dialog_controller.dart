@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_pairing_state_manager.dart';
-import '../../domain/services/simple_crypto.dart';
+import '../../domain/services/conversation_crypto_service.dart';
+import '../../domain/services/signing_crypto_service.dart';
 import '../../domain/models/security_level.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../domain/interfaces/i_connection_service.dart';
@@ -230,7 +231,7 @@ class ChatPairingDialogController {
   /// 2. Mark as verified
   /// 3. Compute ECDH shared secret (if possible)
   /// 4. Cache shared secret in repository
-  /// 5. Restore key in SimpleCrypto for immediate use
+  /// 5. Restore the conversation key for immediate runtime use
   ///
   /// Parameters:
   /// - publicKey: Peer's public key
@@ -253,12 +254,17 @@ class ChatPairingDialogController {
       await contactRepository.markContactVerified(userId.value);
 
       // Compute and cache ECDH shared secret
-      final sharedSecret = SimpleCrypto.computeSharedSecret(userId.value);
+      final sharedSecret = SigningCryptoService.computeSharedSecret(
+        userId.value,
+      );
       if (sharedSecret != null) {
         await contactRepository.cacheSharedSecret(userId.value, sharedSecret);
 
-        // Restore it in SimpleCrypto for immediate use
-        await SimpleCrypto.restoreConversationKey(userId.value, sharedSecret);
+        // Restore it in the conversation crypto lane for immediate use.
+        await ConversationCryptoService.restoreConversationKey(
+          userId.value,
+          sharedSecret,
+        );
 
         _logger.info('🔐 Cached ECDH shared secret for: $displayName');
       }
