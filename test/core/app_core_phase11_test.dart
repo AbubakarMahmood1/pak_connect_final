@@ -13,16 +13,19 @@ import 'package:pak_connect/domain/services/performance_monitor.dart';
 void main() {
   late List<LogRecord> logRecords;
   late Set<String> allowedSevere;
+  StreamSubscription<LogRecord>? logSubscription;
 
   setUp(() {
     configureDataLayerRegistrar(registerDataLayerServices);
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    logSubscription = Logger.root.onRecord.listen(logRecords.add);
   });
 
   tearDown(() {
+    logSubscription?.cancel();
+    logSubscription = null;
     AppCore.initializationOverride = null;
     AppCore.resetForTesting();
     final severeErrors = logRecords
@@ -113,36 +116,38 @@ void main() {
       expect(initIdx, lessThan(readyIdx));
     });
 
-    test('initialize failure emits error status and clears completer',
-        () async {
-      allowedSevere.add('Failed to initialize app core');
-      allowedSevere.add('Stack trace:');
+    test(
+      'initialize failure emits error status and clears completer',
+      () async {
+        allowedSevere.add('Failed to initialize app core');
+        allowedSevere.add('Stack trace:');
 
-      AppCore.initializationOverride = () async {
-        throw Exception('init boom');
-      };
+        AppCore.initializationOverride = () async {
+          throw Exception('init boom');
+        };
 
-      final appCore = AppCore.instance;
-      final statuses = <AppStatus>[];
-      final sub = appCore.statusStream.listen(statuses.add);
-      addTearDown(sub.cancel);
+        final appCore = AppCore.instance;
+        final statuses = <AppStatus>[];
+        final sub = appCore.statusStream.listen(statuses.add);
+        addTearDown(sub.cancel);
 
-      // Allow the Stream.multi listener to register
-      await Future<void>.delayed(Duration.zero);
+        // Allow the Stream.multi listener to register
+        await Future<void>.delayed(Duration.zero);
 
-      await expectLater(
-        appCore.initialize(),
-        throwsA(isA<AppCoreException>()),
-      );
+        await expectLater(
+          appCore.initialize(),
+          throwsA(isA<AppCoreException>()),
+        );
 
-      // Allow microtasks to flush
-      await Future<void>.delayed(Duration.zero);
+        // Allow microtasks to flush
+        await Future<void>.delayed(Duration.zero);
 
-      expect(statuses, contains(AppStatus.error));
-      expect(appCore.isInitialized, isFalse);
-      // Completer should be cleared for retry
-      expect(appCore.isInitializing, isFalse);
-    });
+        expect(statuses, contains(AppStatus.error));
+        expect(appCore.isInitialized, isFalse);
+        // Completer should be cleared for retry
+        expect(appCore.isInitializing, isFalse);
+      },
+    );
 
     test('already-initialized emits ready immediately', () async {
       AppCore.initializationOverride = () async {};
@@ -154,9 +159,7 @@ void main() {
       await appCore.initialize();
 
       expect(
-        logRecords.any(
-          (l) => l.message.contains('already initialized'),
-        ),
+        logRecords.any((l) => l.message.contains('already initialized')),
         isTrue,
       );
     });
@@ -356,14 +359,18 @@ void main() {
       expect(score, lessThanOrEqualTo(1.0));
     });
 
-    test('overallHealthScore uses 0.8 for replay when no messages processed',
-        () {
-      final stats = makeStats(processedMessages: 0);
-      final statsWithMessages = makeStats(processedMessages: 10);
-      // With 0 processed messages, replay score is 0.8 instead of 1.0
-      expect(stats.overallHealthScore,
-          lessThanOrEqualTo(statsWithMessages.overallHealthScore));
-    });
+    test(
+      'overallHealthScore uses 0.8 for replay when no messages processed',
+      () {
+        final stats = makeStats(processedMessages: 0);
+        final statsWithMessages = makeStats(processedMessages: 10);
+        // With 0 processed messages, replay score is 0.8 instead of 1.0
+        expect(
+          stats.overallHealthScore,
+          lessThanOrEqualTo(statsWithMessages.overallHealthScore),
+        );
+      },
+    );
 
     test('needsOptimization true when health below 0.7', () {
       final stats = makeStats(overallScore: 0.1);

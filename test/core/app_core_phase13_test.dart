@@ -13,16 +13,19 @@ import 'package:pak_connect/domain/services/performance_monitor.dart';
 void main() {
   late List<LogRecord> logRecords;
   late Set<String> allowedSevere;
+  StreamSubscription<LogRecord>? logSubscription;
 
   setUp(() {
     configureDataLayerRegistrar(registerDataLayerServices);
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    logSubscription = Logger.root.onRecord.listen(logRecords.add);
   });
 
   tearDown(() {
+    logSubscription?.cancel();
+    logSubscription = null;
     AppCore.initializationOverride = null;
     AppCore.resetForTesting();
     final severeErrors = logRecords
@@ -103,28 +106,25 @@ void main() {
       expect(appCore.isInitialized, isTrue);
     });
 
-    test(
-      'concurrent init — third caller also awaits same completer',
-      () async {
-        final gate = Completer<void>();
-        var callCount = 0;
-        AppCore.initializationOverride = () async {
-          callCount++;
-          await gate.future;
-        };
+    test('concurrent init — third caller also awaits same completer', () async {
+      final gate = Completer<void>();
+      var callCount = 0;
+      AppCore.initializationOverride = () async {
+        callCount++;
+        await gate.future;
+      };
 
-        final appCore = AppCore.instance;
-        final f1 = appCore.initialize();
-        final f2 = appCore.initialize();
-        final f3 = appCore.initialize();
+      final appCore = AppCore.instance;
+      final f1 = appCore.initialize();
+      final f2 = appCore.initialize();
+      final f3 = appCore.initialize();
 
-        gate.complete();
-        await Future.wait([f1, f2, f3]);
+      gate.complete();
+      await Future.wait([f1, f2, f3]);
 
-        expect(callCount, 1);
-        expect(appCore.isInitialized, isTrue);
-      },
-    );
+      expect(callCount, 1);
+      expect(appCore.isInitialized, isTrue);
+    });
   });
 
   // =========================================================================
@@ -140,10 +140,7 @@ void main() {
       };
 
       final appCore = AppCore.instance;
-      await expectLater(
-        appCore.initialize(),
-        throwsA(isA<AppCoreException>()),
-      );
+      await expectLater(appCore.initialize(), throwsA(isA<AppCoreException>()));
 
       expect(appCore.isInitialized, isFalse);
       expect(appCore.isInitializing, isFalse);
@@ -164,10 +161,7 @@ void main() {
       final appCore = AppCore.instance;
 
       // First attempt fails
-      await expectLater(
-        appCore.initialize(),
-        throwsA(isA<AppCoreException>()),
-      );
+      await expectLater(appCore.initialize(), throwsA(isA<AppCoreException>()));
       expect(appCore.isInitialized, isFalse);
 
       // Retry succeeds
@@ -267,10 +261,7 @@ void main() {
       addTearDown(sub.cancel);
       await Future<void>.delayed(Duration.zero);
 
-      await expectLater(
-        appCore.initialize(),
-        throwsA(isA<AppCoreException>()),
-      );
+      await expectLater(appCore.initialize(), throwsA(isA<AppCoreException>()));
       await Future<void>.delayed(Duration.zero);
 
       expect(statuses, contains(AppStatus.initializing));
@@ -354,8 +345,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       // Both listeners should have received the ready event
-      final readyCount =
-          goodEvents.where((s) => s == AppStatus.ready).length;
+      final readyCount = goodEvents.where((s) => s == AppStatus.ready).length;
       expect(readyCount, greaterThanOrEqualTo(2));
     });
   });
@@ -370,16 +360,38 @@ void main() {
       expect(appCore.isInitialized, isFalse);
     });
 
-    test('dispose clears _services (services getter throws after dispose)',
-        () async {
-      AppCore.initializationOverride = () async {};
+    test('dispose during initialization leaves core reusable', () async {
+      final gate = Completer<void>();
+      AppCore.initializationOverride = () => gate.future;
       final appCore = AppCore.instance;
-      await appCore.initialize();
+
+      final initFuture = appCore.initialize();
+      expect(appCore.isInitializing, isTrue);
 
       appCore.dispose();
+      gate.complete();
+      await initFuture;
 
-      expect(() => appCore.services, throwsA(isA<StateError>()));
+      expect(appCore.isInitializing, isFalse);
+      expect(appCore.isInitialized, isFalse);
+
+      AppCore.initializationOverride = () async {};
+      await appCore.initialize();
+      expect(appCore.isInitialized, isTrue);
     });
+
+    test(
+      'dispose clears _services (services getter throws after dispose)',
+      () async {
+        AppCore.initializationOverride = () async {};
+        final appCore = AppCore.instance;
+        await appCore.initialize();
+
+        appCore.dispose();
+
+        expect(() => appCore.services, throwsA(isA<StateError>()));
+      },
+    );
 
     test('dispose emits disposing before clearing listeners', () async {
       AppCore.initializationOverride = () async {};
@@ -592,10 +604,7 @@ void main() {
     });
 
     test('needsOptimization false when scores high', () {
-      final stats = makeStats(
-        overallScore: 0.95,
-        qualityScore: 0.9,
-      );
+      final stats = makeStats(overallScore: 0.95, qualityScore: 0.9);
       expect(stats.needsOptimization, isFalse);
     });
 
@@ -996,10 +1005,7 @@ void main() {
       final appCore = AppCore.instance;
       // The completer's future has .catchError attached to prevent
       // unhandled async errors. Just calling initialize() is enough.
-      await expectLater(
-        appCore.initialize(),
-        throwsA(isA<AppCoreException>()),
-      );
+      await expectLater(appCore.initialize(), throwsA(isA<AppCoreException>()));
 
       // No unhandled errors should bubble.
       await Future<void>.delayed(const Duration(milliseconds: 50));

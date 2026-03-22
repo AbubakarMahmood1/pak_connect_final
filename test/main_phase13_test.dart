@@ -1,31 +1,54 @@
+import 'dart:async';
 
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/data/services/ble_message_handler_facade_impl.dart';
 import 'package:pak_connect/main.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
+import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/theme_provider.dart';
 
 import 'test_helpers/ble/fake_ble_service.dart';
+import 'test_helpers/app_core_test_harness.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
+  StreamSubscription<LogRecord>? logSubscription;
 
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'main_p13');
   });
 
   setUp(() {
+    AppCore.resetForTesting();
+    AppCore.initializationOverride = () async {};
+    final locator = GetIt.instance;
+    if (locator.isRegistered<ISharedMessageQueueProvider>()) {
+      locator.unregister<ISharedMessageQueueProvider>();
+    }
+    locator.registerSingleton<ISharedMessageQueueProvider>(
+      const _NoopSharedQueueProvider(),
+    );
+    BLEMessageHandlerFacadeImpl.configureDependencyResolvers(
+      sharedQueueProviderResolver: () => const _NoopSharedQueueProvider(),
+    );
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    logSubscription = Logger.root.onRecord.listen(logRecords.add);
   });
 
   tearDown(() {
+    logSubscription?.cancel();
+    logSubscription = null;
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
       (l) => !allowedSevere.any(
@@ -40,6 +63,14 @@ void main() {
       reason:
           'Unexpected SEVERE errors:\n${unexpected.map((e) => '${e.level}: ${e.message}').join('\n')}',
     );
+    AppCore.instance.dispose();
+    AppCore.initializationOverride = null;
+    AppCore.resetForTesting();
+    BLEMessageHandlerFacadeImpl.clearDependencyResolvers();
+    final locator = GetIt.instance;
+    if (locator.isRegistered<ISharedMessageQueueProvider>()) {
+      locator.unregister<ISharedMessageQueueProvider>();
+    }
   });
 
   /// Helper to pump the PakConnectApp with a FakeBleService and optional
@@ -55,6 +86,16 @@ void main() {
 
     final overrides = [
       bleServiceProvider.overrideWithValue(ble),
+      bleStateProvider.overrideWith(
+        (ref) => const AsyncValue.data(BluetoothLowEnergyState.poweredOff),
+      ),
+      eagerBurstScanningProvider.overrideWith((ref) async => true),
+      spyModeDetectedProvider.overrideWith(
+        (ref) => const AsyncValue<SpyModeInfo>.loading(),
+      ),
+      identityRevealedProvider.overrideWith(
+        (ref) => const AsyncValue<String>.loading(),
+      ),
       if (fixedThemeMode != null)
         themeModeProvider.overrideWith(
           () => _FixedThemeModeNotifier(fixedThemeMode),
@@ -70,6 +111,28 @@ void main() {
     return scope;
   }
 
+  Future<Completer<void>> pumpAppWhileInitializing(
+    WidgetTester tester, {
+    FakeBleService? fakeBleService,
+    ThemeMode? fixedThemeMode,
+  }) async {
+    final initializationGate = Completer<void>();
+    AppCore.initializationOverride = () => initializationGate.future;
+    addTearDown(() {
+      if (!initializationGate.isCompleted) {
+        initializationGate.complete();
+      }
+    });
+
+    await pumpApp(
+      tester,
+      fakeBleService: fakeBleService,
+      fixedThemeMode: fixedThemeMode,
+    );
+    await tester.pump();
+    return initializationGate;
+  }
+
   // ==================== PakConnectApp widget construction ====================
   group('PakConnectApp widget tree', () {
     testWidgets('renders MaterialApp', (tester) async {
@@ -83,9 +146,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.debugShowCheckedModeBanner, isFalse);
     });
 
@@ -103,9 +164,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.routes, contains('/groups'));
     });
 
@@ -113,9 +172,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.routes, contains('/create-group'));
     });
 
@@ -123,9 +180,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.onGenerateRoute, isNotNull);
     });
 
@@ -135,9 +190,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       final route = materialApp.onGenerateRoute!(
         const RouteSettings(name: '/unknown-route'),
       );
@@ -148,9 +201,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       final route = materialApp.onGenerateRoute!(
         const RouteSettings(name: '/group-chat', arguments: 'test-group-id'),
       );
@@ -164,47 +215,52 @@ void main() {
     testWidgets('shows loading indicator during initialization', (
       tester,
     ) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
       // Initially should show loading screen with LinearProgressIndicator
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('loading screen shows PakConnect title', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
       expect(find.text('PakConnect'), findsOneWidget);
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('loading screen shows tagline', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
-      expect(
-        find.text('Secure • Private • Battery Efficient'),
-        findsOneWidget,
-      );
+      expect(find.text('Secure • Private • Battery Efficient'), findsOneWidget);
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('loading screen shows initialization message', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
       expect(
-        find.text(
-          'Initializing enhanced security and power management...',
-        ),
+        find.text('Initializing enhanced security and power management...'),
         findsOneWidget,
       );
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('loading screen has message icon', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
       expect(find.byIcon(Icons.message), findsOneWidget);
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('loading screen has Scaffold', (tester) async {
@@ -221,9 +277,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       // Default theme mode from ThemeModeNotifier is system
       expect(materialApp.themeMode, ThemeMode.system);
     });
@@ -232,9 +286,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       // Material 3 themes have useMaterial3 = true
       expect(materialApp.theme?.useMaterial3, isTrue);
     });
@@ -243,9 +295,7 @@ void main() {
       await pumpApp(tester);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.darkTheme?.useMaterial3, isTrue);
     });
 
@@ -255,21 +305,15 @@ void main() {
       await pumpApp(tester, fixedThemeMode: ThemeMode.light);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.themeMode, ThemeMode.light);
     });
 
-    testWidgets('themeModeProvider override applies dark mode', (
-      tester,
-    ) async {
+    testWidgets('themeModeProvider override applies dark mode', (tester) async {
       await pumpApp(tester, fixedThemeMode: ThemeMode.dark);
       await tester.pump();
 
-      final materialApp = tester.widget<MaterialApp>(
-        find.byType(MaterialApp),
-      );
+      final materialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
       expect(materialApp.themeMode, ThemeMode.dark);
     });
   });
@@ -301,9 +345,7 @@ void main() {
 
       // Verify AppWrapper logs the initialization start
       final initLogs = logRecords.where(
-        (l) =>
-            l.loggerName == 'AppWrapper' &&
-            l.message.contains('started'),
+        (l) => l.loggerName == 'AppWrapper' && l.message.contains('started'),
       );
       expect(initLogs, isNotEmpty);
     });
@@ -409,11 +451,13 @@ void main() {
   // ==================== BLE state-driven navigation ====================
   group('AppWrapper BLE state navigation', () {
     testWidgets('shows loading screen initially', (tester) async {
-      await pumpApp(tester);
-      await tester.pump();
+      final initializationGate = await pumpAppWhileInitializing(tester);
 
       // Before initialization completes, loading screen should show
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+      initializationGate.complete();
+      await tester.pump();
     });
 
     testWidgets('initialization does not throw exceptions', (tester) async {
@@ -464,4 +508,21 @@ class _FixedThemeModeNotifier extends ThemeModeNotifier {
 
   @override
   ThemeMode build() => _mode;
+}
+
+class _NoopSharedQueueProvider implements ISharedMessageQueueProvider {
+  const _NoopSharedQueueProvider();
+
+  @override
+  bool get isInitialized => false;
+
+  @override
+  bool get isInitializing => false;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  OfflineMessageQueueContract get messageQueue =>
+      throw StateError('No shared queue required for main widget tests.');
 }
