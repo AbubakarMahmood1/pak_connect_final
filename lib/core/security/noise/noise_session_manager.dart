@@ -194,7 +194,7 @@ class NoiseSessionManager {
       peerID: peerID,
       isInitiator: true,
       pattern: pattern,
-      localStaticPrivateKey: _localStaticPrivateKey.data,
+      localStaticPrivateKey: _localStaticPrivateKey.copyData(),
       localStaticPublicKey: _localStaticPublicKey,
       remoteStaticPublicKey: remoteStaticPublicKey,
     );
@@ -263,7 +263,7 @@ class NoiseSessionManager {
         session = NoiseSession(
           peerID: peerID,
           isInitiator: false,
-          localStaticPrivateKey: _localStaticPrivateKey.data,
+          localStaticPrivateKey: _localStaticPrivateKey.copyData(),
           localStaticPublicKey: _localStaticPublicKey,
         );
 

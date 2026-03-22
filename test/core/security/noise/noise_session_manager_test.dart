@@ -458,6 +458,48 @@ void main() {
       bobManager.shutdown();
     });
 
+    test('preserves local static key across multiple session creations', () async {
+      final aliceManager = NoiseSessionManager(
+        localStaticPrivateKey: aliceStaticPrivate,
+        localStaticPublicKey: aliceStaticPublic,
+      );
+      final bobManager = NoiseSessionManager(
+        localStaticPrivateKey: bobStaticPrivate,
+        localStaticPublicKey: bobStaticPublic,
+      );
+      final carolManager = NoiseSessionManager(
+        localStaticPrivateKey: Uint8List.fromList(bobStaticPrivate),
+        localStaticPublicKey: Uint8List.fromList(bobStaticPublic),
+      );
+
+      final bobMsg1 = await aliceManager.initiateHandshake('Bob');
+      final bobMsg2 = await bobManager.processHandshakeMessage('Alice', bobMsg1);
+      final bobMsg3 = await aliceManager.processHandshakeMessage('Bob', bobMsg2!);
+      await bobManager.processHandshakeMessage('Alice', bobMsg3!);
+
+      expect(bobManager.getRemoteStaticKey('Alice'), equals(aliceStaticPublic));
+
+      final carolMsg1 = await aliceManager.initiateHandshake('Carol');
+      final carolMsg2 = await carolManager.processHandshakeMessage(
+        'Alice',
+        carolMsg1,
+      );
+      final carolMsg3 = await aliceManager.processHandshakeMessage(
+        'Carol',
+        carolMsg2!,
+      );
+      await carolManager.processHandshakeMessage('Alice', carolMsg3!);
+
+      expect(
+        carolManager.getRemoteStaticKey('Alice'),
+        equals(aliceStaticPublic),
+      );
+
+      aliceManager.shutdown();
+      bobManager.shutdown();
+      carolManager.shutdown();
+    });
+
     test('ignores stale handshake1 after session is established', () async {
       final aliceManager = NoiseSessionManager(
         localStaticPrivateKey: aliceStaticPrivate,
