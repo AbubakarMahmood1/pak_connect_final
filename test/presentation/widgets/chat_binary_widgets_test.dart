@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/presentation/widgets/chat_binary_widgets.dart';
@@ -133,98 +131,28 @@ void main() {
     expect(find.byIcon(Icons.insert_drive_file), findsWidgets);
   });
 
-  // Skipped due unstable Image.file decoding hang in this Windows headless runner.
   testWidgets('BinaryPayloadViewer shows image widget when image exists', (
     tester,
   ) async {
-    final tmpDir = await Directory.systemTemp.createTemp('pak_connect_binary');
-    final image = File('${tmpDir.path}/sample.png');
-    // 1x1 transparent PNG.
-    await image.writeAsBytes(
-      const [
-        137,
-        80,
-        78,
-        71,
-        13,
-        10,
-        26,
-        10,
-        0,
-        0,
-        0,
-        13,
-        73,
-        72,
-        68,
-        82,
-        0,
-        0,
-        0,
-        1,
-        0,
-        0,
-        0,
-        1,
-        8,
-        6,
-        0,
-        0,
-        0,
-        31,
-        21,
-        196,
-        137,
-        0,
-        0,
-        0,
-        13,
-        73,
-        68,
-        65,
-        84,
-        120,
-        156,
-        99,
-        248,
-        15,
-        4,
-        0,
-        9,
-        251,
-        3,
-        253,
-        167,
-        137,
-        129,
-        99,
-        0,
-        0,
-        0,
-        0,
-        73,
-        69,
-        78,
-        68,
-        174,
-        66,
-        96,
-        130,
-      ],
-    );
-
     final event = event0(
       id: 'img',
-      path: image.path,
+      path: '/tmp/sample.png',
       size: 4096,
       originalType: 3,
     );
 
     await tester.pumpWidget(
-      MaterialApp(home: BinaryPayloadViewer(event: event)),
+      MaterialApp(
+        home: BinaryPayloadViewer(
+          event: event,
+          imagePreviewBuilder:
+              (_) => const SizedBox(key: Key('binary-image-preview')),
+          fileExists: (_) => true,
+        ),
+      ),
     );
 
-    expect(find.byType(Image), findsOneWidget);
+    expect(find.byKey(const Key('binary-image-preview')), findsOneWidget);
     expect(find.textContaining('transferId: img'), findsOneWidget);
-  }, skip: true);
+  });
 }

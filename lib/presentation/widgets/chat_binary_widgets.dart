@@ -147,9 +147,16 @@ class PendingBinaryBanner extends StatelessWidget {
 }
 
 class BinaryPayloadViewer extends StatelessWidget {
-  const BinaryPayloadViewer({required this.event, super.key});
+  const BinaryPayloadViewer({
+    required this.event,
+    this.imagePreviewBuilder = _defaultImagePreviewBuilder,
+    this.fileExists = _defaultFileExists,
+    super.key,
+  });
 
   final ReceivedBinaryEvent event;
+  final Widget Function(File file) imagePreviewBuilder;
+  final bool Function(File file) fileExists;
 
   @override
   Widget build(BuildContext context) {
@@ -197,11 +204,11 @@ class BinaryPayloadViewer extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
-            if (isImage && file.existsSync())
+            if (isImage && fileExists(file))
               Expanded(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.file(file, fit: BoxFit.contain),
+                  child: imagePreviewBuilder(file),
                 ),
               )
             else
@@ -229,5 +236,13 @@ class BinaryPayloadViewer extends StatelessWidget {
         lower.endsWith('.jpeg') ||
         lower.endsWith('.gif') ||
         lower.endsWith('.webp');
+  }
+
+  static Widget _defaultImagePreviewBuilder(File file) {
+    return Image.file(file, fit: BoxFit.contain);
+  }
+
+  static bool _defaultFileExists(File file) {
+    return file.existsSync();
   }
 }
