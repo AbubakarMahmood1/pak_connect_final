@@ -172,8 +172,6 @@ void main() {
         expect(failed.isSuccess, isFalse);
 
         MessageRouter.configureDependencyResolvers(
-          // ignore: deprecated_member_use
-          preferencesRepositoryResolver: () => preferences,
           userPreferencesResolver: () => _FakeUserPreferences('sender_pub_key'),
         );
 
@@ -315,8 +313,10 @@ class _FakeUserPreferences implements IUserPreferences {
   Future<String?> getDeviceId() async => 'device-id';
 
   @override
-  Future<Map<String, String>> getOrCreateKeyPair() async =>
-      {'publicKey': _publicKey, 'privateKey': ''};
+  Future<Map<String, String>> getOrCreateKeyPair() async => {
+    'publicKey': _publicKey,
+    'privateKey': '',
+  };
 
   @override
   Future<bool> getHintBroadcastEnabled() async => true;

@@ -17,13 +17,13 @@ import 'package:pak_connect/domain/services/simple_crypto.dart';
 // ─── Fake Contact Repository ─────────────────────────────────────────
 
 Contact _makeContact(String pk) => Contact(
-      publicKey: pk,
-      displayName: 'Test',
-      trustStatus: TrustStatus.newContact,
-      securityLevel: SecurityLevel.low,
-      firstSeen: DateTime.now(),
-      lastSeen: DateTime.now(),
-    );
+  publicKey: pk,
+  displayName: 'Test',
+  trustStatus: TrustStatus.newContact,
+  securityLevel: SecurityLevel.low,
+  firstSeen: DateTime.now(),
+  lastSeen: DateTime.now(),
+);
 
 class _FakeContactRepository extends Fake implements IContactRepository {
   Contact? _contact;
@@ -89,14 +89,16 @@ void main() {
       // getCurrentLevel recalculates: verified + no ECDH → low
       repo.setSecurityLevel(SecurityLevel.high);
       repo.setCachedSecret(null);
-      repo.setContact(Contact(
-        publicKey: 'pk_high',
-        displayName: 'Test',
-        trustStatus: TrustStatus.verified,
-        securityLevel: SecurityLevel.high,
-        firstSeen: DateTime.now(),
-        lastSeen: DateTime.now(),
-      ));
+      repo.setContact(
+        Contact(
+          publicKey: 'pk_high',
+          displayName: 'Test',
+          trustStatus: TrustStatus.verified,
+          securityLevel: SecurityLevel.high,
+          firstSeen: DateTime.now(),
+          lastSeen: DateTime.now(),
+        ),
+      );
 
       final method = await sm.getEncryptionMethod('pk_high', repo);
       // verified + no ECDH + no pairing + no noise → LOW → global
@@ -111,21 +113,26 @@ void main() {
       expect(method.type, EncryptionType.global);
     });
 
-    test('HIGH level with valid ECDH key and verified trust returns ecdh', () async {
-      repo.setSecurityLevel(SecurityLevel.high);
-      repo.setCachedSecret('some_shared_secret');
-      repo.setContact(Contact(
-        publicKey: 'pk_ecdh',
-        displayName: 'Test',
-        trustStatus: TrustStatus.verified,
-        securityLevel: SecurityLevel.high,
-        firstSeen: DateTime.now(),
-        lastSeen: DateTime.now(),
-      ));
+    test(
+      'HIGH level with valid ECDH key and verified trust returns ecdh',
+      () async {
+        repo.setSecurityLevel(SecurityLevel.high);
+        repo.setCachedSecret('some_shared_secret');
+        repo.setContact(
+          Contact(
+            publicKey: 'pk_ecdh',
+            displayName: 'Test',
+            trustStatus: TrustStatus.verified,
+            securityLevel: SecurityLevel.high,
+            firstSeen: DateTime.now(),
+            lastSeen: DateTime.now(),
+          ),
+        );
 
-      final method = await sm.getEncryptionMethod('pk_ecdh', repo);
-      expect(method.type, EncryptionType.ecdh);
-    });
+        final method = await sm.getEncryptionMethod('pk_ecdh', repo);
+        expect(method.type, EncryptionType.ecdh);
+      },
+    );
 
     test('MEDIUM level with no pairing or noise returns global', () async {
       repo.setSecurityLevel(SecurityLevel.medium);
@@ -183,10 +190,8 @@ void main() {
     });
 
     test('global decryption uses legacy compatible path', () async {
-      // SimpleCrypto.decryptLegacyCompatible should handle basic encrypted strings
-      // Let's encrypt something with global first
-      // ignore: deprecated_member_use_from_same_package
-      final encrypted = SimpleCrypto.encrypt('hello world');
+      // SimpleCrypto.decryptLegacyCompatible should handle legacy plaintext markers.
+      final encrypted = SimpleCrypto.encodeLegacyPlaintext('hello world');
       final decrypted = await sm.decryptMessageByType(
         encrypted,
         'pk_test',
@@ -250,9 +255,7 @@ void main() {
       repo.setSecurityLevel(SecurityLevel.low);
       repo.setContact(_makeContact('pk_dec'));
 
-      // Encrypt with global SimpleCrypto
-      // ignore: deprecated_member_use_from_same_package
-      final encrypted = SimpleCrypto.encrypt('secret message');
+      final encrypted = SimpleCrypto.encodeLegacyPlaintext('secret message');
       final decrypted = await sm.decryptMessage(encrypted, 'pk_dec', repo);
       expect(decrypted, 'secret message');
     });
@@ -335,17 +338,23 @@ void main() {
     test('binary payload with ECDH encrypts successfully', () async {
       repo.setSecurityLevel(SecurityLevel.high);
       repo.setCachedSecret('shared_secret_for_ecdh');
-      repo.setContact(Contact(
-        publicKey: 'pk_bin_ecdh',
-        displayName: 'Test',
-        trustStatus: TrustStatus.verified,
-        securityLevel: SecurityLevel.high,
-        firstSeen: DateTime.now(),
-        lastSeen: DateTime.now(),
-      ));
+      repo.setContact(
+        Contact(
+          publicKey: 'pk_bin_ecdh',
+          displayName: 'Test',
+          trustStatus: TrustStatus.verified,
+          securityLevel: SecurityLevel.high,
+          firstSeen: DateTime.now(),
+          lastSeen: DateTime.now(),
+        ),
+      );
 
       final data = Uint8List.fromList([1, 2, 3, 4, 5]);
-      final encrypted = await sm.encryptBinaryPayload(data, 'pk_bin_ecdh', repo);
+      final encrypted = await sm.encryptBinaryPayload(
+        data,
+        'pk_bin_ecdh',
+        repo,
+      );
       expect(encrypted, isNotEmpty);
       expect(encrypted.length > data.length, isTrue);
     });
@@ -363,21 +372,19 @@ void main() {
     test('binary payload ECDH decryption round-trips', () async {
       repo.setSecurityLevel(SecurityLevel.high);
       repo.setCachedSecret('shared_secret_for_bin');
-      repo.setContact(Contact(
-        publicKey: 'pk_bin_dec',
-        displayName: 'Test',
-        trustStatus: TrustStatus.verified,
-        securityLevel: SecurityLevel.high,
-        firstSeen: DateTime.now(),
-        lastSeen: DateTime.now(),
-      ));
+      repo.setContact(
+        Contact(
+          publicKey: 'pk_bin_dec',
+          displayName: 'Test',
+          trustStatus: TrustStatus.verified,
+          securityLevel: SecurityLevel.high,
+          firstSeen: DateTime.now(),
+          lastSeen: DateTime.now(),
+        ),
+      );
 
       final data = Uint8List.fromList([10, 20, 30, 40, 50]);
-      final encrypted = await sm.encryptBinaryPayload(
-        data,
-        'pk_bin_dec',
-        repo,
-      );
+      final encrypted = await sm.encryptBinaryPayload(data, 'pk_bin_dec', repo);
       final decrypted = await sm.decryptBinaryPayload(
         encrypted,
         'pk_bin_dec',
@@ -394,11 +401,7 @@ void main() {
       // decryptBinaryPayload determines type internally via getEncryptionMethod
       // At LOW with no noise, uses global — but with garbage data it may throw
       expect(
-        () => sm.decryptBinaryPayload(
-          data,
-          'pk_test',
-          repo,
-        ),
+        () => sm.decryptBinaryPayload(data, 'pk_test', repo),
         throwsA(isA<Exception>()),
       );
     });

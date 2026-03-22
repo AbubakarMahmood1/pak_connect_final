@@ -145,14 +145,9 @@ void main() {
       expect(last!.totalDeliveredToSelf, 1);
     });
 
-    test('fires on duplicate drop', () async {
-      // ignore: unused_local_variable
-      RelayStatistics? last;
+    test('records duplicate drops in aggregate statistics', () async {
       final engine = makeEngine();
-      await engine.initialize(
-        currentNodeId: 'me',
-        onStatsUpdated: (s) => last = s,
-      );
+      await engine.initialize(currentNodeId: 'me');
 
       await seenStore.markDelivered('dup');
       await engine.processIncomingRelay(
@@ -165,14 +160,9 @@ void main() {
       expect(engine.getStatistics().totalDropped, 1);
     });
 
-    test('fires on message-type filter drop', () async {
-      // ignore: unused_local_variable
-      RelayStatistics? last;
+    test('records message-type filter drops in aggregate statistics', () async {
       final engine = makeEngine();
-      await engine.initialize(
-        currentNodeId: 'me',
-        onStatsUpdated: (s) => last = s,
-      );
+      await engine.initialize(currentNodeId: 'me');
 
       await engine.processIncomingRelay(
         relayMessage: _relay(recipient: 'other'),
@@ -319,10 +309,7 @@ void main() {
   group('flood mode relay paths', () {
     test('flood mode with available next hops broadcasts', () async {
       final engine = makeEngine(flood: true);
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       MeshRelayMessage? relayedMsg;
-      // ignore: unused_local_variable
       String? relayedTo;
 
       await engine.initialize(
@@ -350,6 +337,13 @@ void main() {
         RelayProcessingType.relayed,
         RelayProcessingType.dropped,
       ], contains(r.type));
+      if (r.type == RelayProcessingType.relayed) {
+        expect(relayedMsg, isNotNull);
+        expect(relayedTo, isNotNull);
+      } else {
+        expect(relayedMsg, isNull);
+        expect(relayedTo, isNull);
+      }
     });
 
     test('flood mode with empty next hops drops', () async {

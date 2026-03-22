@@ -5,7 +5,6 @@
 //          already at same level re-initialization, ensureContactMaximumSecurity
 //          no cached secret path, isPaired getter, callback setters
 
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
@@ -25,17 +24,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _MockContactRepository extends Mock implements ContactRepository {
   @override
   Future<Contact?> getContact(String pk) => super.noSuchMethod(
-        Invocation.method(#getContact, [pk]),
-        returnValue: Future<Contact?>.value(null),
-        returnValueForMissingStub: Future<Contact?>.value(null),
-      );
+    Invocation.method(#getContact, [pk]),
+    returnValue: Future<Contact?>.value(null),
+    returnValueForMissingStub: Future<Contact?>.value(null),
+  );
 
   @override
   Future<Contact?> getContactByAnyId(String id) => super.noSuchMethod(
-        Invocation.method(#getContactByAnyId, [id]),
-        returnValue: Future<Contact?>.value(null),
-        returnValueForMissingStub: Future<Contact?>.value(null),
-      );
+    Invocation.method(#getContactByAnyId, [id]),
+    returnValue: Future<Contact?>.value(null),
+    returnValueForMissingStub: Future<Contact?>.value(null),
+  );
 
   @override
   Future<void> cacheSharedSecret(String pk, String secret) =>
@@ -52,44 +51,48 @@ class _MockContactRepository extends Mock implements ContactRepository {
     SecurityLevel sl, {
     String? currentEphemeralId,
     String? persistentPublicKey,
-  }) =>
-      super.noSuchMethod(
-        Invocation.method(#saveContactWithSecurity, [pk, dn, sl], {
-          #currentEphemeralId: currentEphemeralId,
-          #persistentPublicKey: persistentPublicKey,
-        }),
-        returnValue: Future<void>.value(),
-        returnValueForMissingStub: Future<void>.value(),
-      );
+  }) => super.noSuchMethod(
+    Invocation.method(
+      #saveContactWithSecurity,
+      [pk, dn, sl],
+      {
+        #currentEphemeralId: currentEphemeralId,
+        #persistentPublicKey: persistentPublicKey,
+      },
+    ),
+    returnValue: Future<void>.value(),
+    returnValueForMissingStub: Future<void>.value(),
+  );
 
   @override
   Future<Contact?> getContactByUserId(UserId uid) => super.noSuchMethod(
-        Invocation.method(#getContactByUserId, [uid]),
-        returnValue: Future<Contact?>.value(null),
-        returnValueForMissingStub: Future<Contact?>.value(null),
-      );
+    Invocation.method(#getContactByUserId, [uid]),
+    returnValue: Future<Contact?>.value(null),
+    returnValueForMissingStub: Future<Contact?>.value(null),
+  );
 
   @override
   Future<void> clearCachedSecrets(String pk) => super.noSuchMethod(
-        Invocation.method(#clearCachedSecrets, [pk]),
-        returnValue: Future<void>.value(),
-        returnValueForMissingStub: Future<void>.value(),
-      );
+    Invocation.method(#clearCachedSecrets, [pk]),
+    returnValue: Future<void>.value(),
+    returnValueForMissingStub: Future<void>.value(),
+  );
 
   @override
   Future<String?> getCachedSharedSecret(String pk) => super.noSuchMethod(
-        Invocation.method(#getCachedSharedSecret, [pk]),
-        returnValue: Future<String?>.value(null),
-        returnValueForMissingStub: Future<String?>.value(null),
-      );
+    Invocation.method(#getCachedSharedSecret, [pk]),
+    returnValue: Future<String?>.value(null),
+    returnValueForMissingStub: Future<String?>.value(null),
+  );
 
   @override
   Future<SecurityLevel> getContactSecurityLevel(String pk) =>
       super.noSuchMethod(
         Invocation.method(#getContactSecurityLevel, [pk]),
         returnValue: Future<SecurityLevel>.value(SecurityLevel.low),
-        returnValueForMissingStub:
-            Future<SecurityLevel>.value(SecurityLevel.low),
+        returnValueForMissingStub: Future<SecurityLevel>.value(
+          SecurityLevel.low,
+        ),
       );
 
   @override
@@ -122,17 +125,16 @@ Contact _contact({
   String? persistentPublicKey = 'persist',
   String? currentEphemeralId = 'peer',
   SecurityLevel securityLevel = SecurityLevel.medium,
-}) =>
-    Contact(
-      publicKey: publicKey,
-      persistentPublicKey: persistentPublicKey,
-      currentEphemeralId: currentEphemeralId,
-      displayName: 'Peer',
-      trustStatus: TrustStatus.verified,
-      securityLevel: securityLevel,
-      firstSeen: DateTime(2024, 1, 1),
-      lastSeen: DateTime(2024, 1, 1),
-    );
+}) => Contact(
+  publicKey: publicKey,
+  persistentPublicKey: persistentPublicKey,
+  currentEphemeralId: currentEphemeralId,
+  displayName: 'Peer',
+  trustStatus: TrustStatus.verified,
+  securityLevel: securityLevel,
+  firstSeen: DateTime(2024, 1, 1),
+  lastSeen: DateTime(2024, 1, 1),
+);
 
 // ─── Tests ──────────────────────────────────────────────────────────────
 
@@ -155,20 +157,25 @@ void main() {
     identityState = IdentitySessionState();
     conversationKeys = {};
 
-    when(contactRepo.getContact('peer'))
-        .thenAnswer((_) async => _contact());
-    when(contactRepo.getContactByAnyId('peer'))
-        .thenAnswer((_) async => _contact());
-    when(contactRepo.getContactByUserId(const UserId('peer')))
-        .thenAnswer((_) async => _contact());
-    when(contactRepo.getContactByUserId(const UserId('persist')))
-        .thenAnswer((_) async => _contact());
-    when(contactRepo.getContactSecurityLevel('peer'))
-        .thenAnswer((_) async => SecurityLevel.medium);
-    when(contactRepo.getCachedSharedSecret('peer'))
-        .thenAnswer((_) async => null);
-    when(contactRepo.upgradeContactSecurity('peer', SecurityLevel.medium))
-        .thenAnswer((_) async => true);
+    when(contactRepo.getContact('peer')).thenAnswer((_) async => _contact());
+    when(
+      contactRepo.getContactByAnyId('peer'),
+    ).thenAnswer((_) async => _contact());
+    when(
+      contactRepo.getContactByUserId(const UserId('peer')),
+    ).thenAnswer((_) async => _contact());
+    when(
+      contactRepo.getContactByUserId(const UserId('persist')),
+    ).thenAnswer((_) async => _contact());
+    when(
+      contactRepo.getContactSecurityLevel('peer'),
+    ).thenAnswer((_) async => SecurityLevel.medium);
+    when(
+      contactRepo.getCachedSharedSecret('peer'),
+    ).thenAnswer((_) async => null);
+    when(
+      contactRepo.upgradeContactSecurity('peer', SecurityLevel.medium),
+    ).thenAnswer((_) async => true);
 
     final lifecycle = PairingLifecycleService(
       logger: Logger('test-lifecycle'),
@@ -176,11 +183,12 @@ void main() {
       identityState: identityState,
       conversationKeys: conversationKeys,
       myPersistentIdProvider: () async => 'my-id',
-      triggerChatMigration: ({
-        required String ephemeralId,
-        required String persistentKey,
-        String? contactName,
-      }) async {},
+      triggerChatMigration:
+          ({
+            required String ephemeralId,
+            required String persistentKey,
+            String? contactName,
+          }) async {},
     );
 
     controller = PairingFlowController(
@@ -215,26 +223,25 @@ void main() {
     });
 
     test('onSendPairingCode setter delegates to PairingService', () {
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       String? captured;
       controller.onSendPairingCode = (code) => captured = code;
       expect(controller.onSendPairingCode, isNotNull);
+      controller.onSendPairingCode?.call('123456');
+      expect(captured, '123456');
     });
 
     test('onSendPairingVerification setter delegates', () {
-      // ignore: unused_local_variable
       String? captured;
       controller.onSendPairingVerification = (hash) => captured = hash;
       expect(controller.onSendPairingVerification, isNotNull);
+      controller.onSendPairingVerification?.call('hash-abc');
+      expect(captured, 'hash-abc');
     });
   });
 
   // ─── Request/accept/cancel flow (lazy coordinator) ─────────────────
   group('PairingFlowController — request/accept/cancel flow', () {
     test('sendPairingRequest triggers coordinator and logs', () async {
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       ProtocolMessage? sentMessage;
       controller.onSendPairingRequest = (msg) => sentMessage = msg;
       identityState.setTheirEphemeralId('peer-eph');
@@ -245,6 +252,7 @@ void main() {
         (r) => r.message.contains('waiting for accept'),
       );
       expect(waitingLog, isTrue);
+      expect(sentMessage?.type, ProtocolMessageType.pairingRequest);
     });
 
     test('handlePairingRequest triggers UI popup via orchestrator', () {
@@ -258,10 +266,7 @@ void main() {
       final msg = ProtocolMessage(
         type: ProtocolMessageType.pairingRequest,
         timestamp: DateTime.now(),
-        payload: {
-          'ephemeralId': 'requester-eph',
-          'displayName': 'Requester',
-        },
+        payload: {'ephemeralId': 'requester-eph', 'displayName': 'Requester'},
       );
 
       controller.handlePairingRequest(msg);
@@ -294,38 +299,46 @@ void main() {
         payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
       );
 
-      controller.handlePairingRequest(ProtocolMessage(
-        type: ProtocolMessageType.pairingRequest,
-        timestamp: DateTime.now(),
-        payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
-      ));
+      controller.handlePairingRequest(
+        ProtocolMessage(
+          type: ProtocolMessageType.pairingRequest,
+          timestamp: DateTime.now(),
+          payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
+        ),
+      );
 
       controller.handlePairingAccept(msg);
     });
 
     test('handlePairingCancel clears state after delay', () async {
-      controller.handlePairingRequest(ProtocolMessage(
-        type: ProtocolMessageType.pairingRequest,
-        timestamp: DateTime.now(),
-        payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
-      ));
+      controller.handlePairingRequest(
+        ProtocolMessage(
+          type: ProtocolMessageType.pairingRequest,
+          timestamp: DateTime.now(),
+          payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
+        ),
+      );
 
-      controller.handlePairingCancel(ProtocolMessage(
-        type: ProtocolMessageType.pairingCancel,
-        timestamp: DateTime.now(),
-        payload: {'reason': 'User cancelled'},
-      ));
+      controller.handlePairingCancel(
+        ProtocolMessage(
+          type: ProtocolMessageType.pairingCancel,
+          timestamp: DateTime.now(),
+          payload: {'reason': 'User cancelled'},
+        ),
+      );
 
       expect(true, isTrue);
     });
 
     test('cancelPairing delegates and schedules state clear', () async {
       controller.onSendPairingCancel = (_) {};
-      controller.handlePairingRequest(ProtocolMessage(
-        type: ProtocolMessageType.pairingRequest,
-        timestamp: DateTime.now(),
-        payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
-      ));
+      controller.handlePairingRequest(
+        ProtocolMessage(
+          type: ProtocolMessageType.pairingRequest,
+          timestamp: DateTime.now(),
+          payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
+        ),
+      );
 
       await controller.cancelPairing(reason: 'test cancel');
     });
@@ -351,8 +364,9 @@ void main() {
 
     test('existing HIGH contact requesting MEDIUM skips pairing', () async {
       final highContact = _contact(securityLevel: SecurityLevel.high);
-      when(contactRepo.getContactByUserId(const UserId('peer')))
-          .thenAnswer((_) async => highContact);
+      when(
+        contactRepo.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => highContact);
 
       bool? completed;
       controller.onContactRequestCompleted = (s) => completed = s;
@@ -368,8 +382,9 @@ void main() {
 
     test('contact already at same level re-initializes crypto', () async {
       final medContact = _contact(securityLevel: SecurityLevel.medium);
-      when(contactRepo.getContactByUserId(const UserId('peer')))
-          .thenAnswer((_) async => medContact);
+      when(
+        contactRepo.getContactByUserId(const UserId('peer')),
+      ).thenAnswer((_) async => medContact);
 
       bool? completed;
       controller.onContactRequestCompleted = (s) => completed = s;
@@ -384,8 +399,9 @@ void main() {
     });
 
     test('exception in confirmSecurityUpgrade returns false', () async {
-      when(contactRepo.getContactByUserId(const UserId('peer')))
-          .thenThrow(Exception('DB error'));
+      when(
+        contactRepo.getContactByUserId(const UserId('peer')),
+      ).thenThrow(Exception('DB error'));
 
       final result = await controller.confirmSecurityUpgrade(
         'peer',
@@ -404,8 +420,9 @@ void main() {
     });
 
     test('repository returning false propagates', () async {
-      when(contactRepo.resetContactSecurity('fail-pk', 'reason'))
-          .thenAnswer((_) async => false);
+      when(
+        contactRepo.resetContactSecurity('fail-pk', 'reason'),
+      ).thenAnswer((_) async => false);
 
       bool? completed;
       controller.onContactRequestCompleted = (s) => completed = s;
@@ -429,8 +446,9 @@ void main() {
     });
 
     test('no cached secret logs and does nothing', () async {
-      when(contactRepo.getCachedSharedSecret('no-secret'))
-          .thenAnswer((_) async => null);
+      when(
+        contactRepo.getCachedSharedSecret('no-secret'),
+      ).thenAnswer((_) async => null);
 
       await controller.ensureContactMaximumSecurity('no-secret');
 
@@ -452,8 +470,9 @@ void main() {
     });
 
     test('no update needed when levels match', () async {
-      when(contactRepo.getContactSecurityLevel('peer'))
-          .thenAnswer((_) async => SecurityLevel.medium);
+      when(
+        contactRepo.getContactSecurityLevel('peer'),
+      ).thenAnswer((_) async => SecurityLevel.medium);
 
       await controller.handleSecurityLevelSync({
         'securityLevel': SecurityLevel.medium.index,

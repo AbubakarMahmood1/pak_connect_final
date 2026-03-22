@@ -38,7 +38,11 @@ void main() {
     ProtocolMessageHandler.clearPeerProtocolVersionFloorForTest();
     ProtocolMessageHandler.clearIdentityManagerResolver();
     securityService = _FakeSecurityService();
-    handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
+    handler = ProtocolMessageHandler(
+      securityService: securityService,
+      allowLegacyV2Decrypt: true,
+      requireV2Signature: false,
+    );
   });
 
   tearDown(() {
@@ -52,7 +56,11 @@ void main() {
               !allowedSevere.any((pattern) => log.message.contains(pattern)),
         )
         .toList();
-    expect(severeErrors, isEmpty, reason: 'Unexpected SEVERE errors: $severeErrors');
+    expect(
+      severeErrors,
+      isEmpty,
+      reason: 'Unexpected SEVERE errors: $severeErrors',
+    );
   });
 
   // ── Contact request handling ────────────────────────────────────────
@@ -191,10 +199,7 @@ void main() {
 
       final msg = ProtocolMessage(
         type: ProtocolMessageType.cryptoVerification,
-        payload: {
-          'verificationId': 'v-123',
-          'contactKey': 'ck-abc',
-        },
+        payload: {'verificationId': 'v-123', 'contactKey': 'ck-abc'},
         timestamp: DateTime.now(),
       );
 
@@ -601,7 +606,11 @@ void main() {
       ProtocolMessageHandler.configureIdentityManagerResolver(
         () => _FakeIdentityManager(persistentId: 'my-persistent-key'),
       );
-      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
+      handler = ProtocolMessageHandler(
+        securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
+      );
 
       final result = await handler.isMessageForMe('my-persistent-key');
       expect(result, isTrue);
@@ -609,7 +618,11 @@ void main() {
 
     test('identity manager resolver returns null gracefully', () async {
       ProtocolMessageHandler.configureIdentityManagerResolver(() => null);
-      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
+      handler = ProtocolMessageHandler(
+        securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
+      );
       handler.setCurrentNodeId('my-node');
 
       final result = await handler.isMessageForMe('unknown-id');
@@ -620,7 +633,11 @@ void main() {
       ProtocolMessageHandler.configureIdentityManagerResolver(() {
         throw Exception('not initialized');
       });
-      handler = ProtocolMessageHandler(securityService: securityService, allowLegacyV2Decrypt: true, requireV2Signature: false);
+      handler = ProtocolMessageHandler(
+        securityService: securityService,
+        allowLegacyV2Decrypt: true,
+        requireV2Signature: false,
+      );
       handler.setCurrentNodeId('my-node');
 
       final result = await handler.isMessageForMe('unknown-id');
@@ -850,10 +867,8 @@ class _FakeSecurityService implements ISecurityService {
 
 class _FakeIdentityManager implements IIdentityManager {
   final String? persistentId;
-  final String? ephemeralId;
 
-  // ignore: unused_element_parameter
-  _FakeIdentityManager({this.persistentId, this.ephemeralId});
+  _FakeIdentityManager({this.persistentId});
 
   @override
   String? get myPersistentId => persistentId;
@@ -862,7 +877,7 @@ class _FakeIdentityManager implements IIdentityManager {
   String? getMyPersistentId() => persistentId;
 
   @override
-  String? get myEphemeralId => ephemeralId;
+  String? get myEphemeralId => null;
 
   @override
   Future<void> initialize() async {}

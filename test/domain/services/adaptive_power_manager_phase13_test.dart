@@ -13,6 +13,7 @@
 /// - _stopAllTimers: dutyCycleScanning cleanup
 /// - _loadSettings / _saveSettings
 library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,13 +49,9 @@ void main() {
   // -----------------------------------------------------------------------
   group('setAppBackgroundState', () {
     test('transitions to background changes power mode', () async {
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       PowerMode? lastMode;
       final manager = AdaptivePowerManager();
-      await manager.initialize(
-        onPowerModeChanged: (mode) => lastMode = mode,
-      );
+      await manager.initialize(onPowerModeChanged: (mode) => lastMode = mode);
 
       // Go to background — mode might change to balanced or powerSaver
       manager.setAppBackgroundState(true);
@@ -63,6 +60,7 @@ void main() {
 
       // Go back to foreground
       manager.setAppBackgroundState(false);
+      expect(lastMode, isNotNull);
       manager.dispose();
     });
 
@@ -128,10 +126,7 @@ void main() {
 
       // >10 consecutive successes with moderate quality
       for (int i = 0; i < 12; i++) {
-        manager.reportConnectionSuccess(
-          rssi: -70,
-          connectionTime: 200,
-        );
+        manager.reportConnectionSuccess(rssi: -70, connectionTime: 200);
       }
 
       final stats = manager.getCurrentStats();
@@ -275,9 +270,7 @@ void main() {
       await manager.initialize(onStartScan: () => startCount++);
 
       await manager.updateBluetoothAvailability(false);
-      await manager.scheduleManualBurstAfter(
-        const Duration(milliseconds: 5),
-      );
+      await manager.scheduleManualBurstAfter(const Duration(milliseconds: 5));
       await Future.delayed(const Duration(milliseconds: 30));
       expect(startCount, 0);
       manager.dispose();

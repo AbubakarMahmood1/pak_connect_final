@@ -3,6 +3,7 @@
 ///   312-313, 351-353, 369, 372, 386-387, 442-445, 458, 473-477,
 ///   601-603, 615, 663
 library;
+
 import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -28,13 +29,11 @@ class _FakePeripheral implements Peripheral {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-UUID _makeUuid(int seed) =>
-    UUID(List.generate(16, (i) => (seed + i) & 0xFF));
+UUID _makeUuid(int seed) => UUID(List.generate(16, (i) => (seed + i) & 0xFF));
 
 _FakePeripheral _peripheral(int seed) => _FakePeripheral(_makeUuid(seed));
 
-Advertisement _emptyAd() =>
-    Advertisement(manufacturerSpecificData: []);
+Advertisement _emptyAd() => Advertisement(manufacturerSpecificData: []);
 
 Advertisement _hintAd({
   required Uint8List nonce,
@@ -56,9 +55,11 @@ Advertisement _hintAd({
 DiscoveredEventArgs _event(int seed, {int rssi = -50, Advertisement? ad}) =>
     DiscoveredEventArgs(_peripheral(seed), rssi, ad ?? _emptyAd());
 
-DiscoveredEventArgs _eventWithPeripheral(_FakePeripheral p,
-    {int rssi = -50, Advertisement? ad}) =>
-    DiscoveredEventArgs(p, rssi, ad ?? _emptyAd());
+DiscoveredEventArgs _eventWithPeripheral(
+  _FakePeripheral p, {
+  int rssi = -50,
+  Advertisement? ad,
+}) => DiscoveredEventArgs(p, rssi, ad ?? _emptyAd());
 
 EnhancedContact _enhancedContact({
   String publicKey = 'test-pk',
@@ -275,13 +276,8 @@ void main() {
   group('auto-connect trigger', () {
     test('shouldAutoConnect predicate declines device', () async {
       // Lines 351-353: shouldAutoConnect returns false
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
-      bool callbackCalled = false;
       DeviceDeduplicationManager.onKnownContactDiscovered =
-          (peripheral, name) async {
-        callbackCalled = true;
-      };
+          (peripheral, name) async {};
       DeviceDeduplicationManager.shouldAutoConnect = (_) => false;
 
       // Process a device - auto-connect should be skipped
@@ -303,8 +299,8 @@ void main() {
       // Lines 386-387: callback throws
       DeviceDeduplicationManager.onKnownContactDiscovered =
           (peripheral, name) async {
-        throw Exception('Connect failed');
-      };
+            throw Exception('Connect failed');
+          };
       // Process device - auto-connect callback will throw but should be caught
       DeviceDeduplicationManager.processDiscoveredDevice(_event(42));
       await Future.delayed(const Duration(milliseconds: 200));
@@ -319,8 +315,8 @@ void main() {
       // Lines 442-443: try/catch in autoConnectStrongestRssi
       DeviceDeduplicationManager.onKnownContactDiscovered =
           (peripheral, name) async {
-        throw Exception('RSSI connect failed');
-      };
+            throw Exception('RSSI connect failed');
+          };
 
       DeviceDeduplicationManager.processDiscoveredDevice(_event(50));
       // Wait for async auto-connect to settle
@@ -362,17 +358,19 @@ void main() {
       await DeviceDeduplicationManager.autoConnectStrongestRssi();
     });
 
-    test('shouldAutoConnect predicate declines strongest RSSI candidate',
-        () async {
-      // Lines 419-424: shouldAutoConnect declines
-      DeviceDeduplicationManager.onKnownContactDiscovered =
-          (peripheral, name) async {};
-      DeviceDeduplicationManager.shouldAutoConnect = (_) => false;
+    test(
+      'shouldAutoConnect predicate declines strongest RSSI candidate',
+      () async {
+        // Lines 419-424: shouldAutoConnect declines
+        DeviceDeduplicationManager.onKnownContactDiscovered =
+            (peripheral, name) async {};
+        DeviceDeduplicationManager.shouldAutoConnect = (_) => false;
 
-      DeviceDeduplicationManager.processDiscoveredDevice(_event(53));
-      await DeviceDeduplicationManager.autoConnectStrongestRssi();
-      // Should not crash - just skips
-    });
+        DeviceDeduplicationManager.processDiscoveredDevice(_event(53));
+        await DeviceDeduplicationManager.autoConnectStrongestRssi();
+        // Should not crash - just skips
+      },
+    );
   });
 
   // ── _setAutoConnectAttemptMetadata + retirement (lines 458, 473-477) ──
@@ -558,9 +556,7 @@ void main() {
       final ad = _hintAd(nonce: nonce, hintBytes: hintBytes, isIntro: true);
 
       // Process device with intro hint - should not crash despite repo throwing
-      DeviceDeduplicationManager.processDiscoveredDevice(
-        _event(91, ad: ad),
-      );
+      DeviceDeduplicationManager.processDiscoveredDevice(_event(91, ad: ad));
       await Future.delayed(const Duration(milliseconds: 200));
     });
 
@@ -572,9 +568,7 @@ void main() {
       final hintBytes = Uint8List.fromList([0xF3, 0xF4, 0xF5]);
       final ad = _hintAd(nonce: nonce, hintBytes: hintBytes, isIntro: true);
 
-      DeviceDeduplicationManager.processDiscoveredDevice(
-        _event(92, ad: ad),
-      );
+      DeviceDeduplicationManager.processDiscoveredDevice(_event(92, ad: ad));
       await Future.delayed(const Duration(milliseconds: 200));
       // Device should exist but be unknown
       expect(DeviceDeduplicationManager.deviceCount, greaterThan(0));
@@ -600,12 +594,13 @@ void main() {
       final introRepo = _MatchingIntroHintRepository({'key1': hint});
       DeviceDeduplicationManager.setIntroHintRepository(introRepo);
 
-      final ad = _hintAd(nonce: nonce, hintBytes: expectedHintBytes,
-          isIntro: true);
-
-      DeviceDeduplicationManager.processDiscoveredDevice(
-        _event(93, ad: ad),
+      final ad = _hintAd(
+        nonce: nonce,
+        hintBytes: expectedHintBytes,
+        isIntro: true,
       );
+
+      DeviceDeduplicationManager.processDiscoveredDevice(_event(93, ad: ad));
       await Future.delayed(const Duration(milliseconds: 300));
       // Depending on whether HintCacheManager is set up, the verification
       // path will proceed through intro check
@@ -698,8 +693,8 @@ void main() {
       int callCount = 0;
       DeviceDeduplicationManager.onKnownContactDiscovered =
           (peripheral, name) async {
-        callCount++;
-      };
+            callCount++;
+          };
 
       final p1 = _peripheral(121);
       final p2 = _peripheral(122);
@@ -726,11 +721,8 @@ void main() {
     });
 
     test('auto-connect with contact info uses display name', () async {
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       String? connectedName;
-      DeviceDeduplicationManager.onKnownContactDiscovered =
-          (peripheral, name) async {
+      DeviceDeduplicationManager.onKnownContactDiscovered = (_, name) async {
         connectedName = name;
       };
 
@@ -744,7 +736,7 @@ void main() {
       );
       await DeviceDeduplicationManager.autoConnectStrongestRssi();
       await Future.delayed(const Duration(milliseconds: 200));
-      // The display name should have been used
+      expect(connectedName, 'TestContact');
     });
   });
 
@@ -759,15 +751,16 @@ void main() {
         _eventWithPeripheral(p),
       );
       DeviceDeduplicationManager.markRetired(deviceId);
-      expect(
-        DeviceDeduplicationManager.getDevice(deviceId)!.isRetired, isTrue);
+      expect(DeviceDeduplicationManager.getDevice(deviceId)!.isRetired, isTrue);
 
       // Re-discover the same device
       DeviceDeduplicationManager.processDiscoveredDevice(
         _eventWithPeripheral(p),
       );
       expect(
-        DeviceDeduplicationManager.getDevice(deviceId)!.isRetired, isFalse);
+        DeviceDeduplicationManager.getDevice(deviceId)!.isRetired,
+        isFalse,
+      );
     });
   });
 

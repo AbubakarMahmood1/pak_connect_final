@@ -10,6 +10,7 @@
 /// - getCurrentLevel with contact.sessionIdForNoise branching
 /// - getEncryptionMethod MEDIUM→noise fallback, HIGH→ECDH verify fail
 library;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -60,8 +61,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage[key];
+  }) async => _storage[key];
 
   @override
   Future<void> delete({
@@ -84,8 +84,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      Map.unmodifiable(_storage);
+  }) async => Map.unmodifiable(_storage);
 
   @override
   Future<void> deleteAll({
@@ -108,8 +107,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage.containsKey(key);
+  }) async => _storage.containsKey(key);
 
   @override
   Future<bool> isCupertinoProtectedDataAvailable() async => true;
@@ -132,10 +130,7 @@ class _FakeRepo extends Fake implements IContactRepository {
   Future<String?> getCachedSharedSecret(String pk) async => secrets[pk];
 
   @override
-  Future<void> updateContactSecurityLevel(
-    String pk,
-    SecurityLevel lv,
-  ) async {
+  Future<void> updateContactSecurityLevel(String pk, SecurityLevel lv) async {
     lvlUpdates.add(MapEntry(pk, lv));
     final c = byAnyId[pk];
     if (c != null) {
@@ -241,22 +236,21 @@ void main() {
       expect(level, SecurityLevel.low);
     });
 
-    test('pairing key bumps from low to medium and updates stored level',
-        () async {
-      repo.byAnyId['pk-pair-sync'] = _contact(
-        key: 'pk-pair-sync',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-      );
-      await SimpleCrypto.restoreConversationKey('pk-pair-sync', 'key-val');
-      final level = await sm.getCurrentLevel('pk-pair-sync', repo);
-      expect(level, SecurityLevel.medium);
-      // stored level was low, actual is medium → update should have been called
-      expect(
-        repo.lvlUpdates.any((e) => e.key == 'pk-pair-sync'),
-        isTrue,
-      );
-    });
+    test(
+      'pairing key bumps from low to medium and updates stored level',
+      () async {
+        repo.byAnyId['pk-pair-sync'] = _contact(
+          key: 'pk-pair-sync',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+        );
+        await SimpleCrypto.restoreConversationKey('pk-pair-sync', 'key-val');
+        final level = await sm.getCurrentLevel('pk-pair-sync', repo);
+        expect(level, SecurityLevel.medium);
+        // stored level was low, actual is medium → update should have been called
+        expect(repo.lvlUpdates.any((e) => e.key == 'pk-pair-sync'), isTrue);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -369,8 +363,7 @@ void main() {
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      // ignore: deprecated_member_use_from_same_package
-      final encrypted = SimpleCrypto.encrypt('low level msg');
+      final encrypted = SimpleCrypto.encodeLegacyPlaintext('low level msg');
       final dec = await sm.decryptMessage(encrypted, 'pk-lo', repo);
       expect(dec, 'low level msg');
     });
@@ -388,26 +381,28 @@ void main() {
       );
     });
 
-    test('resync clears cached secrets and keys for existing contact',
-        () async {
-      repo.byAnyId['pk-re'] = _contact(
-        key: 'pk-re',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-      );
-      repo.secrets['pk-re'] = 'some-secret';
-      await SimpleCrypto.restoreConversationKey('pk-re', 'conv-key');
+    test(
+      'resync clears cached secrets and keys for existing contact',
+      () async {
+        repo.byAnyId['pk-re'] = _contact(
+          key: 'pk-re',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+        );
+        repo.secrets['pk-re'] = 'some-secret';
+        await SimpleCrypto.restoreConversationKey('pk-re', 'conv-key');
 
-      // This will fail decryption and trigger resync
-      try {
-        await sm.decryptMessage('invalid-cipher', 'pk-re', repo);
-      } catch (_) {
-        // expected
-      }
-      // After resync: conversation key should be cleared
-      expect(SimpleCrypto.hasConversationKey('pk-re'), isFalse);
-      expect(repo.clearCalled, isTrue);
-    });
+        // This will fail decryption and trigger resync
+        try {
+          await sm.decryptMessage('invalid-cipher', 'pk-re', repo);
+        } catch (_) {
+          // expected
+        }
+        // After resync: conversation key should be cleared
+        expect(SimpleCrypto.hasConversationKey('pk-re'), isFalse);
+        expect(repo.clearCalled, isTrue);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -516,25 +511,20 @@ void main() {
       expect(dec, equals(data));
     });
 
-    test('global binary decrypt uses legacy compatible', () async {
+    test('global binary decrypt rejects insecure legacy payloads', () async {
       repo.byAnyId['pk-gbd'] = _contact(
         key: 'pk-gbd',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      // Encrypt some base64 data with global SimpleCrypto
       final originalData = Uint8List.fromList([42, 43, 44]);
       final b64 = base64.encode(originalData);
-      // ignore: deprecated_member_use_from_same_package
-      final encryptedString = SimpleCrypto.encrypt(b64);
+      final encryptedString = SimpleCrypto.encodeLegacyPlaintext(b64);
       final encryptedBytes = Uint8List.fromList(utf8.encode(encryptedString));
-      // decryptBinaryPayload at global level uses decryptLegacyCompatible
-      final dec = await sm.decryptBinaryPayload(
-        encryptedBytes,
-        'pk-gbd',
-        repo,
+      await expectLater(
+        () => sm.decryptBinaryPayload(encryptedBytes, 'pk-gbd', repo),
+        throwsA(isA<Exception>()),
       );
-      expect(dec, equals(originalData));
     });
   });
 
@@ -560,8 +550,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('decryptMessageByType — global legacy', () {
     test('global type decrypts legacy-compatible encrypted data', () async {
-      // ignore: deprecated_member_use_from_same_package
-      final encrypted = SimpleCrypto.encrypt('legacy msg');
+      final encrypted = SimpleCrypto.encodeLegacyPlaintext('legacy msg');
       final dec = await sm.decryptMessageByType(
         encrypted,
         'any-pk-1234567890',
@@ -585,12 +574,8 @@ void main() {
         currentEphemeralId: 'eph-ns-123',
       );
       expect(
-        () => sm.encryptMessageByType(
-          'msg',
-          'pk-ns',
-          repo,
-          EncryptionType.noise,
-        ),
+        () =>
+            sm.encryptMessageByType('msg', 'pk-ns', repo, EncryptionType.noise),
         throwsA(isA<EncryptionException>()),
       );
     });
@@ -640,24 +625,25 @@ void main() {
     });
 
     test(
-        'falls back to persistentPublicKey when ephemeral empty but persistent set',
-        () async {
-      repo.byAnyId['pk-fb'] = _contact(
-        key: 'pk-fb',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-        persistentPublicKey: 'persistent-fb',
-        currentEphemeralId: '',
-      );
-      expect(
-        () => sm.encryptMessageByType(
-          'msg',
-          'pk-fb',
-          repo,
-          EncryptionType.noise,
-        ),
-        throwsA(isA<EncryptionException>()),
-      );
-    });
+      'falls back to persistentPublicKey when ephemeral empty but persistent set',
+      () async {
+        repo.byAnyId['pk-fb'] = _contact(
+          key: 'pk-fb',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+          persistentPublicKey: 'persistent-fb',
+          currentEphemeralId: '',
+        );
+        expect(
+          () => sm.encryptMessageByType(
+            'msg',
+            'pk-fb',
+            repo,
+            EncryptionType.noise,
+          ),
+          throwsA(isA<EncryptionException>()),
+        );
+      },
+    );
   });
 }

@@ -242,7 +242,7 @@ void main() {
       },
     );
 
-    test('usernameStreamProvider bridges data and error states', () async {
+    test('usernameProvider exposes data and error states', () async {
       final dataContainer = ProviderContainer(
         overrides: [
           usernameProvider.overrideWith(() => _TestUsernameNotifier('Alice')),
@@ -252,8 +252,7 @@ void main() {
 
       final valueCompleter = Completer<String>();
       final valueSub = dataContainer.listen<AsyncValue<String>>(
-        // ignore: deprecated_member_use_from_same_package
-        usernameStreamProvider,
+        usernameProvider,
         (previous, next) {
           next.whenData((value) {
             if (!valueCompleter.isCompleted) {
@@ -276,8 +275,7 @@ void main() {
 
       final errorCompleter = Completer<Object>();
       final errorSub = errorContainer.listen<AsyncValue<String>>(
-        // ignore: deprecated_member_use_from_same_package
-        usernameStreamProvider,
+        usernameProvider,
         (previous, next) {
           next.when(
             data: (_) {},

@@ -60,22 +60,10 @@ class _TestArchiveUINotifier extends ArchiveUIStateNotifier {
 }
 
 class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
-  _TestArchiveOperationsNotifier(
-    this._initialState, {
-    // ignore: unused_element_parameter
-    this.restoreResult,
-    // ignore: unused_element_parameter
-    this.deleteResult,
-  });
+  _TestArchiveOperationsNotifier(this._initialState);
 
   final ArchiveOperationsState _initialState;
   String? lastDebouncedQuery;
-
-  /// If non-null, restoreChat returns this; otherwise returns a default success.
-  final ArchiveOperationResult Function(ArchiveId)? restoreResult;
-
-  /// If non-null, deleteArchivedChat returns this value; otherwise true.
-  final bool Function(ArchiveId)? deleteResult;
 
   @override
   ArchiveOperationsState build() => _initialState;
@@ -92,7 +80,6 @@ class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
     String? targetChatId,
     bool overwriteExisting = false,
   }) async {
-    if (restoreResult != null) return restoreResult!(archiveId);
     return ArchiveOperationResult.success(
       message: 'restored',
       operationType: ArchiveOperationType.restore,
@@ -102,10 +89,7 @@ class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
   }
 
   @override
-  Future<bool> deleteArchivedChat(ArchiveId archiveId) async {
-    if (deleteResult != null) return deleteResult!(archiveId);
-    return true;
-  }
+  Future<bool> deleteArchivedChat(ArchiveId archiveId) async => true;
 }
 
 ArchivedChatSummary _archive({
@@ -191,9 +175,9 @@ Future<void> _pumpArchiveScreen(
   required _TestArchiveUINotifier uiNotifier,
   required _TestArchiveOperationsNotifier operationsNotifier,
   required Future<List<ArchivedChatSummary>> Function(ArchiveListFilter?)
-      loadArchives,
+  loadArchives,
   required Future<AdvancedSearchResult> Function(ArchiveSearchQuery)
-      searchArchives,
+  searchArchives,
   ArchiveStatistics? statistics,
 }) async {
   tester.view.physicalSize = const Size(1200, 2200);
@@ -511,10 +495,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Archive Details'), findsOneWidget);
-      expect(
-        find.textContaining('Fiona Detail'),
-        findsWidgets,
-      );
+      expect(find.textContaining('Fiona Detail'), findsWidgets);
 
       // Close dialog
       await tester.tap(find.text('Close'));
@@ -709,10 +690,7 @@ void main() {
 
       expect(find.text('Search Result'), findsOneWidget);
       // The message text appears both in the tile highlight and the dialog
-      expect(
-        find.textContaining('hello from archived message'),
-        findsWidgets,
-      );
+      expect(find.textContaining('hello from archived message'), findsWidgets);
 
       // Close dialog
       await tester.tap(find.text('Close'));
