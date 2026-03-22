@@ -280,4 +280,15 @@ void main() {
   test('currentHandshakePhase is null when coordinator missing', () {
     expect(service.currentHandshakePhase, isNull);
   });
+
+  test('handleIncomingHandshakeMessage caps buffered handshake messages', () async {
+    for (var i = 0; i < 40; i++) {
+      final handled = await service.handleIncomingHandshakeMessage(
+        ProtocolMessage.connectionReady(deviceId: 'peer-$i').toBytes(),
+      );
+      expect(handled, isTrue);
+    }
+
+    expect(service.getBufferedMessages(), hasLength(32));
+  });
 }

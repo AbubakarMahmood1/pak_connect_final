@@ -39,6 +39,9 @@ class _BufferedMessage {
 /// - Processing of buffered messages after handshake completion
 class BLEHandshakeService implements IBLEHandshakeService {
   static IHandshakeCoordinatorFactory Function()? _coordinatorFactoryResolver;
+  static const int _maxBufferedHandshakeMessages = 32;
+  static const int _maxBufferedHandshakeMessageBytes = 4096;
+  static const Duration _maxBufferedHandshakeAge = Duration(seconds: 20);
 
   static void configureCoordinatorFactoryResolver(
     IHandshakeCoordinatorFactory Function() resolver,
@@ -266,6 +269,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
       });
 
       // ✅ FIX: Process any buffered protocol messages that arrived before coordinator was created
+      _discardExpiredBufferedHandshakeMessages();
       final bufferedProtocolMessages = <_BufferedMessage>[];
       final bufferedSnapshot = List<dynamic>.from(_messageBuffer);
       for (final buffered in bufferedSnapshot) {
@@ -548,6 +552,24 @@ class BLEHandshakeService implements IBLEHandshakeService {
       return true;
     }
 
+    if (data.length > _maxBufferedHandshakeMessageBytes) {
+      _logger.warning(
+        '🚫 Dropping oversized handshake message (${data.length}B > '
+        '${_maxBufferedHandshakeMessageBytes}B)',
+      );
+      return true;
+    }
+
+    _discardExpiredBufferedHandshakeMessages();
+
+    while (_messageBuffer.length >= _maxBufferedHandshakeMessages) {
+      _messageBuffer.removeAt(0);
+      _logger.warning(
+        '🚫 Evicted oldest buffered handshake message to enforce '
+        '$_maxBufferedHandshakeMessages-message cap',
+      );
+    }
+
     // No coordinator yet: buffer for when handshake starts.
     _messageBuffer.add(
       _BufferedMessage(
@@ -579,6 +601,20 @@ class BLEHandshakeService implements IBLEHandshakeService {
       // Rethrow so handshake coordinator knows it failed
       rethrow;
     }
+  }
+
+  void _discardExpiredBufferedHandshakeMessages() {
+    final cutoff = DateTime.now().subtract(_maxBufferedHandshakeAge);
+    _messageBuffer.removeWhere((entry) {
+      if (entry is! _BufferedMessage) {
+        return false;
+      }
+      final expired = entry.timestamp.isBefore(cutoff);
+      if (expired) {
+        _logger.fine('🧹 Discarded stale buffered handshake message');
+      }
+      return expired;
+    });
   }
 
   Future<void> _sendIdentityExchange() async {
