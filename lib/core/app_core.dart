@@ -564,7 +564,7 @@ class AppCore {
             getIt.get<IMeshRelayEngineFactory>().create(
               messageQueue: queue,
               spamPrevention: spam,
-              forceFloodMode: true,
+              forceFloodMode: false,
             ),
       );
       await meshNetworkingService.initialize();
