@@ -18,9 +18,6 @@ import 'package:pak_connect/domain/config/kill_switches.dart';
 
 import 'mesh_network_health_monitor.dart';
 
-typedef ShouldRelayThroughDevice =
-    Future<bool> Function(QueuedMessage message, String deviceId);
-
 typedef QueueSyncManagerFactory =
     QueueSyncManagerContract Function(
       OfflineMessageQueueContract queue,
@@ -33,7 +30,6 @@ class MeshQueueSyncCoordinator {
   final IConnectionService _bleService;
   final IMessageRepository _messageRepository;
   final MeshNetworkHealthMonitor _healthMonitor;
-  final ShouldRelayThroughDevice _shouldRelayThroughDevice;
   final QueueSyncManagerFactory _queueSyncManagerFactory;
 
   OfflineMessageQueueContract? _messageQueue;
@@ -50,13 +46,11 @@ class MeshQueueSyncCoordinator {
     required IConnectionService bleService,
     required IMessageRepository messageRepository,
     required MeshNetworkHealthMonitor healthMonitor,
-    required ShouldRelayThroughDevice shouldRelayThroughDevice,
     QueueSyncManagerFactory? queueSyncManagerFactory,
     Logger? logger,
   }) : _bleService = bleService,
        _messageRepository = messageRepository,
        _healthMonitor = healthMonitor,
-       _shouldRelayThroughDevice = shouldRelayThroughDevice,
        _queueSyncManagerFactory =
            queueSyncManagerFactory ??
            ((queue, nodeId) =>
@@ -466,9 +460,7 @@ class MeshQueueSyncCoordinator {
 
     return connectedIdentifiers.any(
       (candidate) =>
-          candidate != null &&
-          candidate.isNotEmpty &&
-          candidate == candidateId,
+          candidate != null && candidate.isNotEmpty && candidate == candidateId,
     );
   }
 
@@ -477,16 +469,7 @@ class MeshQueueSyncCoordinator {
       return false;
     }
 
-    if (_isIntendedRecipientConnected(message.recipientPublicKey)) {
-      return true;
-    }
-
-    final currentPeerId = _bleService.currentSessionId;
-    if (currentPeerId == null || currentPeerId.isEmpty) {
-      return false;
-    }
-
-    return _shouldRelayThroughDevice(message, currentPeerId);
+    return _isIntendedRecipientConnected(message.recipientPublicKey);
   }
 
   void _handleConnectivityCheck() {
@@ -595,31 +578,24 @@ class MeshQueueSyncCoordinator {
         QueuedMessageStatus.pending,
       );
 
+      // Direct queue delivery must stay recipient-bound. Relay fan-out uses the
+      // dedicated mesh relay pipeline so next hops never receive plaintext.
       final directMessages = pendingMessages
           .where((msg) => msg.recipientPublicKey == deviceId)
           .toList();
 
-      final relayCandidates = <QueuedMessage>[];
-      for (final msg in pendingMessages) {
-        if (msg.recipientPublicKey != deviceId &&
-            await _shouldRelayThroughDevice(msg, deviceId)) {
-          relayCandidates.add(msg);
-        }
-      }
-
-      final allMessages = [...directMessages, ...relayCandidates];
-      if (allMessages.isEmpty) {
+      if (directMessages.isEmpty) {
         return;
       }
 
-      allMessages.sort((a, b) {
+      directMessages.sort((a, b) {
         final priorityCompare = b.priority.index.compareTo(a.priority.index);
         if (priorityCompare != 0) return priorityCompare;
         return a.queuedAt.compareTo(b.queuedAt);
       });
 
-      for (int i = 0; i < allMessages.length; i++) {
-        final message = allMessages[i];
+      for (int i = 0; i < directMessages.length; i++) {
+        final message = directMessages[i];
         try {
           if (i > 0) {
             await Future.delayed(Duration(milliseconds: 200));

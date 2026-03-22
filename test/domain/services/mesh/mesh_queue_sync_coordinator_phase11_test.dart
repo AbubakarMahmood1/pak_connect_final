@@ -2,6 +2,7 @@
 /// initialization, queue operations, guard-when-null branches,
 /// kill-switch paths, and dispose.
 library;
+
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,15 +49,13 @@ class _FakeConnectionService extends Fake implements IConnectionService {
     String content, {
     String? messageId,
     String? originalIntendedRecipient,
-  }) async =>
-      sendMessageResult;
+  }) async => sendMessageResult;
 
   @override
   Future<bool> sendPeripheralMessage(
     String content, {
     String? messageId,
-  }) async =>
-      sendMessageResult;
+  }) async => sendMessageResult;
 
   @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
@@ -117,22 +116,22 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
 
   @override
   QueueStatistics getStatistics() => QueueStatistics(
-        totalQueued: _messages.length,
-        totalDelivered: 0,
-        totalFailed: _messages
-            .where((m) => m.status == QueuedMessageStatus.failed)
-            .length,
-        pendingMessages: _messages
-            .where((m) => m.status == QueuedMessageStatus.pending)
-            .length,
-        sendingMessages: 0,
-        retryingMessages: 0,
-        failedMessages: _messages
-            .where((m) => m.status == QueuedMessageStatus.failed)
-            .length,
-        isOnline: online,
-        averageDeliveryTime: Duration.zero,
-      );
+    totalQueued: _messages.length,
+    totalDelivered: 0,
+    totalFailed: _messages
+        .where((m) => m.status == QueuedMessageStatus.failed)
+        .length,
+    pendingMessages: _messages
+        .where((m) => m.status == QueuedMessageStatus.pending)
+        .length,
+    sendingMessages: 0,
+    retryingMessages: 0,
+    failedMessages: _messages
+        .where((m) => m.status == QueuedMessageStatus.failed)
+        .length,
+    isOnline: online,
+    averageDeliveryTime: Duration.zero,
+  );
 
   @override
   List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) =>
@@ -235,12 +234,12 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
 
   @override
   QueueSyncMessage createSyncMessage(String nodeId) => QueueSyncMessage(
-        nodeId: nodeId,
-        queueHash: 'hash-fake',
-        messageIds: _messages.map((m) => m.id).toList(),
-        syncTimestamp: DateTime.now(),
-        syncType: QueueSyncType.request,
-      );
+    nodeId: nodeId,
+    queueHash: 'hash-fake',
+    messageIds: _messages.map((m) => m.id).toList(),
+    syncTimestamp: DateTime.now(),
+    syncType: QueueSyncType.request,
+  );
 
   @override
   void dispose() {}
@@ -278,14 +277,14 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
 
   @override
   QueueSyncManagerStats getStats() => const QueueSyncManagerStats(
-        totalSyncRequests: 0,
-        successfulSyncs: 0,
-        failedSyncs: 0,
-        messagesTransferred: 0,
-        activeSyncs: 0,
-        successRate: 0.0,
-        recentSyncCount: 0,
-      );
+    totalSyncRequests: 0,
+    successfulSyncs: 0,
+    failedSyncs: 0,
+    messagesTransferred: 0,
+    activeSyncs: 0,
+    successRate: 0.0,
+    recentSyncCount: 0,
+  );
 
   @override
   void dispose() => disposeCalled = true;
@@ -331,7 +330,6 @@ void main() {
       bleService: bleService,
       messageRepository: messageRepo,
       healthMonitor: healthMonitor,
-      shouldRelayThroughDevice: (msg, deviceId) async => true,
       queueSyncManagerFactory: (q, nodeId) => syncManager,
     );
 
@@ -482,10 +480,7 @@ void main() {
         recipientPublicKey: 'rpk-1',
         senderPublicKey: 'spk-1',
       );
-      expect(
-        await coordinator.setPriority(id, MessagePriority.high),
-        isTrue,
-      );
+      expect(await coordinator.setPriority(id, MessagePriority.high), isTrue);
       expect(queue.getMessageById(id)!.priority, MessagePriority.high);
     });
 

@@ -51,7 +51,6 @@ void main() {
         bleService: bleService,
         messageRepository: messageRepository,
         healthMonitor: monitor,
-        shouldRelayThroughDevice: (message, deviceId) async => false,
         queueSyncManagerFactory: (queue, nodeId) => fakeManager,
       );
 

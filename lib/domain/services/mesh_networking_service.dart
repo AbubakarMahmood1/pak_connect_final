@@ -222,8 +222,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
           bleService: _bleService,
           messageRepository: _messageRepository,
           healthMonitor: _healthMonitor,
-          shouldRelayThroughDevice: (message, deviceId) =>
-              _relayCoordinator.shouldRelayThroughDevice(message, deviceId),
         );
 
     _binaryHelper = _MeshNetworkingBinaryHelper(this);
@@ -250,17 +248,16 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// the domain-layer [ChangeLogSyncService] to the data-layer DB.
   void configureChangeLogSync({
     required Future<List<ChangeLogEntry>> Function(int sinceCursorId)
-        onQueryChangeLogSince,
+    onQueryChangeLogSince,
     required Future<List<ChangeLogEntry>> Function(int sinceMillis)
-        onQueryChangeLogSinceTime,
+    onQueryChangeLogSinceTime,
     required Future<ChangeLogReplayResult> Function(List<ChangeLogEntry>)
-        onReplayChangeLogEntries,
-    required Future<int?> Function(String peerId)
-        onGetLastSyncedCursorForPeer,
+    onReplayChangeLogEntries,
+    required Future<int?> Function(String peerId) onGetLastSyncedCursorForPeer,
     required Future<void> Function(String peerId, int cursorId)
-        onSetLastSyncedCursorForPeer,
+    onSetLastSyncedCursorForPeer,
     required Future<void> Function(String peerId, List<ChangeLogEntry>)
-        onSendChangeLogToPeer,
+    onSendChangeLogToPeer,
   }) {
     final service = _gossipSyncManager?.changeLogSyncService;
     if (service == null) {
