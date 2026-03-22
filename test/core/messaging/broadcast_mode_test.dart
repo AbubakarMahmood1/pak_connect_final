@@ -90,10 +90,18 @@ void main() {
       expect(metadata.usesStealth, isTrue);
       expect(metadata.sealedSender, isTrue);
 
-      // JSON round-trip preserves all fields
+      // JSON round-trip preserves the stealth envelope while replacing the
+      // plaintext recipient with the on-wire stealth placeholder.
       final json = metadata.toJson();
+      expect(
+        json['finalRecipient'],
+        RelayMetadata.stealthRecipientPlaceholder,
+      );
       final restored = RelayMetadata.fromJson(json);
-      expect(restored.finalRecipient, SpecialRecipients.broadcast);
+      expect(
+        restored.finalRecipient,
+        RelayMetadata.stealthRecipientPlaceholder,
+      );
       expect(restored.sealedSender, isTrue);
       expect(restored.usesStealth, isTrue);
     });
