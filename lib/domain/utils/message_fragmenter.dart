@@ -50,13 +50,10 @@ class MessageChunk {
         '$shortId|$chunkIndex|$totalChunks|$binaryFlag|$content';
     final bytes = Uint8List.fromList(utf8.encode(compactString));
 
-    // 🔧 DEBUG: Log what we're sending
-    _logger.fine('🔧 CHUNK DEBUG: toBytes() called');
     _logger.fine(
-      '🔧 CHUNK DEBUG: Format: $shortId|$chunkIndex|$totalChunks|$binaryFlag|${content.length} chars',
-    );
-    _logger.fine(
-      '🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}',
+      '🔧 CHUNK DEBUG: Encoded chunk $shortId '
+      '(${chunkIndex + 1}/$totalChunks, ${bytes.length} bytes, '
+      '${isBinary ? "binary" : "text"})',
     );
 
     return bytes;
@@ -67,45 +64,18 @@ class MessageChunk {
     // Problem: Combining header bytes + base64 payload bytes can create invalid UTF-8 sequences
     // Solution: Use String.fromCharCodes() which treats bytes as individual characters (no multi-byte validation)
 
-    // 🔧 DEBUG: Log what we're receiving
-    _logger.fine('🔧 CHUNK DEBUG: fromBytes() called');
-    _logger.fine('🔧 CHUNK DEBUG: Received ${bytes.length} bytes');
-    _logger.fine(
-      '🔧 CHUNK DEBUG: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}',
-    );
-
     // Convert bytes to string using ASCII-only decoding (safe for base64)
     // This avoids UTF-8 multi-byte sequence validation that causes FormatException
     final chunkString = String.fromCharCodes(bytes);
 
     _logger.fine(
-      '🔧 CHUNK DEBUG: Decoded string length: ${chunkString.length}',
-    );
-    _logger.fine(
-      '🔧 CHUNK DEBUG: First 100 chars: ${chunkString.substring(0, chunkString.length > 100 ? 100 : chunkString.length)}',
+      '🔧 CHUNK DEBUG: Decoding ${bytes.length} incoming chunk bytes',
     );
 
     // Split by delimiter
     final parts = chunkString.split('|');
 
-    _logger.fine('🔧 CHUNK DEBUG: Split into ${parts.length} parts');
-    if (parts.isNotEmpty) {
-      _logger.fine('🔧 CHUNK DEBUG: Part 0 (msgId): ${parts[0]}');
-    }
-    if (parts.length > 1) {
-      _logger.fine('🔧 CHUNK DEBUG: Part 1 (idx): ${parts[1]}');
-    }
-    if (parts.length > 2) {
-      _logger.fine('🔧 CHUNK DEBUG: Part 2 (total): ${parts[2]}');
-    }
-    if (parts.length > 3) {
-      _logger.fine('🔧 CHUNK DEBUG: Part 3 (binary): ${parts[3]}');
-    }
-    if (parts.length > 4) {
-      _logger.fine(
-        '🔧 CHUNK DEBUG: Part 4 (content): ${parts[4].length} chars',
-      );
-    }
+    _logger.fine('🔧 CHUNK DEBUG: Parsed ${parts.length} chunk fields');
 
     if (parts.length != 5) {
       throw FormatException(
@@ -124,7 +94,8 @@ class MessageChunk {
   }
 
   @override
-  String toString() => 'Chunk ${chunkIndex + 1}/$totalChunks: "$content"';
+  String toString() =>
+      'Chunk ${chunkIndex + 1}/$totalChunks (${content.length} chars)';
 }
 
 class MessageFragmenter {
@@ -305,9 +276,6 @@ class MessageReassembler {
     _logger.fine(
       '🔄 REASSEMBLE: All chunks received! Reassembled ${bytes.length} bytes',
     );
-    _logger.fine(
-      '🔄 REASSEMBLE: First 50 bytes: ${bytes.sublist(0, bytes.length > 50 ? 50 : bytes.length)}',
-    );
 
     // Convert bytes to string (assumes valid UTF-8)
     _logger.fine('🔄 REASSEMBLE: Converting bytes to UTF-8 string');
@@ -392,9 +360,6 @@ class MessageReassembler {
         }
         _logger.fine(
           '🔄 REASSEMBLE BYTES✅: Total reassembled: ${allBytes.length} bytes',
-        );
-        _logger.fine(
-          '🔄 REASSEMBLE BYTES: First 50 bytes: ${allBytes.sublist(0, allBytes.length > 50 ? 50 : allBytes.length)}',
         );
         // Return raw bytes (may be compressed/non-UTF-8 data!)
         return Uint8List.fromList(allBytes);
