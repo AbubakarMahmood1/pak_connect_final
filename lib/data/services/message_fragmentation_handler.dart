@@ -26,6 +26,8 @@ class MessageFragmentationHandler implements IMessageFragmentationHandler {
   static const Duration _fragmentTimeout = Duration(seconds: 30);
   static const int _binaryFragmentMagic = BinaryFragmenter.magic;
   static const int _ttlOffset = 1 + 8 + 2 + 2; // magic + fragId + idx + total
+  static const int _maxBinaryPayloadBytes = 1024 * 1024; // 1 MiB
+  static const int _maxActiveBinaryAssemblies = 32;
 
   String? _localNodeId;
 
@@ -388,6 +390,7 @@ class _BinaryAccumulator {
   int ttl;
   final DateTime startedAt;
   final Map<int, Uint8List> parts = {};
+  int totalBytes = 0;
 }
 
 class _ForwardReassembled {
@@ -481,6 +484,66 @@ class BinaryFragmentEnvelope {
 
 // Binary fragment reassembly for media/file transfer
 extension on MessageFragmentationHandler {
+  _BinaryAccumulator? _getOrCreateBinaryAccumulator(
+    Map<String, _BinaryAccumulator> store,
+    BinaryFragmentEnvelope env, {
+    required String directionLabel,
+  }) {
+    final existing = store[env.fragmentId];
+    if (existing != null) {
+      return existing;
+    }
+    if (store.length >= MessageFragmentationHandler._maxActiveBinaryAssemblies) {
+      _logger.warning(
+        '🚫 Dropping $directionLabel binary fragment ${env.fragmentId} - '
+        'active assembly limit reached '
+        '(${MessageFragmentationHandler._maxActiveBinaryAssemblies})',
+      );
+      return null;
+    }
+    final created = _BinaryAccumulator(
+      fragmentId: env.fragmentId,
+      total: env.total,
+      originalType: env.originalType,
+      recipient: env.recipient,
+      ttl: env.ttl,
+      startedAt: DateTime.now(),
+    );
+    store[env.fragmentId] = created;
+    return created;
+  }
+
+  bool _storeBinaryPart(
+    _BinaryAccumulator acc,
+    BinaryFragmentEnvelope env,
+    Map<String, _BinaryAccumulator> store, {
+    required String directionLabel,
+  }) {
+    final nextTotalBytes = acc.totalBytes + env.data.length;
+    if (nextTotalBytes > MessageFragmentationHandler._maxBinaryPayloadBytes) {
+      store.remove(env.fragmentId);
+      if (identical(store, _forwardBinaryBuffers)) {
+        _discardForwardFragmentState(env.fragmentId);
+      }
+      _logger.warning(
+        '🚫 Dropping $directionLabel binary payload ${env.fragmentId} - '
+        'size ${nextTotalBytes}B exceeds '
+        '${MessageFragmentationHandler._maxBinaryPayloadBytes}B limit',
+      );
+      return false;
+    }
+
+    acc.parts[env.index] = env.data;
+    acc.totalBytes = nextTotalBytes;
+    return true;
+  }
+
+  void _discardForwardFragmentState(String fragmentId) {
+    _forwardFragments.removeWhere((key, _) => key.startsWith('$fragmentId:'));
+    _forwardTimestamps.removeWhere((key, _) => key.startsWith('$fragmentId:'));
+    _forwardReassembled.remove(fragmentId);
+  }
+
   String? _handleForwardFragment(
     BinaryFragmentEnvelope env, {
     required String fromDeviceId,
@@ -503,26 +566,37 @@ extension on MessageFragmentationHandler {
       return null;
     }
 
+    // Opportunistically buffer for full reassembly if downstream MTU adaptation is needed.
+    final acc = _getOrCreateBinaryAccumulator(
+      _forwardBinaryBuffers,
+      env,
+      directionLabel: 'forwarded',
+    );
+    if (acc == null) {
+      seenForId[env.index] = now;
+      return null;
+    }
+    if (acc.parts.containsKey(env.index)) {
+      _v('📥 Duplicate binary fragment (forward) $key');
+      return null;
+    }
+    if (!_storeBinaryPart(
+      acc,
+      env,
+      _forwardBinaryBuffers,
+      directionLabel: 'forwarded',
+    )) {
+      seenForId[env.index] = now;
+      return null;
+    }
+
     final forwarded = Uint8List.fromList(env.raw);
     forwarded[MessageFragmentationHandler._ttlOffset] = (env.ttl - 1) & 0xFF;
     _forwardFragments[key] = forwarded;
     _forwardTimestamps[key] = now;
     seenForId[env.index] = now;
 
-    // Opportunistically buffer for full reassembly if downstream MTU adaptation is needed.
-    final acc = _forwardBinaryBuffers.putIfAbsent(
-      env.fragmentId,
-      () => _BinaryAccumulator(
-        fragmentId: env.fragmentId,
-        total: env.total,
-        originalType: env.originalType,
-        recipient: env.recipient,
-        ttl: env.ttl,
-        startedAt: now,
-      ),
-    );
     acc.ttl = acc.ttl < env.ttl ? acc.ttl : env.ttl;
-    acc.parts[env.index] = env.data;
     if (acc.parts.length == acc.total) {
       final ordered = <int>[];
       var missingPart = false;
@@ -565,24 +639,29 @@ extension on MessageFragmentationHandler {
     }
     seenForId[env.index] = now;
 
-    final acc = _binaryFragments.putIfAbsent(
-      env.fragmentId,
-      () => _BinaryAccumulator(
-        fragmentId: env.fragmentId,
-        total: env.total,
-        originalType: env.originalType,
-        recipient: env.recipient,
-        ttl: env.ttl,
-        startedAt: DateTime.now(),
-      ),
+    final acc = _getOrCreateBinaryAccumulator(
+      _binaryFragments,
+      env,
+      directionLabel: 'local',
     );
+    if (acc == null) {
+      return null;
+    }
 
     if (acc.parts.containsKey(env.index)) {
       _v('📥 Duplicate binary fragment ${env.index} for ${env.fragmentId}');
       return null;
     }
 
-    acc.parts[env.index] = env.data;
+    if (!_storeBinaryPart(
+      acc,
+      env,
+      _binaryFragments,
+      directionLabel: 'local',
+    )) {
+      return null;
+    }
+
     acc.ttl = acc.ttl < env.ttl ? acc.ttl : env.ttl;
     _v(
       '📥 Stored binary fragment ${env.index}/${acc.total - 1} for ${env.fragmentId} (have ${acc.parts.length}/${acc.total})',
