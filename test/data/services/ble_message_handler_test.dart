@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pak_connect/data/repositories/contact_repository.dart';
@@ -12,22 +13,82 @@ import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     as relay_models;
 import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
+import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/signing_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pointycastle/export.dart';
 import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
+
+String _bytesToHex(List<int> bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+void _initializeSigningForTests() {
+  final curve = ECCurve_secp256r1();
+  final privateKey = BigInt.from(42);
+  final publicPoint = curve.G * privateKey;
+  final privateKeyHex = privateKey.toRadixString(16).padLeft(64, '0');
+  final publicKeyHex = _bytesToHex(publicPoint!.getEncoded(false));
+
+  SimpleCrypto.initializeSigning(privateKeyHex, publicKeyHex);
+}
+
+String _persistentPublicKeyForTests() {
+  final curve = ECCurve_secp256r1();
+  final publicPoint = curve.G * BigInt.from(42);
+  return _bytesToHex(publicPoint!.getEncoded(false));
+}
+
+Uint8List _rawProtocolFrame(ProtocolMessage message) {
+  final json = {
+    'type': message.type.wireType,
+    'version': message.version,
+    'payload': message.payload,
+    'timestamp': message.timestamp.millisecondsSinceEpoch,
+    if (message.signature != null) 'signature': message.signature,
+    'useEphemeralSigning': message.useEphemeralSigning,
+    if (message.ephemeralSigningKey != null)
+      'ephemeralSigningKey': message.ephemeralSigningKey,
+  };
+  return Uint8List.fromList(utf8.encode(jsonEncode(json)));
+}
+
+class _FakeSecurityService extends Fake implements ISecurityService {
+  @override
+  void registerIdentityMapping({
+    required String persistentPublicKey,
+    required String ephemeralID,
+  }) {}
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('BLEMessageHandler', () {
     late BLEMessageHandler handler;
+    late ContactRepository sharedRepo;
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
-      handler = BLEMessageHandler(enableCleanupTimer: false);
+      SimpleCrypto.initialize();
+      _initializeSigningForTests();
+      SecurityServiceLocator.configureServiceResolver(
+        () => _FakeSecurityService(),
+      );
+      sharedRepo = ContactRepository();
+      handler = BLEMessageHandler(
+        contactRepository: sharedRepo,
+        enableCleanupTimer: false,
+      );
     });
 
     tearDown(() {
+      SimpleCrypto.clear();
+      SimpleCrypto.clearAllConversationKeys();
+      SecurityServiceLocator.clearServiceResolver();
       handler.dispose();
     });
 
@@ -195,7 +256,6 @@ void main() {
     test(
       'friend reveal protocol paths fail closed for stale or malformed payloads',
       () async {
-        final repo = ContactRepository();
         final staleReveal = ProtocolMessage.friendReveal(
           myPersistentKey: 'persistent-key',
           proof: 'proof',
@@ -213,18 +273,87 @@ void main() {
         );
 
         final staleResult = await handler.processReceivedData(
-          staleReveal.toBytes(enableCompression: false),
+          _rawProtocolFrame(staleReveal),
           senderPublicKey: 'sender-a',
-          contactRepository: repo,
+          contactRepository: sharedRepo,
         );
         final malformedResult = await handler.processReceivedData(
-          malformedReveal.toBytes(enableCompression: false),
+          _rawProtocolFrame(malformedReveal),
           senderPublicKey: 'sender-b',
-          contactRepository: repo,
+          contactRepository: sharedRepo,
         );
 
         expect(staleResult, isNull);
         expect(malformedResult, isNull);
+      },
+    );
+
+    test(
+      'friend reveal verifies the challenge against the local ephemeral id',
+      () async {
+        final previousLevel = Logger.root.level;
+        final logRecords = <LogRecord>[];
+        Logger.root.level = Level.ALL;
+        final subscription = Logger.root.onRecord.listen(logRecords.add);
+        const localEphemeralId = 'local-ephemeral-id';
+        const senderEphemeralId = 'sender-ephemeral-id';
+        final persistentPublicKey = _persistentPublicKeyForTests();
+
+        handler.setCurrentNodeId(localEphemeralId);
+        await sharedRepo.saveContactWithSecurity(
+          persistentPublicKey,
+          'Peer',
+          SecurityLevel.medium,
+          currentEphemeralId: senderEphemeralId,
+          persistentPublicKey: persistentPublicKey,
+        );
+        await sharedRepo.cacheSharedSecret(persistentPublicKey, 'cached-secret');
+        expect(
+          await sharedRepo.getCachedSharedSecret(persistentPublicKey),
+          equals('cached-secret'),
+        );
+        expect(await sharedRepo.getContact(persistentPublicKey), isNotNull);
+
+        final revealed = <String>[];
+        handler.onIdentityRevealed = revealed.add;
+
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final proof = SimpleCrypto.signMessage(
+          '${localEphemeralId}_$timestamp',
+        );
+        expect(proof, isNotNull);
+        expect(
+          SigningManager.verifySignature(
+            '${localEphemeralId}_$timestamp',
+            proof!,
+            persistentPublicKey,
+            false,
+          ),
+          isTrue,
+        );
+
+        final reveal = ProtocolMessage.friendReveal(
+          myPersistentKey: persistentPublicKey,
+          proof: proof,
+          timestamp: timestamp,
+        );
+
+        final result = await handler.processReceivedData(
+          _rawProtocolFrame(reveal),
+          senderPublicKey: senderEphemeralId,
+          contactRepository: sharedRepo,
+        );
+        await subscription.cancel();
+        Logger.root.level = previousLevel;
+
+        expect(result, isNull);
+        expect(
+          revealed,
+          ['Peer'],
+          reason: logRecords
+              .map((record) => '${record.level.name}: ${record.message}')
+              .join('\n'),
+        );
       },
     );
 

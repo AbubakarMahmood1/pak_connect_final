@@ -33,7 +33,7 @@ import '../../domain/values/id_types.dart';
 /// Current implementation has incompatible method signatures that need refactoring
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
-  final ContactRepository _contactRepository = ContactRepository();
+  final ContactRepository _contactRepository;
   // For status updates on ACK receipt.
   final MessageRepository _messageRepository = MessageRepository();
   static const bool _bleVerboseLogging = bool.fromEnvironment(
@@ -167,9 +167,10 @@ class BLEMessageHandler {
   late final ProtocolMessageDispatcher _protocolDispatcher;
 
   BLEMessageHandler({
+    ContactRepository? contactRepository,
     bool enableCleanupTimer = true,
     Duration ackTimeout = const Duration(seconds: 5),
-  }) {
+  }) : _contactRepository = contactRepository ?? ContactRepository() {
     _ackTracker = MessageAckTracker(timeout: ackTimeout);
     _queueSyncProcessor = QueueSyncProcessor(logger: _logger);
     _meshRelayHandler = MeshRelayHandler(logger: _logger);
@@ -669,16 +670,24 @@ class BLEMessageHandler {
 
       if (senderPublicKey == null || senderPublicKey.isEmpty) {
         _logger.warning(
-          '🕵️ FRIEND_REVEAL rejected: Missing sender ephemeral key for challenge verification',
+          '🕵️ FRIEND_REVEAL rejected: Missing sender ephemeral key for identity mapping',
+        );
+        return null;
+      }
+
+      final recipientEphemeralId = _currentNodeId;
+      if (recipientEphemeralId == null || recipientEphemeralId.isEmpty) {
+        _logger.warning(
+          '🕵️ FRIEND_REVEAL rejected: Missing local ephemeral key for challenge verification',
         );
         return null;
       }
 
       // Verify cryptographic proof: the sender must sign the challenge
-      // '<theirEphemeralId>_<timestamp>' with the claimed persistent key.
+      // '<recipientEphemeralId>_<timestamp>' with the claimed persistent key.
       final cachedSharedSecret =
           await _contactRepository.getCachedSharedSecret(theirPersistentKey);
-      final challenge = '${senderPublicKey}_$timestamp';
+      final challenge = '${recipientEphemeralId}_$timestamp';
       final hasValidSignature = SigningManager.verifySignature(
         challenge,
         proof,
