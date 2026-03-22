@@ -235,7 +235,7 @@ void main() {
     );
 
     test(
-      'decryptBinaryPayload global fallback uses explicit legacy compatibility path',
+      'decryptBinaryPayload rejects global fallback for legacy-marked binary payloads',
       () async {
         // Arrange
         final plaintextBytes = Uint8List.fromList([1, 2, 3, 4, 5, 250, 251]);
@@ -257,15 +257,23 @@ void main() {
           utf8.encode(legacyMarkedPayload),
         );
 
-        // Act
-        final decrypted = await SecurityManager.instance.decryptBinaryPayload(
-          encryptedInput,
-          publicKey,
-          mockRepo,
+        // Act / Assert
+        await expectLater(
+          () => SecurityManager.instance.decryptBinaryPayload(
+            encryptedInput,
+            publicKey,
+            mockRepo,
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (e) => e.toString(),
+              'message',
+              contains('no secure encryption method'),
+            ),
+          ),
         );
 
-        // Assert
-        expect(decrypted, equals(plaintextBytes));
+        // Deprecated wrappers remain unused even on rejection.
         final usage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
         expect(usage['encrypt'], equals(0));
         expect(usage['decrypt'], equals(0));

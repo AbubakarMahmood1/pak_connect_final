@@ -98,7 +98,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      expect(chunk.toString(), equals('Chunk 1/3: "Hi there"'));
+      expect(chunk.toString(), equals('Chunk 1/3 (8 chars)'));
     });
 
     test('round-trip: toBytes → fromBytes preserves data', () {

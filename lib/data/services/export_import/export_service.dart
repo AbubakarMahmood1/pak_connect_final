@@ -332,31 +332,8 @@ class ExportService {
   /// List available exports
   static Future<List<ExportBundle>> listAvailableExports() async {
     try {
-      final exportDir = await getDefaultExportDirectory();
-      final dir = Directory(exportDir);
-
-      if (!await dir.exists()) {
-        return [];
-      }
-
-      final exports = <ExportBundle>[];
-
-      await for (final entity in dir.list()) {
-        if (entity is File && entity.path.endsWith(_bundleExtension)) {
-          try {
-            final contents = await entity.readAsString();
-            final json = jsonDecode(contents) as Map<String, dynamic>;
-            exports.add(ExportBundle.fromJson(json));
-          } catch (e) {
-            _logger.warning('Failed to parse export: ${entity.path}', e);
-          }
-        }
-      }
-
-      // Sort by timestamp descending (newest first)
-      exports.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      return exports;
+      final exports = await _listAvailableExportEntries();
+      return exports.map((entry) => entry.bundle).toList(growable: false);
     } catch (e) {
       _logger.warning('Failed to list exports: $e');
       return [];
@@ -366,7 +343,7 @@ class ExportService {
   /// Delete old exports, keeping only the most recent N
   static Future<int> cleanupOldExports({int keepCount = 3}) async {
     try {
-      final exports = await listAvailableExports();
+      final exports = await _listAvailableExportEntries();
 
       if (exports.length <= keepCount) {
         return 0;
@@ -375,16 +352,10 @@ class ExportService {
       final exportsToDelete = exports.skip(keepCount).toList();
       int deletedCount = 0;
 
-      final exportDir = await getDefaultExportDirectory();
-
       for (final export in exportsToDelete) {
         try {
-          final timestamp = export.timestamp.millisecondsSinceEpoch;
-          final filename = 'pakconnect_backup_$timestamp$_bundleExtension';
-          final file = File(join(exportDir, filename));
-
-          if (await file.exists()) {
-            await file.delete();
+          if (await export.file.exists()) {
+            await export.file.delete();
             deletedCount++;
           }
         } catch (e) {
@@ -399,4 +370,39 @@ class ExportService {
       return 0;
     }
   }
+
+  static Future<List<_ExportFileEntry>> _listAvailableExportEntries() async {
+    final exportDir = await getDefaultExportDirectory();
+    final dir = Directory(exportDir);
+
+    if (!await dir.exists()) {
+      return [];
+    }
+
+    final exports = <_ExportFileEntry>[];
+
+    await for (final entity in dir.list()) {
+      if (entity is! File || !entity.path.endsWith(_bundleExtension)) {
+        continue;
+      }
+
+      try {
+        final contents = await entity.readAsString();
+        final json = jsonDecode(contents) as Map<String, dynamic>;
+        exports.add(_ExportFileEntry(entity, ExportBundle.fromJson(json)));
+      } catch (e) {
+        _logger.warning('Failed to parse export: ${entity.path}', e);
+      }
+    }
+
+    exports.sort((a, b) => b.bundle.timestamp.compareTo(a.bundle.timestamp));
+    return exports;
+  }
+}
+
+class _ExportFileEntry {
+  final File file;
+  final ExportBundle bundle;
+
+  const _ExportFileEntry(this.file, this.bundle);
 }
