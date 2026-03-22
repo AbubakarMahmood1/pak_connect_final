@@ -104,12 +104,12 @@ void main() {
       expect(DeviceDeduplicationManager.deviceCount, equals(1));
     });
 
-    test('self-filter skips device when hint matches own hint', () {
+    test('self-filter does not drop anonymous device without hint payload', () {
       DeviceDeduplicationManager.myEphemeralHintProvider = () => 'NO_HINT';
-      // With empty advertisement → hint will be 'NO_HINT', matching self
+      // Without a parsed hint payload there is no nonce to compare, so the
+      // anonymous advertisement must remain discoverable.
       DeviceDeduplicationManager.processDiscoveredDevice(_event(30));
-      // Self-advertisement should be filtered out
-      expect(DeviceDeduplicationManager.deviceCount, equals(0));
+      expect(DeviceDeduplicationManager.deviceCount, equals(1));
     });
 
     test('multiple different devices are tracked separately', () {
