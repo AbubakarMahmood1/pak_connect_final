@@ -6,6 +6,7 @@
 ///   shouldProbabilisticallySkip, chooseNextHop (routing service, loop detection),
 ///   chooseNextHopId, QueuePolicyManager methods
 library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/relay_send_pipeline.dart';
@@ -157,14 +158,17 @@ void main() {
       expect(engine.calculateRelayProbability(), 1.0);
     });
 
-    test('calculateRelayProbability returns 1.0 for ≤30 nodes (broadcast mode)', () {
-      final analyzer = _FakeTopologyAnalyzer(30);
-      engine.updateContext(
-        currentNodeId: 'my_node',
-        topologyAnalyzer: analyzer,
-      );
-      expect(engine.calculateRelayProbability(), 1.0);
-    });
+    test(
+      'calculateRelayProbability returns 1.0 for ≤30 nodes (broadcast mode)',
+      () {
+        final analyzer = _FakeTopologyAnalyzer(30);
+        engine.updateContext(
+          currentNodeId: 'my_node',
+          topologyAnalyzer: analyzer,
+        );
+        expect(engine.calculateRelayProbability(), 1.0);
+      },
+    );
 
     test('calculateRelayProbability returns 0.7 for ~50 nodes', () {
       final analyzer = _FakeTopologyAnalyzer(50);
@@ -197,9 +201,16 @@ void main() {
       expect(await engine.isMessageForCurrentNode('my_node'), isTrue);
     });
 
-    test('isMessageForCurrentNode rejects persistent ID', () async {
-      expect(await engine.isMessageForCurrentNode('persistent_abc'), isFalse);
-    });
+    test(
+      'isMessageForCurrentNode matches persistent ID when configured',
+      () async {
+        engine.updateContext(
+          currentNodeId: 'my_node',
+          myPersistentId: 'persistent_abc',
+        );
+        expect(await engine.isMessageForCurrentNode('persistent_abc'), isTrue);
+      },
+    );
 
     test('isMessageForCurrentNode returns true for broadcast', () async {
       expect(
@@ -298,13 +309,18 @@ void main() {
       expect(hop, isNull);
     });
 
-    test('updateContext only matches the active node ID', () async {
-      engine.updateContext(currentNodeId: 'node_1');
+    test('updateContext preserves persistent ID when omitted', () async {
+      engine.updateContext(
+        currentNodeId: 'node_1',
+        myPersistentId: 'persistent_abc',
+      );
       expect(await engine.isMessageForCurrentNode('node_1'), isTrue);
+      expect(await engine.isMessageForCurrentNode('persistent_abc'), isTrue);
 
       engine.updateContext(currentNodeId: 'node_2');
       expect(await engine.isMessageForCurrentNode('node_1'), isFalse);
       expect(await engine.isMessageForCurrentNode('node_2'), isTrue);
+      expect(await engine.isMessageForCurrentNode('persistent_abc'), isTrue);
     });
   });
 
@@ -331,32 +347,36 @@ void main() {
       expect(await manager.getQueueLimit('reg'), 100);
     });
 
-    test('applyFavoritesPriorityBoost boosts normal to high for favorites',
-        () async {
-      final manager = QueuePolicyManager(
-        repositoryProvider: _FakeRepoProvider(favoriteKeys: {'fav'}),
-      );
-      final result = await manager.applyFavoritesPriorityBoost(
-        recipientPublicKey: 'fav',
-        currentPriority: MessagePriority.normal,
-      );
-      expect(result.wasBoosted, isTrue);
-      expect(result.priority, MessagePriority.high);
-      expect(result.isFavorite, isTrue);
-    });
+    test(
+      'applyFavoritesPriorityBoost boosts normal to high for favorites',
+      () async {
+        final manager = QueuePolicyManager(
+          repositoryProvider: _FakeRepoProvider(favoriteKeys: {'fav'}),
+        );
+        final result = await manager.applyFavoritesPriorityBoost(
+          recipientPublicKey: 'fav',
+          currentPriority: MessagePriority.normal,
+        );
+        expect(result.wasBoosted, isTrue);
+        expect(result.priority, MessagePriority.high);
+        expect(result.isFavorite, isTrue);
+      },
+    );
 
-    test('applyFavoritesPriorityBoost boosts low to high for favorites',
-        () async {
-      final manager = QueuePolicyManager(
-        repositoryProvider: _FakeRepoProvider(favoriteKeys: {'fav'}),
-      );
-      final result = await manager.applyFavoritesPriorityBoost(
-        recipientPublicKey: 'fav',
-        currentPriority: MessagePriority.low,
-      );
-      expect(result.wasBoosted, isTrue);
-      expect(result.priority, MessagePriority.high);
-    });
+    test(
+      'applyFavoritesPriorityBoost boosts low to high for favorites',
+      () async {
+        final manager = QueuePolicyManager(
+          repositoryProvider: _FakeRepoProvider(favoriteKeys: {'fav'}),
+        );
+        final result = await manager.applyFavoritesPriorityBoost(
+          recipientPublicKey: 'fav',
+          currentPriority: MessagePriority.low,
+        );
+        expect(result.wasBoosted, isTrue);
+        expect(result.priority, MessagePriority.high);
+      },
+    );
 
     test('applyFavoritesPriorityBoost does not boost urgent', () async {
       final manager = QueuePolicyManager(
@@ -614,16 +634,16 @@ class _FakeOfflineQueue implements OfflineMessageQueueContract {
   Future<void> markMessageFailed(String messageId, String reason) async {}
   @override
   QueueStatistics getStatistics() => const QueueStatistics(
-        totalQueued: 0,
-        totalDelivered: 0,
-        totalFailed: 0,
-        pendingMessages: 0,
-        sendingMessages: 0,
-        retryingMessages: 0,
-        failedMessages: 0,
-        isOnline: false,
-        averageDeliveryTime: Duration.zero,
-      );
+    totalQueued: 0,
+    totalDelivered: 0,
+    totalFailed: 0,
+    pendingMessages: 0,
+    sendingMessages: 0,
+    retryingMessages: 0,
+    failedMessages: 0,
+    isOnline: false,
+    averageDeliveryTime: Duration.zero,
+  );
   @override
   Future<void> retryFailedMessages() async {}
   @override

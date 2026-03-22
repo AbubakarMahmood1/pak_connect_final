@@ -18,6 +18,7 @@ class RelayDecisionEngine {
   IMeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
   String _currentNodeId;
+  String? _myPersistentId;
 
   /// X25519 scan private key for stealth address checking.
   /// Set via [setScanKey] when the user's identity is available.
@@ -29,20 +30,26 @@ class RelayDecisionEngine {
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
     required String currentNodeId,
+    String? myPersistentId,
   }) : _logger = logger,
        _seenMessageStore = seenMessageStore,
        _routingService = routingService,
        _topologyAnalyzer = topologyAnalyzer,
-       _currentNodeId = currentNodeId;
+       _currentNodeId = currentNodeId,
+       _myPersistentId = myPersistentId;
 
   void updateContext({
     required String currentNodeId,
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
+    String? myPersistentId,
   }) {
     _currentNodeId = currentNodeId;
     _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer;
+    if (myPersistentId != null) {
+      _myPersistentId = myPersistentId;
+    }
   }
 
   /// Set the scan private key for stealth address checking.
@@ -85,6 +92,12 @@ class RelayDecisionEngine {
     }
     if (finalRecipientPublicKey == _currentNodeId) {
       _logger.info('✅ Message IS for current node (node ID match)');
+      return true;
+    }
+
+    final persistentId = _getMyPersistentId();
+    if (persistentId != null && finalRecipientPublicKey == persistentId) {
+      _logger.info('✅ Message IS for current node (persistent key match)');
       return true;
     }
 
@@ -131,7 +144,8 @@ class RelayDecisionEngine {
       );
       if (result.isForMe) {
         _logger.info(
-            '🕵️ Stealth address match (viewTag passed: ${result.passedViewTag})');
+          '🕵️ Stealth address match (viewTag passed: ${result.passedViewTag})',
+        );
         return true;
       }
       if (!result.passedViewTag) {
@@ -232,5 +246,12 @@ class RelayDecisionEngine {
       availableHops: hopStrings,
     );
     return chosen != null ? ChatId(chosen) : null;
+  }
+
+  String? _getMyPersistentId() {
+    if (_myPersistentId != null && _myPersistentId!.isNotEmpty) {
+      return _myPersistentId;
+    }
+    return null;
   }
 }
