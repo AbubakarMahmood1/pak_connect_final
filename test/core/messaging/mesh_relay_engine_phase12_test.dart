@@ -425,13 +425,6 @@ void main() {
       MeshRelayEngine.clearDependencyResolvers();
     });
 
-    test('sets persistent ID resolver', () {
-      MeshRelayEngine.configureDependencyResolvers(
-        persistentIdResolver: () => 'my_persistent_id',
-      );
-      MeshRelayEngine.clearDependencyResolvers();
-    });
-
     test('falls back to in-memory store when resolver returns null', () {
       MeshRelayEngine.configureDependencyResolvers(
         seenMessageStoreResolver: () => null,

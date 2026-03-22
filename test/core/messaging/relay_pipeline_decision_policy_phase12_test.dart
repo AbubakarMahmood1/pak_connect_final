@@ -197,12 +197,8 @@ void main() {
       expect(await engine.isMessageForCurrentNode('my_node'), isTrue);
     });
 
-    test('isMessageForCurrentNode matches persistent ID', () async {
-      engine.updateContext(
-        currentNodeId: 'my_node',
-        myPersistentId: 'persistent_abc',
-      );
-      expect(await engine.isMessageForCurrentNode('persistent_abc'), isTrue);
+    test('isMessageForCurrentNode rejects persistent ID', () async {
+      expect(await engine.isMessageForCurrentNode('persistent_abc'), isFalse);
     });
 
     test('isMessageForCurrentNode returns true for broadcast', () async {
@@ -302,14 +298,13 @@ void main() {
       expect(hop, isNull);
     });
 
-    test('updateContext preserves persistent ID when null passed', () async {
-      engine.updateContext(
-        currentNodeId: 'node_1',
-        myPersistentId: 'p_id',
-      );
+    test('updateContext only matches the active node ID', () async {
+      engine.updateContext(currentNodeId: 'node_1');
+      expect(await engine.isMessageForCurrentNode('node_1'), isTrue);
+
       engine.updateContext(currentNodeId: 'node_2');
-      // persistent ID should still be set
-      expect(await engine.isMessageForCurrentNode('p_id'), isTrue);
+      expect(await engine.isMessageForCurrentNode('node_1'), isFalse);
+      expect(await engine.isMessageForCurrentNode('node_2'), isTrue);
     });
   });
 

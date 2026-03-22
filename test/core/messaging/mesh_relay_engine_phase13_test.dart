@@ -587,26 +587,6 @@ void main() {
   // Dependency resolvers
   // =========================================================================
   group('dependency resolvers', () {
-    test('persistent ID resolver used in initialize', () async {
-      MeshRelayEngine.configureDependencyResolvers(
-        persistentIdResolver: () => 'my_persistent',
-      );
-      final engine = makeEngine();
-      await engine.initialize(currentNodeId: 'ephemeral_node');
-      // Should not throw
-      MeshRelayEngine.clearDependencyResolvers();
-    });
-
-    test('persistent ID resolver that throws returns null silently', () async {
-      MeshRelayEngine.configureDependencyResolvers(
-        persistentIdResolver: () => throw Exception('resolver boom'),
-      );
-      final engine = makeEngine();
-      await engine.initialize(currentNodeId: 'ephemeral_node');
-      // No throw
-      MeshRelayEngine.clearDependencyResolvers();
-    });
-
     test('repository provider resolver returning null', () {
       MeshRelayEngine.configureDependencyResolvers(
         repositoryProviderResolver: () => null,

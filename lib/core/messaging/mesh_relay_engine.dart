@@ -32,7 +32,6 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
   static IRepositoryProvider? Function()? _repositoryProviderResolver;
   static ISeenMessageStore? Function()? _seenMessageStoreResolver;
-  static String? Function()? _persistentIdResolver;
 
   final IRepositoryProvider? _repositoryProvider;
   final ISeenMessageStore _seenMessageStore;
@@ -74,7 +73,6 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static void configureDependencyResolvers({
     IRepositoryProvider? Function()? repositoryProviderResolver,
     ISeenMessageStore? Function()? seenMessageStoreResolver,
-    String? Function()? persistentIdResolver,
   }) {
     if (repositoryProviderResolver != null) {
       _repositoryProviderResolver = repositoryProviderResolver;
@@ -82,16 +80,12 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
     if (seenMessageStoreResolver != null) {
       _seenMessageStoreResolver = seenMessageStoreResolver;
     }
-    if (persistentIdResolver != null) {
-      _persistentIdResolver = persistentIdResolver;
-    }
   }
 
   /// Clear dependency resolvers.
   static void clearDependencyResolvers() {
     _repositoryProviderResolver = null;
     _seenMessageStoreResolver = null;
-    _persistentIdResolver = null;
   }
 
   MeshRelayEngine({
@@ -180,7 +174,6 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       currentNodeId: _currentNodeId,
       routingService: _routingService,
       topologyAnalyzer: _topologyAnalyzer,
-      myPersistentId: _getMyPersistentId(),
     );
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
@@ -780,19 +773,6 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   void _updateStatistics() {
     final stats = getStatistics();
     onStatsUpdated?.call(stats);
-  }
-
-  String? _getMyPersistentId() {
-    final resolver = _persistentIdResolver;
-    if (resolver == null) {
-      return null;
-    }
-    try {
-      return resolver();
-    } catch (error) {
-      _logger.warning('Failed to resolve persistent ID: $error');
-      return null;
-    }
   }
 
   static IRepositoryProvider? _resolveRepositoryProvider() {
