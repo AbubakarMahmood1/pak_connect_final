@@ -468,7 +468,5 @@ final permissionTimeoutProvider =
     StateNotifierProvider.autoDispose<PermissionTimeoutStateNotifier, bool>((
       ref,
     ) {
-      final notifier = PermissionTimeoutStateNotifier();
-      ref.onDispose(notifier.dispose);
-      return notifier;
+      return PermissionTimeoutStateNotifier();
     });

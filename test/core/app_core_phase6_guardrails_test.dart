@@ -31,6 +31,7 @@ void main() {
 
       await appCore.initialize();
       await appCore.initialize();
+      await Future<void>.delayed(Duration.zero);
 
       expect(appCore.isInitialized, isTrue);
       expect(overrideCalls, 1);

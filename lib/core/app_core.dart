@@ -95,6 +95,7 @@ class AppCore {
 
   // State
   bool _isInitialized = false;
+  bool _disposeRequested = false;
   Completer<void>? _initializationCompleter;
   DateTime? _initializationTime;
   AppStatus _currentStatus = AppStatus.initializing;
@@ -166,6 +167,7 @@ class AppCore {
       return;
     }
 
+    _disposeRequested = false;
     _initializationCompleter = Completer<void>();
     // Prevent unhandled asynchronous error warnings when initialization fails
     // before another caller awaits the shared completer.
@@ -181,11 +183,25 @@ class AppCore {
       _logger.info('🗒️ Setting up logging...');
       _setupLogging();
       _logger.info('✅ Logging setup complete');
+      if (_shouldAbortInitialization('logging setup')) return;
+
+      // Allow tests to inject an override routine that simulates initialization
+      // outcomes without exercising the full stack.
+      if (initializationOverride != null) {
+        await initializationOverride!();
+        if (_shouldAbortInitialization('initialization override')) return;
+        _isInitialized = true;
+        _initializationTime = DateTime.now();
+        _emitStatus(AppStatus.ready);
+        _initializationCompleter?.complete();
+        return;
+      }
 
       // Setup dependency injection container
       _logger.info('🏗️ Setting up DI container...');
       await setupServiceLocator();
       _logger.info('✅ DI container setup complete');
+      if (_shouldAbortInitialization('dependency injection setup')) return;
 
       // Load kill switches before bringing up subsystems.
       final prefsRepo = getIt.get<IPreferencesRepository>();
@@ -193,17 +209,7 @@ class AppCore {
         getBool: (key, {defaultValue = false}) =>
             prefsRepo.getBool(key, defaultValue: defaultValue),
       );
-
-      // Allow tests to inject an override routine that simulates initialization
-      // outcomes without exercising the full stack.
-      if (initializationOverride != null) {
-        await initializationOverride!();
-        _isInitialized = true;
-        _initializationTime = DateTime.now();
-        _emitStatus(AppStatus.ready);
-        _initializationCompleter?.complete();
-        return;
-      }
+      if (_shouldAbortInitialization('kill switch load')) return;
 
       // Initialize repositories first
       _logger.info('🗄️ Initializing repositories...');
@@ -212,6 +218,7 @@ class AppCore {
       _logger.info(
         '✅ Repositories initialized in ${DateTime.now().difference(repoStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('repository initialization')) return;
 
       // Initialize seen message store after database setup
       _logger.info('👀 Initializing SeenMessageStore...');
@@ -221,6 +228,9 @@ class AppCore {
         seenMessageStoreResolver: () => seenMessageStore,
       );
       _logger.info('✅ SeenMessageStore initialized');
+      if (_shouldAbortInitialization('seen message store initialization')) {
+        return;
+      }
 
       // 🔧 FIX P0: Initialize message queue FIRST before any BLE components can access it
       _logger.info(
@@ -231,6 +241,7 @@ class AppCore {
       _logger.info(
         '✅ Message queue initialized in ${DateTime.now().difference(queueStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('message queue initialization')) return;
 
       // Initialize monitoring
       _logger.info('📊 Initializing monitoring...');
@@ -239,6 +250,7 @@ class AppCore {
       _logger.info(
         '✅ Monitoring initialized in ${DateTime.now().difference(monitorStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('monitoring initialization')) return;
 
       // Initialize core services (may trigger BLEService initialization via providers)
       _logger.info('🔧 Initializing core services...');
@@ -247,6 +259,7 @@ class AppCore {
       _logger.info(
         '✅ Core services initialized in ${DateTime.now().difference(servicesStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('core service initialization')) return;
 
       // Initialize BLE integration
       _logger.info('📡 Initializing BLE integration...');
@@ -255,6 +268,7 @@ class AppCore {
       _logger.info(
         '✅ BLE integration initialized in ${DateTime.now().difference(bleStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('BLE integration')) return;
 
       // Initialize enhanced features (battery, burst scanning)
       _logger.info('⚡ Initializing enhanced features...');
@@ -263,6 +277,9 @@ class AppCore {
       _logger.info(
         '✅ Enhanced features initialized in ${DateTime.now().difference(featuresStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('enhanced feature initialization')) {
+        return;
+      }
 
       // Start integrated systems
       _logger.info('🔄 Starting integrated systems...');
@@ -271,6 +288,7 @@ class AppCore {
       _logger.info(
         '✅ Integrated systems started in ${DateTime.now().difference(systemsStart).inMilliseconds}ms',
       );
+      if (_shouldAbortInitialization('integrated system startup')) return;
 
       _services = _buildAppServices();
       if (getIt.isRegistered<AppServices>()) {
@@ -302,7 +320,8 @@ class AppCore {
       throw appCoreError;
     } finally {
       // If initialization failed, clear the completer so a retry can start fresh.
-      if (_initializationCompleter != null && _isInitialized == false) {
+      if (_initializationCompleter != null &&
+          (_disposeRequested || _isInitialized == false)) {
         _initializationCompleter = null;
       }
     }
@@ -809,17 +828,26 @@ class AppCore {
 
   /// Start integrated systems
   Future<void> _startIntegratedSystems() async {
+    if (_disposeRequested) {
+      _logger.info('Skipping integrated system startup during disposal');
+      return;
+    }
+
     _logger.info('Starting burst scanning integration...');
 
     // Initialize burst scanning controller early to ensure it's ready
     // This triggers the provider initialization during app startup rather than on first UI access
     try {
       _logger.info('🔧 Pre-initializing burst scanning controller...');
-      // Force provider initialization by creating a temporary container
-      // This ensures burst scanning starts immediately rather than waiting for UI
-      await Future.delayed(
-        Duration(milliseconds: 100),
-      ); // Small delay to ensure BLE is ready
+      // Avoid timer-based startup delays here. They leak into widget tests and
+      // provide no useful ordering guarantee beyond yielding back to the loop.
+      await Future<void>.value();
+      if (_disposeRequested) {
+        _logger.info(
+          'Skipping burst scanning pre-initialization during disposal',
+        );
+        return;
+      }
       _logger.info('✅ Burst scanning will initialize on provider access');
     } catch (e) {
       _logger.warning('⚠️ Burst scanning pre-initialization note: $e');
@@ -829,6 +857,11 @@ class AppCore {
     _logger.info('🗄️ Starting auto-archive scheduler...');
     try {
       await AutoArchiveScheduler.start();
+      if (_disposeRequested) {
+        AutoArchiveScheduler.stop();
+        _logger.info('Auto-archive scheduler startup aborted during disposal');
+        return;
+      }
       _logger.info('✅ Auto-archive scheduler started');
     } catch (e) {
       _logger.warning('⚠️ Auto-archive scheduler failed to start: $e');
@@ -1028,12 +1061,28 @@ class AppCore {
     }
   }
 
+  bool _shouldAbortInitialization(String phase) {
+    if (!_disposeRequested) {
+      return false;
+    }
+
+    _logger.info('Initialization cancelled during $phase');
+    final completer = _initializationCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    return true;
+  }
+
   /// Dispose of all resources
   void dispose() {
-    if (!_isInitialized) return;
+    final hadStarted = _isInitialized || _initializationCompleter != null;
+    _disposeRequested = true;
 
     try {
-      _emitStatus(AppStatus.disposing);
+      if (hadStarted) {
+        _emitStatus(AppStatus.disposing);
+      }
 
       // Safe disposal with null checks
       try {
@@ -1096,6 +1145,11 @@ class AppCore {
       }
 
       _statusListeners.clear();
+      _services = null;
+      _initializationCompleter = null;
+      _initializationTime = null;
+      _isInitialized = false;
+      _currentStatus = AppStatus.initializing;
 
       _logger.info('App core disposed');
     } catch (e) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/app_core.dart';
@@ -8,16 +10,19 @@ import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
 void main() {
   late List<LogRecord> logRecords;
   late Set<String> allowedSevere;
+  StreamSubscription<LogRecord>? logSubscription;
 
   setUp(() {
     configureDataLayerRegistrar(registerDataLayerServices);
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    logSubscription = Logger.root.onRecord.listen(logRecords.add);
   });
 
   tearDown(() {
+    logSubscription?.cancel();
+    logSubscription = null;
     AppCore.initializationOverride = null;
     AppCore.resetForTesting();
     final severeErrors = logRecords
