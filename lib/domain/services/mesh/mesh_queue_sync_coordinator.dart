@@ -391,30 +391,33 @@ class MeshQueueSyncCoordinator {
         return;
       }
 
-      bool success;
       if (!_bleService.canSendMessages) {
         _logger.warning(
           'No active connection available (will retry later): $truncatedId...',
         );
-        success = false;
-      } else if (!_isIntendedRecipientConnected(message.recipientPublicKey)) {
+        return;
+      }
+
+      final canUseCurrentPeer = await _canSendMessageToCurrentPeer(message);
+      if (!canUseCurrentPeer) {
         _logger.warning(
-          'Connected peer does not match queued recipient (will retry later): '
+          'Connected peer is neither the queued recipient nor an approved relay '
+          '(will retry later): '
           '$truncatedId...',
         );
-        success = false;
-      } else if (_bleService.hasPeripheralConnection) {
-        success = await _bleService.sendPeripheralMessage(
-          message.content,
-          messageId: messageId,
-        );
-      } else {
-        success = await _bleService.sendMessage(
-          message.content,
-          messageId: messageId,
-          originalIntendedRecipient: message.recipientPublicKey,
-        );
+        return;
       }
+
+      final success = _bleService.hasPeripheralConnection
+          ? await _bleService.sendPeripheralMessage(
+              message.content,
+              messageId: messageId,
+            )
+          : await _bleService.sendMessage(
+              message.content,
+              messageId: messageId,
+              originalIntendedRecipient: message.recipientPublicKey,
+            );
 
       if (!success) {
         await queue.markMessageFailed(messageId, 'BLE transmission failed');
@@ -447,7 +450,11 @@ class MeshQueueSyncCoordinator {
   /// [intendedRecipient] by any of its known identifiers (session id,
   /// ephemeral id, or persistent key).
   bool _isIntendedRecipientConnected(String intendedRecipient) {
-    if (intendedRecipient.isEmpty) {
+    return _matchesConnectedPeer(intendedRecipient);
+  }
+
+  bool _matchesConnectedPeer(String candidateId) {
+    if (candidateId.isEmpty) {
       return false;
     }
 
@@ -461,8 +468,25 @@ class MeshQueueSyncCoordinator {
       (candidate) =>
           candidate != null &&
           candidate.isNotEmpty &&
-          candidate == intendedRecipient,
+          candidate == candidateId,
     );
+  }
+
+  Future<bool> _canSendMessageToCurrentPeer(QueuedMessage message) async {
+    if (message.recipientPublicKey.isEmpty) {
+      return false;
+    }
+
+    if (_isIntendedRecipientConnected(message.recipientPublicKey)) {
+      return true;
+    }
+
+    final currentPeerId = _bleService.currentSessionId;
+    if (currentPeerId == null || currentPeerId.isEmpty) {
+      return false;
+    }
+
+    return _shouldRelayThroughDevice(message, currentPeerId);
   }
 
   void _handleConnectivityCheck() {
@@ -666,6 +690,14 @@ class MeshQueueSyncCoordinator {
 
   void _handleSendMessages(List<QueuedMessage> messages, String toNodeId) {
     if (messages.isEmpty) {
+      return;
+    }
+
+    if (!_matchesConnectedPeer(toNodeId)) {
+      _logger.warning(
+        'Skipping queue sync delivery to non-connected requester: '
+        '${toNodeId.shortId(8)}...',
+      );
       return;
     }
 
