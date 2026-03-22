@@ -112,5 +112,57 @@ void main() {
         expect(buffered.ttl, 4);
       },
     );
+
+    test('drops oversized local binary payloads before reassembly completes', () async {
+      final handler = MessageFragmentationHandler();
+      handler.setLocalNodeId('node-a');
+
+      final data = Uint8List.fromList(
+        List<int>.filled((1024 * 1024) + 1, 7),
+      );
+      final frags = BinaryFragmenter.fragment(
+        data: data,
+        mtu: data.length + 64,
+        originalType: 0x93,
+        recipient: 'node-a',
+      );
+
+      final marker = await handler.processReceivedData(
+        data: frags.single,
+        fromDeviceId: 'dev',
+        fromNodeId: 'node-b',
+      );
+
+      expect(marker, isNull);
+      final fragmentId = BinaryFragmentEnvelope.decode(frags.single)!.fragmentId;
+      expect(handler.takeReassembledPayload(fragmentId), isNull);
+    });
+
+    test('drops oversized forwarded binary payloads before buffering', () async {
+      final handler = MessageFragmentationHandler();
+      handler.setLocalNodeId('node-a');
+
+      final data = Uint8List.fromList(
+        List<int>.filled((1024 * 1024) + 1, 9),
+      );
+      final frags = BinaryFragmenter.fragment(
+        data: data,
+        mtu: data.length + 64,
+        originalType: 0x94,
+        recipient: 'node-b',
+        ttl: 3,
+      );
+
+      final marker = await handler.processReceivedData(
+        data: frags.single,
+        fromDeviceId: 'dev',
+        fromNodeId: 'node-c',
+      );
+
+      final fragmentId = BinaryFragmentEnvelope.decode(frags.single)!.fragmentId;
+      expect(marker, isNull);
+      expect(handler.takeForwardFragment(fragmentId, 0), isNull);
+      expect(handler.takeForwardReassembledPayload(fragmentId), isNull);
+    });
   });
 }
