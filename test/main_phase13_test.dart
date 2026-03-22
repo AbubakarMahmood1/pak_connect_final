@@ -96,10 +96,9 @@ void main() {
       identityRevealedProvider.overrideWith(
         (ref) => const AsyncValue<String>.loading(),
       ),
-      if (fixedThemeMode != null)
-        themeModeProvider.overrideWith(
-          () => _FixedThemeModeNotifier(fixedThemeMode),
-        ),
+      themeModeProvider.overrideWith(
+        () => _FixedThemeModeNotifier(fixedThemeMode ?? ThemeMode.system),
+      ),
     ];
 
     final scope = ProviderScope(
