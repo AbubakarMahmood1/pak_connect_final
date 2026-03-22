@@ -431,14 +431,8 @@ class PairingFlowController {
         displayName ?? _otherUserName() ?? 'User',
         ephemeralId: _theirEphemeralId,
       );
-
-      await _pairingLifecycle.cacheSharedSecret(
-        contactId: theirId,
-        alternateSessionId:
-            _currentSessionId != null && _currentSessionId != theirId
-            ? _currentSessionId
-            : null,
-        sharedSecret: sharedSecret,
+      _logger.info(
+        '🔒 Pairing verified contact identity without caching the pairing-code secret',
       );
 
       if (_theirEphemeralId != null && _theirPersistentKey != null) {

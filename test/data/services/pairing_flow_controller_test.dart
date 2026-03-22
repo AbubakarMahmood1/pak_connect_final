@@ -235,7 +235,7 @@ void main() {
       final success = await controller.completePairing(code);
       expect(success, isTrue);
       expect(controller.currentPairing?.sharedSecret, isNotNull);
-      expect(conversationKeys.containsKey('peer'), isTrue);
+      expect(conversationKeys.containsKey('peer'), isFalse);
 
       final secret = controller.currentPairing!.sharedSecret!;
       final expectedHash = sha256
@@ -286,10 +286,10 @@ void main() {
           .toString();
 
       expect(controller.currentPairing?.sharedSecret, expectedSecret);
-      expect(conversationKeys.containsKey('persist'), isTrue);
-      verify(
+      expect(conversationKeys.containsKey('persist'), isFalse);
+      verifyNever(
         contactRepository.cacheSharedSecret('persist', expectedSecret),
-      ).called(1);
+      );
     });
 
     test('setTheirEphemeralId updates identity session state', () {
