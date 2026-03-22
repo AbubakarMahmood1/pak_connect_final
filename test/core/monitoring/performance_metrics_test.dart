@@ -95,8 +95,9 @@ void main() {
       expect(metrics.maxEncryptMs, equals(20));
       expect(
         metrics.avgMessageSize,
-        closeTo(1166.67, 0.1),
-        reason: 'Average size should be (500+1000+2000)/3',
+        equals(0),
+        reason:
+            'Message sizes are intentionally not persisted to avoid leaking communication metadata.',
       );
     });
 
