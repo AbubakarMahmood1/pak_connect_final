@@ -145,9 +145,6 @@ class MigrationService {
         });
       });
 
-      // Mark as migrated
-      await prefs.setBool('sqlite_migration_completed', true);
-
       // Clean up legacy SharedPreferences keys — sensitive data is now in
       // SQLCipher and should not remain in plaintext SharedPreferences.
       const legacyKeys = [
@@ -170,6 +167,9 @@ class MigrationService {
         }
       }
       _logger.info('🧹 Cleaned up legacy SharedPreferences keys after migration');
+
+      // Mark as migrated only after the plaintext cleanup has completed.
+      await prefs.setBool('sqlite_migration_completed', true);
 
       final duration = DateTime.now().difference(startTime);
       final totalRecords = counts.values.fold<int>(

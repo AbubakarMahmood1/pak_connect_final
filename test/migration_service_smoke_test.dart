@@ -65,6 +65,15 @@ void main() {
     expect(chats.length, equals(1));
     expect(messages.length, equals(1));
     expect(offlineQueue.length, equals(1));
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('sqlite_migration_completed'), isTrue);
+    expect(prefs.containsKey('enhanced_contacts_v2'), isFalse);
+    expect(prefs.containsKey('chat_messages'), isFalse);
+    expect(
+      prefs.getKeys().any((key) => key.startsWith('migration_backup_')),
+      isFalse,
+    );
   });
 }
 
