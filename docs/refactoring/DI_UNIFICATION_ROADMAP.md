@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-02-12 (Pass 7 complete)
+**Last Updated**: 2026-03-23 (Pass 7 complete, boundary checkpoint refreshed)
 
 ---
 
@@ -235,6 +235,19 @@ Pass 7 progress highlights:
   `RelayConfigManager`, `DatabaseQueryOptimizer`, `SeenMessageStore`,
   `TopologyManager`, `ChatManagementService`) so call paths avoid direct
   static `.instance` reach-through while preserving existing singleton behavior.
+
+2026-03-23 boundary checkpoint:
+
+- `lib/presentation/**` no longer imports `package:get_it/get_it.dart`.
+- The presentation-layer bridge to the runtime locator is isolated to
+  `lib/presentation/providers/di_providers.dart`.
+- Additional `AppServices` seams now cover database/group/import/export
+  dependencies and chat/home factory seams, so presentation callers can prefer
+  the typed composition root before falling back to the legacy bridge.
+- Repo guardrails now enforce:
+  - no direct `get_it` imports or `GetIt`/`getIt` usage in presentation code
+  - no direct `service_locator.dart` import in presentation outside
+    `di_providers.dart`
 
 ---
 

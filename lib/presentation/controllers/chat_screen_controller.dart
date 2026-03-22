@@ -616,13 +616,19 @@ class ChatScreenController extends ChangeNotifier {
       userId.value,
       contactRepository,
     );
-    final encryptionMethod = await securityService.getEncryptionMethod(
-      userId.value,
-      contactRepository,
-    );
+    String encryptionLabel;
+    try {
+      final encryptionMethod = await securityService.getEncryptionMethod(
+        userId.value,
+        contactRepository,
+      );
+      encryptionLabel = encryptionMethod.type.name;
+    } catch (_) {
+      encryptionLabel = 'unavailable';
+    }
 
     _logger.info(
-      'Chat open: ${config.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=${encryptionMethod.type.name}',
+      'Chat open: ${config.contactName ?? "Unknown"} | Security=${securityLevel.name} | Encryption=$encryptionLabel',
     );
     if (kDebugMode) {
       final ephPresent = contact?.currentEphemeralId != null;

@@ -38,9 +38,15 @@ import '../domain/entities/preference_keys.dart';
 import '../domain/interfaces/i_archive_repository.dart';
 import '../domain/interfaces/i_ble_service_facade.dart';
 import '../domain/interfaces/i_ble_service_facade_factory.dart';
+import '../domain/interfaces/i_chat_connection_manager_factory.dart';
 import '../domain/interfaces/i_chats_repository.dart';
 import '../domain/interfaces/i_contact_repository.dart';
 import '../domain/interfaces/i_database_provider.dart';
+import '../domain/interfaces/i_export_service.dart';
+import '../domain/interfaces/i_group_repository.dart';
+import '../domain/interfaces/i_home_screen_facade_factory.dart';
+import '../domain/interfaces/i_import_service.dart';
+import '../domain/interfaces/i_intro_hint_repository.dart';
 import '../domain/interfaces/i_message_repository.dart';
 import '../domain/interfaces/i_mesh_relay_engine_factory.dart';
 import '../domain/interfaces/i_preferences_repository.dart';
@@ -889,6 +895,15 @@ class AppCore {
       chatManagementService: chatService,
       archiveManagementService: archiveManagementService,
       archiveSearchService: archiveSearchService,
+      databaseProvider: maybeResolveRegistered<IDatabaseProvider>(),
+      groupRepository: maybeResolveRegistered<IGroupRepository>(),
+      introHintRepository: maybeResolveRegistered<IIntroHintRepository>(),
+      exportService: maybeResolveRegistered<IExportService>(),
+      importService: maybeResolveRegistered<IImportService>(),
+      homeScreenFacadeFactory:
+          maybeResolveRegistered<IHomeScreenFacadeFactory>(),
+      chatConnectionManagerFactory:
+          maybeResolveRegistered<IChatConnectionManagerFactory>(),
     );
   }
 

@@ -5,8 +5,9 @@ import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import '../../domain/models/security_level.dart';
-import '../../domain/services/simple_crypto.dart';
+import '../../domain/services/conversation_crypto_service.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
+import '../../domain/services/signing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'pairing_lifecycle_service.dart';
 import 'pairing_service.dart';
@@ -216,7 +217,7 @@ class PairingFlowController {
       return;
     }
 
-    if (SimpleCrypto.hasConversationKey(userId.value)) {
+    if (ConversationCryptoService.hasConversationKey(userId.value)) {
       _logger.info('✅ Contact already has maximum security (ECDH + Pairing)');
       return;
     }
@@ -232,7 +233,10 @@ class PairingFlowController {
       final myId = await _getMyPersistentId();
       final conversationSeed = cachedSecret + myId + userId.value;
 
-      SimpleCrypto.initializeConversation(userId.value, conversationSeed);
+      ConversationCryptoService.initializeConversation(
+        userId.value,
+        conversationSeed,
+      );
       _conversationKeys[userId.value] = conversationSeed;
 
       _logger.info('✅ Enhanced security initialized for contact');
@@ -345,7 +349,7 @@ class PairingFlowController {
       );
 
       if (success) {
-        SimpleCrypto.clearConversationKey(userId.value);
+        ConversationCryptoService.clearConversationKey(userId.value);
         onContactRequestCompleted?.call(true);
       }
 
@@ -476,19 +480,24 @@ class PairingFlowController {
   ) async {
     switch (level) {
       case SecurityLevel.medium:
-        if (!SimpleCrypto.hasConversationKey(publicKey)) {
+        if (!ConversationCryptoService.hasConversationKey(publicKey)) {
           final secret = _conversationKeys[publicKey];
           if (secret != null) {
-            SimpleCrypto.initializeConversation(publicKey, secret);
+            ConversationCryptoService.initializeConversation(publicKey, secret);
           }
         }
         break;
 
       case SecurityLevel.high:
-        final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
+        final sharedSecret = SigningCryptoService.computeSharedSecret(
+          publicKey,
+        );
         if (sharedSecret != null) {
           await _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
-          await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
+          await ConversationCryptoService.restoreConversationKey(
+            publicKey,
+            sharedSecret,
+          );
         }
         break;
 

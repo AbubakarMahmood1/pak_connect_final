@@ -75,8 +75,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage[key];
+  }) async => _storage[key];
 
   @override
   Future<void> delete({
@@ -99,8 +98,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      Map.unmodifiable(_storage);
+  }) async => Map.unmodifiable(_storage);
 
   @override
   Future<void> deleteAll({
@@ -123,8 +121,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage.containsKey(key);
+  }) async => _storage.containsKey(key);
 
   @override
   Future<bool> isCupertinoProtectedDataAvailable() async => true;
@@ -147,10 +144,7 @@ class _FakeRepo extends Fake implements IContactRepository {
   Future<String?> getCachedSharedSecret(String pk) async => secrets[pk];
 
   @override
-  Future<void> updateContactSecurityLevel(
-    String pk,
-    SecurityLevel lv,
-  ) async {
+  Future<void> updateContactSecurityLevel(String pk, SecurityLevel lv) async {
     lvlUpdates.add(MapEntry(pk, lv));
     final c = byAnyId[pk];
     if (c != null) {
@@ -274,13 +268,16 @@ void main() {
   // Typed overloads (UserId adapters)
   // -------------------------------------------------------------------------
   group('UserId adapter methods', () {
-    test('registerIdentityMappingForUser delegates to registerIdentityMapping', () {
-      sm.registerIdentityMappingForUser(
-        persistentUserId: UserId('user-persistent'),
-        ephemeralID: 'eph-user',
-      );
-      // No exception = success
-    });
+    test(
+      'registerIdentityMappingForUser delegates to registerIdentityMapping',
+      () {
+        sm.registerIdentityMappingForUser(
+          persistentUserId: UserId('user-persistent'),
+          ephemeralID: 'eph-user',
+        );
+        // No exception = success
+      },
+    );
 
     test('unregisterIdentityMappingForUser delegates', () {
       sm.unregisterIdentityMappingForUser(UserId('user-persistent'));
@@ -296,15 +293,16 @@ void main() {
       expect(level, SecurityLevel.low);
     });
 
-    test('getEncryptionMethodForUser delegates', () async {
+    test('getEncryptionMethodForUser propagates missing active lane', () async {
       repo.byAnyId['user-em'] = _contact(
         key: 'user-em',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      final method = await sm.getEncryptionMethodForUser(UserId('user-em'), repo);
-      // LOW without noise session → global
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethodForUser(UserId('user-em'), repo),
+        throwsA(isA<EncryptionException>()),
+      );
     });
   });
 
@@ -365,39 +363,45 @@ void main() {
       expect(key, isNull);
     });
 
-    test('MEDIUM contact with valid 32-byte noisePublicKey returns KK', () async {
-      final validKey = base64.encode(List.filled(32, 0xAA));
-      repo.byAnyId['pk-kk'] = _contact(
-        key: 'pk-kk',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-      );
-      // Need pairing key to make getCurrentLevel calculate MEDIUM
-      await SimpleCrypto.restoreConversationKey('pk-kk', 'pair-key');
-      repo.byAnyId['pk-kk'] = _contact(
-        key: 'pk-kk',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-        noisePublicKey: validKey,
-      );
-      final (pattern, key) = await sm.selectNoisePattern('pk-kk', repo);
-      expect(pattern.name, 'kk');
-      expect(key, isNotNull);
-      expect(key!.length, 32);
-    });
+    test(
+      'MEDIUM contact with valid 32-byte noisePublicKey returns KK',
+      () async {
+        final validKey = base64.encode(List.filled(32, 0xAA));
+        repo.byAnyId['pk-kk'] = _contact(
+          key: 'pk-kk',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+        );
+        // Need pairing key to make getCurrentLevel calculate MEDIUM
+        await SimpleCrypto.restoreConversationKey('pk-kk', 'pair-key');
+        repo.byAnyId['pk-kk'] = _contact(
+          key: 'pk-kk',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+          noisePublicKey: validKey,
+        );
+        final (pattern, key) = await sm.selectNoisePattern('pk-kk', repo);
+        expect(pattern.name, 'kk');
+        expect(key, isNotNull);
+        expect(key!.length, 32);
+      },
+    );
 
-    test('MEDIUM contact with invalid base64 noisePublicKey falls back to XX', () async {
-      repo.byAnyId['pk-inv'] = _contact(
-        key: 'pk-inv',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.medium,
-        noisePublicKey: 'not-valid-base64!!!',
-      );
-      await SimpleCrypto.restoreConversationKey('pk-inv', 'pair-key');
-      final (pattern, key) = await sm.selectNoisePattern('pk-inv', repo);
-      expect(pattern.name, 'xx');
-      expect(key, isNull);
-    });
+    test(
+      'MEDIUM contact with invalid base64 noisePublicKey falls back to XX',
+      () async {
+        repo.byAnyId['pk-inv'] = _contact(
+          key: 'pk-inv',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.medium,
+          noisePublicKey: 'not-valid-base64!!!',
+        );
+        await SimpleCrypto.restoreConversationKey('pk-inv', 'pair-key');
+        final (pattern, key) = await sm.selectNoisePattern('pk-inv', repo);
+        expect(pattern.name, 'xx');
+        expect(key, isNull);
+      },
+    );
 
     test('MEDIUM contact with wrong-length key falls back to XX', () async {
       final shortKey = base64.encode(List.filled(16, 0xBB)); // 16 bytes, not 32
@@ -611,10 +615,7 @@ void main() {
   group('_resolveContactRepository — no resolver', () {
     test('throws StateError when no repo and no resolver', () async {
       SecurityManager.clearContactRepositoryResolver();
-      expect(
-        () => sm.getCurrentLevel('any-key'),
-        throwsA(isA<StateError>()),
-      );
+      expect(() => sm.getCurrentLevel('any-key'), throwsA(isA<StateError>()));
     });
 
     test('uses resolver when configured', () async {
@@ -671,15 +672,17 @@ void main() {
   // -------------------------------------------------------------------------
   // getEncryptionMethod — LOW without noise session → global
   // -------------------------------------------------------------------------
-  group('getEncryptionMethod — LOW fallback to global', () {
-    test('LOW with no noise session returns global', () async {
+  group('getEncryptionMethod — LOW missing active lane', () {
+    test('LOW with no noise session throws', () async {
       repo.byAnyId['pk-low-g'] = _contact(
         key: 'pk-low-g',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      final method = await sm.getEncryptionMethod('pk-low-g', repo);
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk-low-g', repo),
+        throwsA(isA<EncryptionException>()),
+      );
     });
   });
 

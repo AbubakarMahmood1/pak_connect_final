@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/models/protocol_message.dart';
-import '../../domain/services/simple_crypto.dart';
+import '../../domain/services/conversation_crypto_service.dart';
+import '../../domain/services/signing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/models/security_level.dart';
@@ -263,13 +264,15 @@ class ContactStatusSyncController {
       );
 
       if (existingSecret == null) {
-        final sharedSecret = SimpleCrypto.computeSharedSecret(theirPublicKey);
+        final sharedSecret = SigningCryptoService.computeSharedSecret(
+          theirPublicKey,
+        );
         if (sharedSecret != null) {
           await _contactRepository.cacheSharedSecret(
             theirPublicKey,
             sharedSecret,
           );
-          await SimpleCrypto.restoreConversationKey(
+          await ConversationCryptoService.restoreConversationKey(
             theirPublicKey,
             sharedSecret,
           );

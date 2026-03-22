@@ -9,7 +9,7 @@ import '../../domain/services/ephemeral_key_manager.dart';
 import '../../domain/services/hint_cache_manager.dart';
 import '../../domain/services/message_security.dart';
 import '../../domain/services/battery_optimizer.dart';
-import '../../domain/services/simple_crypto.dart';
+import '../../domain/services/conversation_crypto_service.dart';
 import '../../domain/config/kill_switches.dart';
 import '../../domain/entities/preference_keys.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
@@ -464,7 +464,7 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> clearCaches() async {
     if (_isDisposed) return;
-    SimpleCrypto.clearAllConversationKeys();
+    ConversationCryptoService.clearAllConversationKeys();
     await MessageSecurity.clearProcessedMessages();
     HintCacheManager.clearCache();
     await EphemeralKeyManager.rotateSession();
@@ -533,7 +533,12 @@ class SettingsController extends ChangeNotifier {
       );
 
   static IDatabaseProvider _resolveDatabaseProvider() =>
-      resolveFromServiceLocator<IDatabaseProvider>(
+      resolveFromAppServicesOrServiceLocator<IDatabaseProvider>(
+        fromServices: (services) =>
+            services.databaseProvider ??
+            resolveFromServiceLocator<IDatabaseProvider>(
+              dependencyName: 'IDatabaseProvider',
+            ),
         dependencyName: 'IDatabaseProvider',
       );
 }

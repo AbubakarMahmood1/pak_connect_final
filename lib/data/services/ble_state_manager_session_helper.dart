@@ -88,8 +88,8 @@ class _BleStateManagerSessionHelper {
 
   Future<void> initializeCrypto() async {
     try {
-      SimpleCrypto.initialize();
-      _owner._logger.info('Global baseline encryption initialized');
+      LegacyPayloadCompatService.initialize();
+      _owner._logger.info('Legacy compatibility decryptor initialized');
     } catch (e) {
       _owner._logger.warning('Failed to initialize encryption: $e');
     }

@@ -1,7 +1,14 @@
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_export_service.dart';
+import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_import_service.dart';
+import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
@@ -37,6 +44,13 @@ class AppServices {
     required this.chatManagementService,
     required this.archiveManagementService,
     required this.archiveSearchService,
+    this.databaseProvider,
+    this.groupRepository,
+    this.introHintRepository,
+    this.exportService,
+    this.importService,
+    this.homeScreenFacadeFactory,
+    this.chatConnectionManagerFactory,
   });
 
   final IContactRepository contactRepository;
@@ -55,4 +69,11 @@ class AppServices {
   final ChatManagementService chatManagementService;
   final ArchiveManagementService archiveManagementService;
   final ArchiveSearchService archiveSearchService;
+  final IDatabaseProvider? databaseProvider;
+  final IGroupRepository? groupRepository;
+  final IIntroHintRepository? introHintRepository;
+  final IExportService? exportService;
+  final IImportService? importService;
+  final IHomeScreenFacadeFactory? homeScreenFacadeFactory;
+  final IChatConnectionManagerFactory? chatConnectionManagerFactory;
 }

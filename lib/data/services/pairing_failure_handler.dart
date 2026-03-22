@@ -4,8 +4,8 @@ import '../../domain/models/identity_session_state.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
-import '../../domain/services/simple_crypto.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'pairing_service.dart';
@@ -65,7 +65,7 @@ class PairingFailureHandler {
 
     for (final id in idsToClear) {
       _conversationKeys.remove(id);
-      SimpleCrypto.clearConversationKey(id);
+      ConversationCryptoService.clearConversationKey(id);
       await _contactRepository.clearCachedSecrets(id);
     }
 

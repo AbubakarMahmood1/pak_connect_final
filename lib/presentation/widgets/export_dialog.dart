@@ -522,7 +522,12 @@ class _ExportDialogState extends State<ExportDialog> {
   }
 
   IExportService _resolveExportService() {
-    return resolveFromServiceLocator<IExportService>(
+    return resolveFromAppServicesOrServiceLocator<IExportService>(
+      fromServices: (services) =>
+          services.exportService ??
+          resolveFromServiceLocator<IExportService>(
+            dependencyName: 'IExportService',
+          ),
       dependencyName: 'IExportService',
     );
   }

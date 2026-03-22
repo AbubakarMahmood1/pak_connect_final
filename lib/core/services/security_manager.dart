@@ -11,12 +11,19 @@ import '../../domain/entities/contact.dart';
 import '../security/noise/noise_encryption_service.dart';
 import '../security/noise/models/noise_models.dart';
 import '../security/sealed/sealed_encryption_service.dart';
-import 'package:pak_connect/domain/services/simple_crypto.dart';
+import 'package:pak_connect/domain/services/contact_crypto_service.dart';
+import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
+import 'package:pak_connect/domain/services/legacy_payload_compat_service.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 import '../exceptions/encryption_exception.dart';
 
 class SecurityManager implements ISecurityService {
+  static const bool _allowLegacyCompatibilityDecrypt = bool.fromEnvironment(
+    'PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT',
+    defaultValue: true,
+  );
+
   SecurityManager._internal();
   static final SecurityManager _instance = SecurityManager._internal();
   static IContactRepository Function()? _contactRepositoryResolver;
@@ -156,7 +163,7 @@ class SecurityManager implements ISecurityService {
 
     // Check actual capabilities vs stored level
     final hasECDH = await contactRepo.getCachedSharedSecret(publicKey) != null;
-    final hasPairing = SimpleCrypto.hasConversationKey(publicKey);
+    final hasPairing = ConversationCryptoService.hasConversationKey(publicKey);
 
     // 🔧 FIX: Use contact's sessionIdForNoise (handles both ephemeral and persistent)
     final sessionLookupKey =
@@ -290,7 +297,7 @@ class SecurityManager implements ISecurityService {
           return EncryptionMethod.noise(sessionLookupKey);
         }
         _logger.warning(
-          '🔒 FALLBACK: Noise/Pairing unavailable, falling back to global',
+          '🔒 FALLBACK: Noise/Pairing unavailable, downgrading to LOW',
         );
         await _downgrade(publicKey, SecurityLevel.low, repo);
         continue low;
@@ -302,11 +309,14 @@ class SecurityManager implements ISecurityService {
             _noiseService!.hasEstablishedSession(sessionLookupKey)) {
           return EncryptionMethod.noise(sessionLookupKey);
         }
-        // Only use global if NO Noise session (shouldn't happen after handshake)
         _logger.warning(
-          '🔒 FALLBACK: No Noise session at LOW level, using global',
+          '🔒 No active outbound encryption method for ${publicKey.shortId(8)}',
         );
-        return EncryptionMethod.global();
+        throw EncryptionException(
+          'No active encryption method available',
+          publicKey: publicKey,
+          encryptionMethod: 'none',
+        );
     }
   }
 
@@ -336,7 +346,7 @@ class SecurityManager implements ISecurityService {
     try {
       switch (type) {
         case EncryptionType.ecdh:
-          final encrypted = await SimpleCrypto.encryptForContact(
+          final encrypted = await ContactCryptoService.encryptForContact(
             message,
             publicKey,
             repo,
@@ -377,7 +387,7 @@ class SecurityManager implements ISecurityService {
           );
 
         case EncryptionType.pairing:
-          final encrypted = SimpleCrypto.encryptForConversation(
+          final encrypted = ConversationCryptoService.encryptForConversation(
             message,
             publicKey,
           );
@@ -462,7 +472,7 @@ class SecurityManager implements ISecurityService {
   ) async {
     switch (type) {
       case EncryptionType.ecdh:
-        final decrypted = await SimpleCrypto.decryptFromContact(
+        final decrypted = await ContactCryptoService.decryptFromContact(
           encryptedMessage,
           publicKey,
           repo,
@@ -491,10 +501,10 @@ class SecurityManager implements ISecurityService {
         return decrypted;
 
       case EncryptionType.pairing:
-        if (!SimpleCrypto.hasConversationKey(publicKey)) {
+        if (!ConversationCryptoService.hasConversationKey(publicKey)) {
           throw Exception('No pairing/conversation key available');
         }
-        final decrypted = SimpleCrypto.decryptFromConversation(
+        final decrypted = ConversationCryptoService.decryptFromConversation(
           encryptedMessage,
           publicKey,
         );
@@ -502,11 +512,15 @@ class SecurityManager implements ISecurityService {
         return decrypted;
 
       case EncryptionType.global:
-        // Try legacy decryption for backward compatibility.
-        final decrypted = SimpleCrypto.decryptLegacyCompatible(
+        if (!_allowLegacyCompatibilityDecrypt) {
+          throw Exception(
+            'Legacy compatibility decrypt disabled by policy for ${publicKey.shortId(8)}',
+          );
+        }
+        final decrypted = LegacyPayloadCompatService.decryptLegacyCompatible(
           encryptedMessage,
         );
-        _logger.info('🔒 DECRYPT: GLOBAL (legacy) ✅');
+        _logger.info('🔒 DECRYPT: LEGACY_COMPAT ✅');
         return decrypted;
     }
   }
@@ -655,8 +669,8 @@ class SecurityManager implements ISecurityService {
         // Clear potentially corrupted keys using the public method
         await repo.clearCachedSecrets(publicKey);
 
-        // Clear conversation keys (add public methods to SimpleCrypto)
-        SimpleCrypto.clearConversationKey(publicKey);
+        // Clear any cached conversation keys so the next session re-negotiates.
+        ConversationCryptoService.clearConversationKey(publicKey);
 
         _logger.info(
           '🔒 RESYNC: Cleared security state for $publicKey - will re-negotiate on next connection',
@@ -711,7 +725,7 @@ class SecurityManager implements ISecurityService {
           );
 
         case EncryptionType.ecdh:
-          final encrypted = await SimpleCrypto.encryptForContact(
+          final encrypted = await ContactCryptoService.encryptForContact(
             plaintextBase64,
             publicKey,
             repo,
@@ -729,7 +743,7 @@ class SecurityManager implements ISecurityService {
           );
 
         case EncryptionType.pairing:
-          final encrypted = SimpleCrypto.encryptForConversation(
+          final encrypted = ConversationCryptoService.encryptForConversation(
             plaintextBase64,
             publicKey,
           );
@@ -799,7 +813,7 @@ class SecurityManager implements ISecurityService {
         );
 
       case EncryptionType.ecdh:
-        final decrypted = await SimpleCrypto.decryptFromContact(
+        final decrypted = await ContactCryptoService.decryptFromContact(
           encryptedString,
           publicKey,
           repo,
@@ -813,7 +827,7 @@ class SecurityManager implements ISecurityService {
         throw Exception('ECDH decryption failed for binary payload');
 
       case EncryptionType.pairing:
-        final decrypted = SimpleCrypto.decryptFromConversation(
+        final decrypted = ConversationCryptoService.decryptFromConversation(
           encryptedString,
           publicKey,
         );
@@ -840,7 +854,7 @@ class SecurityManager implements ISecurityService {
   }
 
   static bool _verifyPairingKey(String publicKey) {
-    return SimpleCrypto.hasConversationKey(publicKey);
+    return ConversationCryptoService.hasConversationKey(publicKey);
   }
 
   static Future<void> _downgrade(
@@ -857,11 +871,11 @@ class SecurityManager implements ISecurityService {
   static String _getLevelDescription(SecurityLevel level) {
     switch (level) {
       case SecurityLevel.low:
-        return 'Global Encryption';
+        return 'Noise session only';
       case SecurityLevel.medium:
-        return 'Noise Protocol + Global';
+        return 'Pairing with Noise fallback';
       case SecurityLevel.high:
-        return 'ECDH + Noise + Global';
+        return 'Verified ECDH with pairing/noise fallback';
     }
   }
 
@@ -876,8 +890,8 @@ class SecurityManager implements ISecurityService {
         ];
       case SecurityLevel.medium:
         return [
-          EncryptionType.noise,
           EncryptionType.pairing,
+          EncryptionType.noise,
           EncryptionType.global,
         ];
       case SecurityLevel.low:

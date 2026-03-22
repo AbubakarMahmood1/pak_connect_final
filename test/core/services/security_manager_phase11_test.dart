@@ -2,6 +2,7 @@
 /// encryption/decryption branches, sealed messages, binary payloads,
 /// identity mapping, and Noise peer resolution.
 library;
+
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -53,8 +54,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage[key];
+  }) async => _storage[key];
 
   @override
   Future<void> delete({
@@ -77,8 +77,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      Map.unmodifiable(_storage);
+  }) async => Map.unmodifiable(_storage);
 
   @override
   Future<void> deleteAll({
@@ -101,8 +100,7 @@ class _MockSecureStorage extends Fake implements FlutterSecureStorage {
     WebOptions? webOptions,
     AppleOptions? mOptions,
     WindowsOptions? wOptions,
-  }) async =>
-      _storage.containsKey(key);
+  }) async => _storage.containsKey(key);
 
   @override
   Future<bool> isCupertinoProtectedDataAvailable() async => true;
@@ -125,10 +123,7 @@ class _FakeContactRepo extends Fake implements IContactRepository {
   Future<String?> getCachedSharedSecret(String pk) async => secrets[pk];
 
   @override
-  Future<void> updateContactSecurityLevel(
-    String pk,
-    SecurityLevel lv,
-  ) async {
+  Future<void> updateContactSecurityLevel(String pk, SecurityLevel lv) async {
     lvlUpdates.add(MapEntry(pk, lv));
     final c = byAnyId[pk];
     if (c != null) {
@@ -205,9 +200,7 @@ void main() {
     Logger.root.onRecord.listen((r) {
       logs.add(r);
       if (r.level >= Level.SEVERE) {
-        final isSuppressed = allowedSevere.any(
-          (s) => r.message.contains(s),
-        );
+        final isSuppressed = allowedSevere.any((s) => r.message.contains(s));
         if (!isSuppressed) {
           fail('Unexpected SEVERE log: ${r.message}');
         }
@@ -356,19 +349,23 @@ void main() {
   group('SecurityManager.encryptMessageByType', () {
     test('global encryption throws EncryptionException', () async {
       expect(
-        () => sm.encryptMessageByType('hello', 'pk', repo, EncryptionType.global),
+        () =>
+            sm.encryptMessageByType('hello', 'pk', repo, EncryptionType.global),
         throwsA(isA<EncryptionException>()),
       );
     });
 
-    test('noise encryption without service throws EncryptionException',
-        () async {
-      sm.shutdown(); // clears noise service
-      expect(
-        () => sm.encryptMessageByType('msg', 'pk', repo, EncryptionType.noise),
-        throwsA(isA<EncryptionException>()),
-      );
-    });
+    test(
+      'noise encryption without service throws EncryptionException',
+      () async {
+        sm.shutdown(); // clears noise service
+        expect(
+          () =>
+              sm.encryptMessageByType('msg', 'pk', repo, EncryptionType.noise),
+          throwsA(isA<EncryptionException>()),
+        );
+      },
+    );
 
     test('ecdh encryption with no secret throws EncryptionException', () async {
       expect(
@@ -385,8 +382,7 @@ void main() {
     test('noise decrypt without service throws', () async {
       sm.shutdown();
       expect(
-        () =>
-            sm.decryptMessageByType('data', 'pk', repo, EncryptionType.noise),
+        () => sm.decryptMessageByType('data', 'pk', repo, EncryptionType.noise),
         throwsA(isA<Exception>()),
       );
     });
@@ -492,8 +488,7 @@ void main() {
   // Identity mapping
   // -------------------------------------------------------------------------
   group('SecurityManager identity mapping', () {
-    test('registerIdentityMapping and unregister are no-ops without crash',
-        () {
+    test('registerIdentityMapping and unregister are no-ops without crash', () {
       expect(
         () => sm.registerIdentityMapping(
           persistentPublicKey: 'ppk-1',
@@ -501,10 +496,7 @@ void main() {
         ),
         returnsNormally,
       );
-      expect(
-        () => sm.unregisterIdentityMapping('ppk-1'),
-        returnsNormally,
-      );
+      expect(() => sm.unregisterIdentityMapping('ppk-1'), returnsNormally);
     });
 
     test('registerIdentityMappingForUser delegates', () {
@@ -537,41 +529,41 @@ void main() {
       expect(await sm.getCurrentLevel('any-pk'), SecurityLevel.low);
     });
 
-    test('clearContactRepositoryResolver causes StateError on resolve',
-        () async {
-      SecurityManager.clearContactRepositoryResolver();
-      expect(
-        () => sm.getCurrentLevel('pk'),
-        throwsA(isA<StateError>()),
-      );
-    });
+    test(
+      'clearContactRepositoryResolver causes StateError on resolve',
+      () async {
+        SecurityManager.clearContactRepositoryResolver();
+        expect(() => sm.getCurrentLevel('pk'), throwsA(isA<StateError>()));
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
   // getEncryptionMethod — various levels
   // -------------------------------------------------------------------------
   group('SecurityManager.getEncryptionMethod', () {
-    test('LOW with no noise session returns global', () async {
+    test('LOW with no noise session throws', () async {
       repo.byAnyId['pk-glo'] = _contact(
         key: 'pk-glo',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      final method = await sm.getEncryptionMethod('pk-glo', repo);
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk-glo', repo),
+        throwsA(isA<EncryptionException>()),
+      );
     });
 
-    test('getEncryptionMethodForUser delegates', () async {
+    test('getEncryptionMethodForUser propagates missing active lane', () async {
       repo.byAnyId['uid-3'] = _contact(
         key: 'uid-3',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      final method = await sm.getEncryptionMethodForUser(
-        UserId('uid-3'),
-        repo,
+      expect(
+        () => sm.getEncryptionMethodForUser(UserId('uid-3'), repo),
+        throwsA(isA<EncryptionException>()),
       );
-      expect(method.type, EncryptionType.global);
     });
   });
 
@@ -579,18 +571,20 @@ void main() {
   // encryptMessage / decryptMessage wrapper delegation
   // -------------------------------------------------------------------------
   group('SecurityManager.encryptMessage', () {
-    test('encryptMessage for global contact throws EncryptionException',
-        () async {
-      repo.byAnyId['pk-gm'] = _contact(
-        key: 'pk-gm',
-        trustStatus: TrustStatus.newContact,
-        securityLevel: SecurityLevel.low,
-      );
-      expect(
-        () => sm.encryptMessage('hello', 'pk-gm', repo),
-        throwsA(isA<EncryptionException>()),
-      );
-    });
+    test(
+      'encryptMessage for global contact throws EncryptionException',
+      () async {
+        repo.byAnyId['pk-gm'] = _contact(
+          key: 'pk-gm',
+          trustStatus: TrustStatus.newContact,
+          securityLevel: SecurityLevel.low,
+        );
+        expect(
+          () => sm.encryptMessage('hello', 'pk-gm', repo),
+          throwsA(isA<EncryptionException>()),
+        );
+      },
+    );
 
     test('encryptMessageForUser delegates', () async {
       repo.byAnyId['uid-4'] = _contact(

@@ -55,19 +55,10 @@ class _SimpleCryptoVerificationHelper {
     try {
       SimpleCrypto._log('🔍 TEST: ECDH Key Generation');
 
-      if (SimpleCrypto._privateKey == null) {
+      if (!SigningCryptoService.hasPrivateKey) {
         return {
           'success': false,
           'error': 'No private key available for ECDH testing',
-          'testName': 'ECDH Key Generation',
-        };
-      }
-
-      final privateKeyInt = SimpleCrypto._privateKey!.d;
-      if (privateKeyInt == null) {
-        return {
-          'success': false,
-          'error': 'Private key missing scalar component',
           'testName': 'ECDH Key Generation',
         };
       }

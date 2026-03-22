@@ -123,7 +123,7 @@ void main() {
             isA<EncryptionException>().having(
               (e) => e.encryptionMethod,
               'encryptionMethod',
-              'global',
+              'none',
             ),
           ),
         );
@@ -192,7 +192,7 @@ void main() {
             isA<EncryptionException>().having(
               (e) => e.encryptionMethod,
               'encryptionMethod',
-              'global',
+              'none',
             ),
           ),
         );
@@ -265,10 +265,10 @@ void main() {
             mockRepo,
           ),
           throwsA(
-            isA<Exception>().having(
-              (e) => e.toString(),
+            isA<EncryptionException>().having(
+              (e) => e.message,
               'message',
-              contains('no secure encryption method'),
+              contains('No active encryption method available'),
             ),
           ),
         );

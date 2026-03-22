@@ -18,10 +18,16 @@ import 'package:pak_connect/core/services/message_queue_repository.dart';
 import 'package:pak_connect/core/services/queue_persistence_manager.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_export_service.dart';
+import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_import_service.dart';
+import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
@@ -507,6 +513,28 @@ class TestSetup {
       chatManagementService: chatManagementService,
       archiveManagementService: archiveManagementService,
       archiveSearchService: archiveSearchService,
+      databaseProvider: locator.isRegistered<IDatabaseProvider>()
+          ? locator<IDatabaseProvider>()
+          : null,
+      groupRepository: locator.isRegistered<IGroupRepository>()
+          ? locator<IGroupRepository>()
+          : null,
+      introHintRepository: locator.isRegistered<IIntroHintRepository>()
+          ? locator<IIntroHintRepository>()
+          : null,
+      exportService: locator.isRegistered<IExportService>()
+          ? locator<IExportService>()
+          : null,
+      importService: locator.isRegistered<IImportService>()
+          ? locator<IImportService>()
+          : null,
+      homeScreenFacadeFactory: locator.isRegistered<IHomeScreenFacadeFactory>()
+          ? locator<IHomeScreenFacadeFactory>()
+          : null,
+      chatConnectionManagerFactory:
+          locator.isRegistered<IChatConnectionManagerFactory>()
+          ? locator<IChatConnectionManagerFactory>()
+          : null,
     );
 
     if (locator.isRegistered<AppServices>()) {

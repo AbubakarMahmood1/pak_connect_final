@@ -10,9 +10,8 @@ import '../../domain/entities/ephemeral_discovery_hint.dart';
 import '../../domain/interfaces/i_intro_hint_repository.dart';
 import '../../domain/interfaces/i_user_preferences.dart';
 
-typedef QrScannerLauncher = Future<ScannerResult?> Function(
-  BuildContext context,
-);
+typedef QrScannerLauncher =
+    Future<ScannerResult?> Function(BuildContext context);
 
 class QRContactScreen extends ConsumerStatefulWidget {
   const QRContactScreen({super.key, this.scannerLauncher});
@@ -65,7 +64,12 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
   }
 
   IIntroHintRepository _resolveIntroHintRepository() {
-    return resolveFromServiceLocator<IIntroHintRepository>(
+    return resolveFromAppServicesOrServiceLocator<IIntroHintRepository>(
+      fromServices: (services) =>
+          services.introHintRepository ??
+          resolveFromServiceLocator<IIntroHintRepository>(
+            dependencyName: 'IIntroHintRepository',
+          ),
       dependencyName: 'IIntroHintRepository',
     );
   }
@@ -414,4 +418,3 @@ class _QRContactScreenState extends ConsumerState<QRContactScreen> {
     super.dispose();
   }
 }
-

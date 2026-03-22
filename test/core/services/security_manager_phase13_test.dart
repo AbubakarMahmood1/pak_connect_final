@@ -559,6 +559,35 @@ void main() {
       );
       expect(dec, 'legacy msg');
     });
+
+    test(
+      'global type decrypt is blocked when legacy compatibility policy is disabled',
+      () async {
+        final encrypted = SimpleCrypto.encodeLegacyPlaintext('legacy msg');
+        await expectLater(
+          () => sm.decryptMessageByType(
+            encrypted,
+            'any-pk-1234567890',
+            repo,
+            EncryptionType.global,
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (error) => error.toString(),
+              'message',
+              contains('disabled by policy'),
+            ),
+          ),
+        );
+      },
+      skip:
+          const bool.fromEnvironment(
+            'PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT',
+            defaultValue: true,
+          )
+          ? 'Run with --dart-define=PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT=false'
+          : false,
+    );
   });
 
   // -------------------------------------------------------------------------

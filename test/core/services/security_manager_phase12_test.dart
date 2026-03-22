@@ -77,12 +77,14 @@ void main() {
       repo = _FakeContactRepository();
     });
 
-    test('LOW level without Noise session returns global', () async {
+    test('LOW level without Noise session throws', () async {
       repo.setSecurityLevel(SecurityLevel.low);
       repo.setContact(_makeContact('pk_low'));
 
-      final method = await sm.getEncryptionMethod('pk_low', repo);
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk_low', repo),
+        throwsA(isA<Exception>()),
+      );
     });
 
     test('HIGH level without ECDH key downgrades', () async {
@@ -100,17 +102,20 @@ void main() {
         ),
       );
 
-      final method = await sm.getEncryptionMethod('pk_high', repo);
-      // verified + no ECDH + no pairing + no noise → LOW → global
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk_high', repo),
+        throwsA(isA<Exception>()),
+      );
     });
 
-    test('MEDIUM level without pairing or Noise falls to global', () async {
+    test('MEDIUM level without pairing or Noise throws', () async {
       repo.setSecurityLevel(SecurityLevel.medium);
       repo.setContact(_makeContact('pk_med'));
 
-      final method = await sm.getEncryptionMethod('pk_med', repo);
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk_med', repo),
+        throwsA(isA<Exception>()),
+      );
     });
 
     test(
@@ -134,13 +139,14 @@ void main() {
       },
     );
 
-    test('MEDIUM level with no pairing or noise returns global', () async {
+    test('MEDIUM level with no pairing or noise throws', () async {
       repo.setSecurityLevel(SecurityLevel.medium);
       repo.setContact(_makeContact('pk_pair'));
 
-      final method = await sm.getEncryptionMethod('pk_pair', repo);
-      // Without pairing key or noise session, falls to global
-      expect(method.type, EncryptionType.global);
+      expect(
+        () => sm.getEncryptionMethod('pk_pair', repo),
+        throwsA(isA<Exception>()),
+      );
     });
   });
 

@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
+import 'package:pak_connect/domain/services/signing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/models/security_level.dart';
-import '../../domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_coordinator.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_pairing_service.dart';
@@ -225,7 +226,7 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
 
       // Generate cryptographic proof of ownership
       final challenge = 'reveal_$timestamp';
-      final proof = SimpleCrypto.signMessage(challenge) ?? '';
+      final proof = SigningCryptoService.signMessage(challenge) ?? '';
 
       if (proof.isEmpty) {
         _logger.severe('🕵️ Failed to generate cryptographic proof');
@@ -392,10 +393,13 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
       await _contactRepository.markContactVerified(publicKey);
 
       // Compute ECDH shared secret
-      final sharedSecret = SimpleCrypto.computeSharedSecret(publicKey);
+      final sharedSecret = SigningCryptoService.computeSharedSecret(publicKey);
       if (sharedSecret != null) {
         await _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
-        await SimpleCrypto.restoreConversationKey(publicKey, sharedSecret);
+        await ConversationCryptoService.restoreConversationKey(
+          publicKey,
+          sharedSecret,
+        );
         _logger.info('📱 FINALIZE: ECDH secret computed and cached');
       }
 

@@ -88,9 +88,15 @@ final homeScreenFacadeProvider = Provider.autoDispose
         chatInteractionHandlerProvider(handlerArgs),
       );
 
-      final facadeFactory = resolveFromServiceLocator<IHomeScreenFacadeFactory>(
-        dependencyName: 'IHomeScreenFacadeFactory',
-      );
+      final facadeFactory =
+          resolveFromAppServicesOrServiceLocator<IHomeScreenFacadeFactory>(
+            fromServices: (services) =>
+                services.homeScreenFacadeFactory ??
+                resolveFromServiceLocator<IHomeScreenFacadeFactory>(
+                  dependencyName: 'IHomeScreenFacadeFactory',
+                ),
+            dependencyName: 'IHomeScreenFacadeFactory',
+          );
       final facade = facadeFactory.create(
         chatsRepository: args.chatsRepository,
         bleService: ref.read(connectionServiceProvider),

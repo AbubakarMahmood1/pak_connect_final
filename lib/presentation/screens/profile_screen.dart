@@ -540,7 +540,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       );
 
   IDatabaseProvider _resolveDatabaseProvider() =>
-      resolveFromServiceLocator<IDatabaseProvider>(
+      resolveFromAppServicesOrServiceLocator<IDatabaseProvider>(
+        fromServices: (services) =>
+            services.databaseProvider ??
+            resolveFromServiceLocator<IDatabaseProvider>(
+              dependencyName: 'IDatabaseProvider',
+            ),
         dependencyName: 'IDatabaseProvider',
       );
 }

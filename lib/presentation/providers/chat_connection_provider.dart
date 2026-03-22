@@ -13,9 +13,15 @@ final _logger = Logger('ChatConnectionProvider');
 /// Manages lifecycle and provides dependency injection for the service
 final chatConnectionManagerProvider =
     Provider.autoDispose<IChatConnectionManager>((ref) {
-      final manager = resolveFromServiceLocator<IChatConnectionManagerFactory>(
-        dependencyName: 'IChatConnectionManagerFactory',
-      ).create(bleService: ref.watch(connectionServiceProvider));
+      final manager =
+          resolveFromAppServicesOrServiceLocator<IChatConnectionManagerFactory>(
+            fromServices: (services) =>
+                services.chatConnectionManagerFactory ??
+                resolveFromServiceLocator<IChatConnectionManagerFactory>(
+                  dependencyName: 'IChatConnectionManagerFactory',
+                ),
+            dependencyName: 'IChatConnectionManagerFactory',
+          ).create(bleService: ref.watch(connectionServiceProvider));
       ref.onDispose(() {
         manager.dispose();
       });
