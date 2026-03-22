@@ -458,7 +458,7 @@ void main() {
       expect(queue.failedIds, contains('nonexistent'));
     });
 
-    test('marks failed when canSendMessages is false', () async {
+    test('keeps message pending when canSendMessages is false', () async {
       bleService.canSendMessages = false;
       await initCoordinator();
 
@@ -467,7 +467,8 @@ void main() {
       queue.capturedOnSendMessage?.call('msg-no-conn');
       await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(queue.failedIds, contains('msg-no-conn'));
+      expect(queue.failedIds, isNot(contains('msg-no-conn')));
+      expect(queue.getMessageById('msg-no-conn')?.status, QueuedMessageStatus.pending);
     });
 
     test('marks failed when BLE send returns false', () async {
@@ -482,7 +483,7 @@ void main() {
       expect(queue.failedIds, contains('msg-fail'));
     });
 
-    test('does not send when connected peer does not match recipient', () async {
+    test('does not fail when connected peer does not match recipient', () async {
       bleService.currentSessionId = 'connected-peer';
       bleService.theirEphemeralId = null;
       bleService.theirPersistentKey = null;
@@ -497,7 +498,31 @@ void main() {
 
       expect(bleService.sendCallCount, 0);
       expect(bleService.peripheralSendCount, 0);
-      expect(queue.failedIds, contains('msg-mismatch'));
+      expect(queue.failedIds, isNot(contains('msg-mismatch')));
+      expect(queue.getMessageById('msg-mismatch')?.status, QueuedMessageStatus.pending);
+    });
+
+    test('sends when current peer is an approved relay', () async {
+      bleService.currentSessionId = 'relay-peer';
+      coordinator = MeshQueueSyncCoordinator(
+        bleService: bleService,
+        messageRepository: messageRepo,
+        healthMonitor: healthMonitor,
+        shouldRelayThroughDevice: (msg, deviceId) async =>
+            msg.id == 'msg-relay' && deviceId == 'relay-peer',
+        queueSyncManagerFactory: (q, nodeId) => syncManager,
+      );
+      await initCoordinator();
+
+      queue.addTestMessage(
+        _testMessage(id: 'msg-relay', recipientPublicKey: 'final-recipient'),
+      );
+
+      queue.capturedOnSendMessage?.call('msg-relay');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 1);
+      expect(queue.failedIds, isNot(contains('msg-relay')));
     });
 
     test('sends when connected session matches recipient', () async {
