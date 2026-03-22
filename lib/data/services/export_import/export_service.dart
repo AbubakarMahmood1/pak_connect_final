@@ -157,13 +157,14 @@ class ExportService {
         encryptionKey,
       );
 
-      // 9. Calculate HMAC-SHA256 over all encrypted payloads + baseTimestamp
+      // 9. Calculate HMAC-SHA256 over all encrypted payloads + restore mode.
       _logger.info('Calculating HMAC...');
       final hmac = EncryptionUtils.calculateHmac([
         encryptedMetadata,
         encryptedKeys,
         encryptedPreferences,
         encryptedDatabase,
+        exportType.name,
         baseTimestamp?.toIso8601String() ?? '',
       ], encryptionKey);
 
