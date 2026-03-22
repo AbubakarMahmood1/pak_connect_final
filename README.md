@@ -1,164 +1,170 @@
-# PakConnect 🛡️📡
+# PakConnect
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.9%2B-02569B?logo=flutter)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.9%2B-0175C2?logo=dart)](https://dart.dev)
-[![State Management](https://img.shields.io/badge/State-Riverpod_3.0-purple)](https://riverpod.dev)
-[![Security](https://img.shields.io/badge/Encryption-Noise_XX%2FKK-green)](https://noiseprotocol.org)
-[![Database](https://img.shields.io/badge/Storage-SQLCipher-blue)](https://www.zetetic.net/sqlcipher/)
-[![License](https://img.shields.io/badge/License-Proprietary-red)]()
+[![Riverpod](https://img.shields.io/badge/State-Riverpod_3.0-6E56CF)](https://riverpod.dev)
+[![Security](https://img.shields.io/badge/Security-Noise_XX%2FKK-2E7D32)](https://noiseprotocol.org)
+[![Storage](https://img.shields.io/badge/Storage-SQLCipher-1565C0)](https://www.zetetic.net/sqlcipher/)
+[![License](https://img.shields.io/badge/License-Proprietary-8E24AA)]()
 
-> **Secure, decentralized, peer-to-peer messaging for off-grid communication.**
+Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environments. PakConnect combines BLE discovery, dual-role transport, end-to-end encrypted messaging, store-and-forward queues, and mesh relay logic in a Flutter application built for hostile or connectivity-constrained conditions.
 
-PakConnect is a cutting-edge Flutter application designed for environments where internet connectivity is unreliable or unavailable. It leverages **BLE (Bluetooth Low Energy) Mesh Networking** and the **Noise Protocol Framework** to deliver military-grade, end-to-end encrypted messaging without central servers.
+## Highlights
 
----
+- End-to-end encrypted messaging using Noise XX/KK, X25519, and ChaCha20-Poly1305.
+- Mobile database encryption at rest using SQLCipher-backed storage.
+- Dual-role BLE runtime that can operate as both central and peripheral.
+- Offline-first delivery with queue sync, retry orchestration, and relay-aware routing.
+- Rich messaging flows including text, binary payloads, archive/search, groups, and topology views.
+- Large automated test surface with CI guardrails for runtime hygiene, DI boundaries, and crypto policy regressions.
 
-## 🚀 Key Features
+## Current Status
 
-### 🔐 **Zero-Trust Security**
-*   **End-to-End Encryption**: Implements **Noise Protocol (XX/KK patterns)** using X25519 and ChaCha20-Poly1305.
-*   **Perfect Forward Secrecy**: Ephemeral keys rotate per session; old messages remain secure even if long-term keys are compromised.
-*   **Secure Storage**: All local data is encrypted at rest using **SQLCipher**.
-*   **Identity Protection**: Dual-layer identity system (Immutable Public Key + Rotatable Ephemeral IDs) to prevent tracking.
+PakConnect is in active hardening and release-preparation, not an early feature-build phase.
 
-### 🕸️ **Smart Mesh Networking**
-*   **Off-Grid Communication**: Messages hop across devices (up to 5 hops) to reach their destination without internet.
-*   **Intelligent Routing**: Custom `MeshRelayEngine` with topology awareness, duplicate detection, and TTL management.
-*   **Dual-Role BLE**: Powered by `BLEServiceFacade` (`lib/data/services/ble_service_facade.dart`), acting as both Central and Peripheral.
-*   **Offline-First**: Robust store-and-forward queues ensure messages are delivered when paths become available.
+- Core transport, persistence, archive/search, and advanced UI flows are implemented.
+- VM-friendly `flutter test` coverage is green and enforced in CI.
+- Current work is focused on legacy compatibility retirement, DI consolidation, runtime hardening, and release validation.
 
-### 📱 **Modern User Experience**
-*   **Rich Messaging**: Text, emojis, and binary payloads.
-*   **Archive System**: Organize chats with swipe actions, search, and secure storage.
-*   **Network Visualization**: Real-time view of the mesh topology and connected peers.
-*   **Privacy Controls**: Toggle "Spy Mode," read receipts, and online status broadcasting.
+## Architecture
 
----
-
-## 🏗️ Architecture
-
-PakConnect follows a strict **Clean Layered Architecture** to ensure scalability, testability, and maintainability.
+PakConnect follows a layered architecture with an explicit runtime composition root.
 
 ```mermaid
 graph TD
-    subgraph Presentation ["🎨 Presentation Layer"]
-        UI[Screens & Widgets]
-        State[Riverpod Providers]
+    subgraph Presentation["Presentation"]
+        UI["Screens and Widgets"]
+        RP["Riverpod Providers"]
     end
 
-    subgraph Domain ["🧠 Domain Layer"]
-        UseCase[Use Cases]
-        Entities[Business Entities]
-        Interfaces[Repository Interfaces]
+    subgraph Application["Runtime Composition"]
+        AC["AppCore"]
+        AS["AppServices Snapshot"]
     end
 
-    subgraph Data ["💾 Data Layer"]
-        RepoImpl[Repository Implementations]
-        DataSource[Data Sources (SQLCipher, BLE)]
-        DTOs[Data Transfer Objects]
+    subgraph Domain["Domain"]
+        UC["Services and Use Cases"]
+        IF["Interfaces and Entities"]
     end
 
-    subgraph Core ["⚙️ Core Layer"]
-        Mesh[Mesh Relay Engine]
-        Noise[Noise Protocol Security]
-        Infra[Infrastructure & Utils]
+    subgraph Data["Data"]
+        REPO["Repositories"]
+        DB["SQLCipher / Secure Storage"]
+        BLE["BLE Data Services"]
     end
 
-    UI --> State
-    State --> UseCase
-    UseCase --> Interfaces
-    RepoImpl --> Interfaces
-    RepoImpl --> DataSource
-    DataSource --> Core
+    subgraph Core["Core"]
+        NOISE["Noise / Security"]
+        MESH["Mesh Relay / Routing"]
+        INFRA["Lifecycle / Monitoring"]
+    end
+
+    UI --> RP
+    RP --> AS
+    AS --> UC
+    UC --> IF
+    REPO --> IF
+    REPO --> DB
+    BLE --> Core
+    DB --> Core
 ```
 
+### Main Runtime Pieces
+
+- Presentation: Flutter widgets with Riverpod-managed UI state.
+- Runtime composition: `AppCore` bootstraps the app and publishes a typed `AppServices` snapshot.
+- Data layer: repositories, BLE facades, SQLite/SQLCipher persistence, secure storage.
+- Core layer: Noise handshake/runtime, relay engine, routing, queue sync, and monitoring.
+
 ### Tech Stack
-*   **Framework**: Flutter 3.9+ / Dart 3.9+
-*   **State Management**: Riverpod 3.0 (Code Generation)
-*   **Database**: `sqflite` + `SQLCipher` (Schema v9)
-*   **Cryptography**: `pinenacl` (X25519), `cryptography` (ChaCha20), `pointycastle`
-*   **Hardware**: `bluetooth_low_energy` (Dual-Role)
 
----
+- Flutter 3.9+ / Dart 3.9+
+- Riverpod 3.0
+- `bluetooth_low_energy`
+- `sqflite_sqlcipher` + `flutter_secure_storage`
+- `pinenacl`, `cryptography`, `pointycastle`
 
-## 🛠️ Getting Started
+## Repository Layout
+
+```text
+lib/
+  core/           infrastructure, security, BLE runtime, mesh routing
+  data/           repositories, database, BLE/data services
+  domain/         interfaces, entities, use cases, policies
+  presentation/   screens, widgets, providers, controllers
+
+test/             unit and widget suites mirroring lib/
+integration_test/ device-bound integration and soak scenarios
+docs/             security, testing, refactoring, review, and SRS material
+```
+
+## Getting Started
 
 ### Prerequisites
-*   **Flutter SDK**: 3.9 or higher.
-*   **Android/iOS Device**: Required for BLE features (Simulators do not support BLE).
-*   **Development Environment**: VS Code or Android Studio.
 
-### Installation
+- Flutter SDK 3.9+
+- Dart SDK 3.9+ (via Flutter)
+- Android/iOS hardware for BLE validation
+- Android Studio or VS Code
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/yourusername/pak_connect.git
-    cd pak_connect
-    ```
+### Clone and Install
 
-2.  **Install Dependencies**
-    ```bash
-    flutter pub get
-    ```
+```bash
+git clone https://github.com/AbubakarMahmood1/pak_connect_final.git
+cd pak_connect_final
+flutter pub get
+```
 
-3.  **Run the App**
-    *   **Physical Device (Recommended)**:
-        ```bash
-        flutter run
-        ```
-    *   **Testing (VM-Friendly)**:
-        ```bash
-        flutter test
-        ```
+### Run
 
----
+```bash
+flutter run
+```
 
-## 🚦 Project Status
+### Analyze
 
-| Phase | Feature Set | Status |
-| :--- | :--- | :--- |
-| **Phase 1** | **Core Transport** (BLE, Noise, Basic Mesh) | ✅ Complete |
-| **Phase 2** | **Data Persistence** (SQLCipher, Migrations) | ✅ Complete |
-| **Phase 3** | **Advanced UI** (Archive, Search, Swipe Actions) | ⚠️ In Progress (Backend Migration) |
-| **Phase 4** | **Polish & Optimization** (Testing, Performance) | 🔄 Ongoing |
+```bash
+flutter analyze --no-pub
+```
 
-> **Note**: The Archive system's backend migration (moving from SharedPreferences to SQLite) and Advanced Search logic (Fuzzy search) are currently in active development.
+### Test
 
----
+```bash
+flutter test
+```
 
-## 🧪 Testing Strategy
+For full-suite logging:
 
-We maintain a rigorous testing standard to ensure security and reliability.
+```bash
+set -o pipefail
+flutter test --coverage | tee flutter_test_latest.log
+```
 
-*   **Unit Tests**: Cover domain logic and core algorithms.
-*   **Integration Tests**: Verify database migrations and Noise handshake flows (`test/noise_end_to_end_test.dart`).
-*   **Soak Tests**: Long-running stability tests located in `integration_test/` (Requires Hardware).
-*   **Safe Test Run**:
-    ```bash
-    set -o pipefail; flutter test --coverage | tee flutter_test_latest.log
-    ```
+## Security Notes
 
-See `TESTING_STRATEGY.md` for detailed coverage goals and harness details.
+- Mobile database encryption is intended to fail closed if secure storage is unavailable.
+- Legacy decrypt compatibility still exists for migration scenarios; new outbound transport is fail-closed.
+- Threat modeling and implemented guarantees are documented separately and should be treated as the source of truth over historical audit notes.
 
----
+## Documentation
 
-## 📄 Documentation
+- [Testing Strategy](TESTING_STRATEGY.md)
+- [Testing Quick Start](docs/testing/QUICK_START_TESTING.md)
+- [Security Guarantees](docs/security/security_guarantees.md)
+- [Threat Model](ThreatModel.md)
+- [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md)
+- [SRS Overview](docs/srs/README.md)
+- [AI Agent Guidance](AGENTS.md)
 
-*   [**AGENTS.md**](AGENTS.md): Protocol for AI Agents.
-*   [**Technical Specifications**](PAKCONNECT_TECHNICAL_SPECIFICATIONS.md): Detailed roadmap and specs.
-*   [**Security Architecture**](docs/claude/NOISE_INTEGRATION_PLAN.md): Deep dive into the Noise Protocol integration.
+## Contribution Expectations
 
----
+This is a proprietary internal repository.
 
-## 🤝 Contribution
+- Keep architecture boundaries intact.
+- Avoid `print()` in runtime code; use structured logging.
+- Add or update tests alongside functional changes.
+- Treat `lib/core/security/`, BLE lifecycle code, and mesh routing code as high-scrutiny areas.
 
-This is a proprietary internal project. Access is restricted to authorized developers.
+## License
 
-1.  Follow the **Clean Architecture** principles.
-2.  **Never** use `print()`; use the `logging` package.
-3.  Ensure all new features are covered by tests.
-4.  Review `AGENTS.md` before making changes.
-
----
-
-&copy; 2025 PakConnect. All rights reserved.
+Proprietary. All rights reserved.
