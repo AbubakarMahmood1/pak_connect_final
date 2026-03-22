@@ -18,7 +18,6 @@ class RelayDecisionEngine {
   IMeshRoutingService? _routingService;
   NetworkTopologyAnalyzer? _topologyAnalyzer;
   String _currentNodeId;
-  String? _myPersistentId;
 
   /// X25519 scan private key for stealth address checking.
   /// Set via [setScanKey] when the user's identity is available.
@@ -30,26 +29,20 @@ class RelayDecisionEngine {
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
     required String currentNodeId,
-    String? myPersistentId,
   }) : _logger = logger,
        _seenMessageStore = seenMessageStore,
        _routingService = routingService,
        _topologyAnalyzer = topologyAnalyzer,
-       _currentNodeId = currentNodeId,
-       _myPersistentId = myPersistentId;
+       _currentNodeId = currentNodeId;
 
   void updateContext({
     required String currentNodeId,
     IMeshRoutingService? routingService,
     NetworkTopologyAnalyzer? topologyAnalyzer,
-    String? myPersistentId,
   }) {
     _currentNodeId = currentNodeId;
     _routingService = routingService;
     _topologyAnalyzer = topologyAnalyzer;
-    if (myPersistentId != null) {
-      _myPersistentId = myPersistentId;
-    }
   }
 
   /// Set the scan private key for stealth address checking.
@@ -90,11 +83,8 @@ class RelayDecisionEngine {
       _logger.fine('📭 No recipient specified - rejecting (use broadcast)');
       return false;
     }
-    final persistentId = _getMyPersistentId();
-
-    if (finalRecipientPublicKey == _currentNodeId ||
-        (persistentId != null && persistentId == finalRecipientPublicKey)) {
-      _logger.info('✅ Message IS for current node (persistent key match)');
+    if (finalRecipientPublicKey == _currentNodeId) {
+      _logger.info('✅ Message IS for current node (node ID match)');
       return true;
     }
 
@@ -122,7 +112,7 @@ class RelayDecisionEngine {
 
     _logger.fine('📭 Message NOT for current node:');
     _logger.fine('   - Recipient: $truncatedRecipient...');
-    _logger.fine('   - Our persistent key: $truncatedNodeId...');
+    _logger.fine('   - Our node ID: $truncatedNodeId...');
     _logger.fine(
       '   - Our ephemeral key: ${ephemeralKey?.shortId() ?? "NULL"}...',
     );
@@ -153,13 +143,6 @@ class RelayDecisionEngine {
     }
     // Fall back to plaintext recipient check
     return isMessageForCurrentNode(metadata.finalRecipient);
-  }
-
-  String? _getMyPersistentId() {
-    if (_myPersistentId != null && _myPersistentId!.isNotEmpty) {
-      return _myPersistentId;
-    }
-    return null;
   }
 
   bool shouldProbabilisticallySkip({

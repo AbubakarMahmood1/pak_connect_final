@@ -398,13 +398,6 @@ class TestSetup {
       );
     }
 
-    if (locator.isRegistered<IConnectionService>()) {
-      final connectionService = locator<IConnectionService>();
-      MeshRelayEngine.configureDependencyResolvers(
-        persistentIdResolver: () => connectionService.myPersistentId,
-      );
-    }
-
     if (locator.isRegistered<IDatabaseProvider>()) {
       final databaseProvider = locator<IDatabaseProvider>();
       MessageQueueRepository.configureDefaultDatabaseProvider(databaseProvider);
