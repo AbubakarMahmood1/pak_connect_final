@@ -326,7 +326,10 @@ class MeshRelayMessage {
   bool get canRelay => relayMetadata.canRelay;
 
   /// Get message size for bandwidth management
-  int get messageSize => utf8.encode(originalContent).length;
+  int get messageSize {
+    final payload = encryptedPayload ?? originalContent;
+    return utf8.encode(payload).length;
+  }
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {

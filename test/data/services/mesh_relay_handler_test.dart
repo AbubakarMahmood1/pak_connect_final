@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:mockito/mockito.dart';
@@ -153,12 +155,14 @@ RelayMetadata _metadata() => RelayMetadata(
   finalRecipient: 'recipient-key',
 );
 
-ProtocolMessage _relayProtocolMessage() => ProtocolMessage.meshRelay(
+ProtocolMessage _relayProtocolMessage({
+  Map<String, dynamic> originalPayload = const {'content': 'hello'},
+}) => ProtocolMessage.meshRelay(
   originalMessageId: 'relay-msg-1',
   originalSender: 'sender-key',
   finalRecipient: 'recipient-key',
   relayMetadata: _metadata().toJson(),
-  originalPayload: const {'content': 'hello'},
+  originalPayload: originalPayload,
   originalMessageType: ProtocolMessageType.textMessage,
 );
 
@@ -349,6 +353,33 @@ void main() {
       expect(ackMessage?.relayAckOriginalMessageId, 'relay-msg-1');
       expect(ackMessage?.relayAckDelivered, isTrue);
       expect(ackMessage?.payload['ackRoutingPath'], ['relay-node', 'origin-node']);
+    });
+
+    test('handleIncomingRelay preserves encrypted relay payloads', () async {
+      ProtocolMessage? ackMessage;
+      handler.onSendAckMessage = (message) => ackMessage = message;
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      engine.incomingResult = RelayProcessingResult.deliveredToSelf('ciphertext');
+
+      final content = await handler.handleIncomingRelay(
+        protocolMessage: _relayProtocolMessage(
+          originalPayload: const {'encrypted': 'ciphertext'},
+        ),
+        senderPublicKey: 'sender-key',
+      );
+
+      expect(content, 'ciphertext');
+      expect(engine.lastIncomingMessage?.encryptedPayload, 'ciphertext');
+      expect(
+        engine.lastIncomingMessage?.messageSize,
+        utf8.encode('ciphertext').length,
+      );
+      expect(ackMessage, isNotNull);
     });
 
     test('handleIncomingRelay returns null for relayed, dropped, blocked and error results', () async {
