@@ -236,18 +236,50 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
           message.senderId ??
           (message.payload['originalSender'] as String?) ??
           fromNodeId;
-      final resolvedDecryptSenderId = await _resolveSenderKeyForDecrypt(
+      final preferDeclaredSender = message.version >= 2;
+      final originalSender = message.payload['originalSender'] as String?;
+      final resolvedTransportDecryptSenderId = await _resolveSenderKeyForDecrypt(
+        fromNodeId,
+      );
+      final resolvedOriginalDecryptSenderId = await _resolveSenderKeyForDecrypt(
+        originalSender,
+      );
+      final resolvedDeclaredDecryptSenderId = await _resolveSenderKeyForDecrypt(
         declaredSenderId,
       );
-      final resolvedSignatureSenderKey = await _resolveSenderKeyForSignature(
-        declaredSenderId,
-      );
-      final decryptionPeerId = (resolvedDecryptSenderId?.isNotEmpty ?? false)
-          ? resolvedDecryptSenderId!
-          : fromNodeId;
+      final resolvedTransportSignatureSenderKey =
+          await _resolveSenderKeyForSignature(fromNodeId);
+      final resolvedOriginalSignatureSenderKey =
+          await _resolveSenderKeyForSignature(originalSender);
+      final resolvedDeclaredSignatureSenderKey =
+          await _resolveSenderKeyForSignature(declaredSenderId);
+      final decryptionPeerId =
+          preferDeclaredSender
+          ? _firstNonEmpty([
+              resolvedDeclaredDecryptSenderId,
+              resolvedTransportDecryptSenderId,
+              resolvedOriginalDecryptSenderId,
+              fromNodeId,
+            ])!
+          : _firstNonEmpty([
+              resolvedTransportDecryptSenderId,
+              resolvedOriginalDecryptSenderId,
+              resolvedDeclaredDecryptSenderId,
+              fromNodeId,
+            ])!;
       final versionPeerKey = _versionPeerKey(
-        signatureSenderKey: resolvedSignatureSenderKey,
-        declaredSenderId: declaredSenderId,
+        signatureSenderKey: preferDeclaredSender
+            ? _firstNonEmpty([
+                resolvedDeclaredSignatureSenderKey,
+                resolvedTransportSignatureSenderKey,
+                resolvedOriginalSignatureSenderKey,
+              ])
+            : _firstNonEmpty([
+                resolvedTransportSignatureSenderKey,
+                resolvedOriginalSignatureSenderKey,
+                resolvedDeclaredSignatureSenderKey,
+              ]),
+        declaredSenderId: preferDeclaredSender ? declaredSenderId : null,
         transportSenderId: fromNodeId,
       );
       if (_shouldRejectLegacyDowngrade(
@@ -416,8 +448,21 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
             verifyingKey = message.ephemeralSigningKey!;
           }
         } else {
-          final signatureKey = resolvedSignatureSenderKey ?? declaredSenderId;
-          if (signatureKey.isEmpty) {
+          final signatureKey =
+              preferDeclaredSender
+              ? _firstNonEmpty([
+                  resolvedDeclaredSignatureSenderKey,
+                  resolvedTransportSignatureSenderKey,
+                  resolvedOriginalSignatureSenderKey,
+                  declaredSenderId,
+                ])
+              : _firstNonEmpty([
+                  resolvedTransportSignatureSenderKey,
+                  resolvedOriginalSignatureSenderKey,
+                  fromNodeId,
+                  resolvedDeclaredSignatureSenderKey,
+                ]);
+          if (signatureKey == null || signatureKey.isEmpty) {
             _logger.severe(
               '❌ v2 trusted signature missing sender verification key for message $messageId',
             );
@@ -491,10 +536,22 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
       return signatureSenderKey;
     }
+    if (transportSenderId.isNotEmpty) {
+      return transportSenderId;
+    }
     if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
       return declaredSenderId;
     }
-    return transportSenderId;
+    return '';
+  }
+
+  String? _firstNonEmpty(List<String?> candidates) {
+    for (final candidate in candidates) {
+      if (candidate != null && candidate.isNotEmpty) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   bool _shouldRejectLegacyDowngrade({

@@ -399,6 +399,65 @@ void main() {
     });
 
     test(
+      'legacy v1 plaintext callback keeps transport sender over declared sender',
+      () async {
+        String? callbackSender;
+        handler.onTextMessageReceived((content, messageId, senderNodeId) async {
+          callbackSender = senderNodeId;
+        });
+
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-plaintext-transport',
+            'content': 'hello-v1',
+            'encrypted': false,
+            'senderId': 'spoofed-sender',
+            'originalSender': 'spoofed-sender',
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'transport-sender',
+        );
+
+        expect(result, equals('hello-v1'));
+        expect(callbackSender, equals('transport-sender'));
+      },
+    );
+
+    test(
+      'legacy v1 encrypted messages decrypt with transport sender first',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 1,
+          payload: {
+            'messageId': 'msg-v1-encrypted-transport',
+            'content': 'ciphertext-v1',
+            'encrypted': true,
+            'senderId': 'spoofed-sender',
+            'originalSender': 'spoofed-sender',
+          },
+          timestamp: DateTime.now(),
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'transport-sender',
+        );
+
+        expect(result, equals('legacy:ciphertext-v1'));
+        expect(securityService.lastDecryptPublicKey, equals('transport-sender'));
+      },
+    );
+
+    test(
       'routes v2 decrypt by declared mode without fallback guessing',
       () async {
         final message = ProtocolMessage(
