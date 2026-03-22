@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/message.dart' as app_entities;
@@ -9,86 +8,6 @@ import 'package:pak_connect/domain/interfaces/i_notification_navigation_handler.
 import 'package:pak_connect/domain/services/background_notification_handler_impl.dart';
 import 'package:pak_connect/domain/services/notification_navigation_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
-
-/// Fake plugin that records calls instead of hitting platform channels.
-class _FakeNotificationsPlugin extends Fake
-    implements FlutterLocalNotificationsPlugin {
-  bool initializeCalled = false;
-  InitializationSettings? lastInitSettings;
-  void Function(NotificationResponse)? storedCallback;
-  final List<_ShowCall> showCalls = [];
-  final List<int> cancelCalls = [];
-  bool cancelAllCalled = false;
-
-  @override
-  Future<bool?> initialize({
-    required InitializationSettings settings,
-    DidReceiveNotificationResponseCallback? onDidReceiveNotificationResponse,
-    DidReceiveBackgroundNotificationResponseCallback?
-        onDidReceiveBackgroundNotificationResponse,
-  }) async {
-    initializeCalled = true;
-    lastInitSettings = settings;
-    storedCallback = onDidReceiveNotificationResponse;
-    return true;
-  }
-
-  @override
-  Future<void> show({
-    required int id,
-    String? title,
-    String? body,
-    NotificationDetails? notificationDetails,
-    String? payload,
-  }) async {
-    showCalls.add(_ShowCall(
-      id: id,
-      title: title ?? '',
-      body: body ?? '',
-      payload: payload,
-    ));
-  }
-
-  @override
-  Future<void> cancel({required int id, String? tag}) async {
-    cancelCalls.add(id);
-  }
-
-  @override
-  Future<void> cancelAll() async {
-    cancelAllCalled = true;
-  }
-
-  @override
-  T? resolvePlatformSpecificImplementation<
-    T extends FlutterLocalNotificationsPlatform
-  >() {
-    // Return null for platform-specific implementations in tests
-    return null;
-  }
-
-  /// Simulate a notification tap
-  void simulateTap(String? payload) {
-    storedCallback?.call(NotificationResponse(
-      notificationResponseType:
-          NotificationResponseType.selectedNotification,
-      payload: payload,
-    ));
-  }
-}
-
-class _ShowCall {
-  final int id;
-  final String title;
-  final String body;
-  final String? payload;
-  _ShowCall({
-    required this.id,
-    required this.title,
-    required this.body,
-    this.payload,
-  });
-}
 
 class _FakeNavigationHandler implements INotificationNavigationHandler {
   final List<Map<String, String?>> chatNavigations = [];
@@ -126,15 +45,11 @@ class _FakeNavigationHandler implements INotificationNavigationHandler {
 }
 
 void main() {
-  // ignore: unused_local_variable
-  // ignore: unused_local_variable
-  late _FakeNotificationsPlugin fakePlugin;
   late BackgroundNotificationHandlerImpl handler;
   late _FakeNavigationHandler navHandler;
   late List<LogRecord> logs;
 
   setUp(() {
-    fakePlugin = _FakeNotificationsPlugin();
     // We need to inject the fake plugin. The production class hard-codes it,
     // so we use a reflective approach: create the handler, then replace the
     // private field. Since Dart doesn't support that cleanly, we instead
@@ -160,64 +75,67 @@ void main() {
   group('BackgroundNotificationHandlerImpl', () {
     group('pre-init guards', () {
       test('showNotification returns early when not initialized', () async {
-        await handler.showNotification(
-          id: 'test',
-          title: 'Test',
-          body: 'Body',
-        );
-        expect(
-          logs.any((l) => l.message.contains('not initialized')),
-          isTrue,
-        );
+        await handler.showNotification(id: 'test', title: 'Test', body: 'Body');
+        expect(logs.any((l) => l.message.contains('not initialized')), isTrue);
       });
 
-      test('showMessageNotification returns early when not initialized',
-          () async {
-        final msg = app_entities.Message(
-          id: const MessageId('msg-1'),
-          chatId: const ChatId('chat-1'),
-          content: 'hello',
-          timestamp: DateTime.now(),
-          isFromMe: false,
-          status: app_entities.MessageStatus.delivered,
-        );
-        // Should not throw
-        await handler.showMessageNotification(
-          message: msg,
-          contactName: 'Alice',
-        );
-      });
+      test(
+        'showMessageNotification returns early when not initialized',
+        () async {
+          final msg = app_entities.Message(
+            id: const MessageId('msg-1'),
+            chatId: const ChatId('chat-1'),
+            content: 'hello',
+            timestamp: DateTime.now(),
+            isFromMe: false,
+            status: app_entities.MessageStatus.delivered,
+          );
+          // Should not throw
+          await handler.showMessageNotification(
+            message: msg,
+            contactName: 'Alice',
+          );
+        },
+      );
 
-      test('showContactRequestNotification returns early when not initialized',
-          () async {
-        await handler.showContactRequestNotification(
-          contactName: 'Bob',
-          publicKey: 'pk-123',
-        );
-      });
+      test(
+        'showContactRequestNotification returns early when not initialized',
+        () async {
+          await handler.showContactRequestNotification(
+            contactName: 'Bob',
+            publicKey: 'pk-123',
+          );
+        },
+      );
 
-      test('showSystemNotification returns early when not initialized',
-          () async {
-        await handler.showSystemNotification(
-          title: 'System',
-          message: 'Alert',
-        );
-      });
+      test(
+        'showSystemNotification returns early when not initialized',
+        () async {
+          await handler.showSystemNotification(
+            title: 'System',
+            message: 'Alert',
+          );
+        },
+      );
 
       test('cancelNotification returns early when not initialized', () async {
         await handler.cancelNotification('id-1');
       });
 
-      test('cancelAllNotifications returns early when not initialized',
-          () async {
-        await handler.cancelAllNotifications();
-      });
+      test(
+        'cancelAllNotifications returns early when not initialized',
+        () async {
+          await handler.cancelAllNotifications();
+        },
+      );
 
-      test('areNotificationsEnabled returns false when not initialized',
-          () async {
-        final enabled = await handler.areNotificationsEnabled();
-        expect(enabled, isFalse);
-      });
+      test(
+        'areNotificationsEnabled returns false when not initialized',
+        () async {
+          final enabled = await handler.areNotificationsEnabled();
+          expect(enabled, isFalse);
+        },
+      );
 
       test('requestPermissions returns false when not initialized', () async {
         final granted = await handler.requestPermissions();
@@ -228,10 +146,7 @@ void main() {
     group('cancelChannelNotifications', () {
       test('logs warning about unimplemented channel cancellation', () async {
         await handler.cancelChannelNotifications(NotificationChannel.messages);
-        expect(
-          logs.any((l) => l.message.contains('not implemented')),
-          isTrue,
-        );
+        expect(logs.any((l) => l.message.contains('not implemented')), isTrue);
       });
     });
 
@@ -347,17 +262,22 @@ void main() {
         expect(NotificationChannel.values.length, 5);
       });
 
-      test('channel enum covers messages, contacts, system, meshRelay, archiveStatus',
-          () {
-        final names = NotificationChannel.values.map((c) => c.name).toSet();
-        expect(names, containsAll([
-          'messages',
-          'contacts',
-          'system',
-          'meshRelay',
-          'archiveStatus',
-        ]));
-      });
+      test(
+        'channel enum covers messages, contacts, system, meshRelay, archiveStatus',
+        () {
+          final names = NotificationChannel.values.map((c) => c.name).toSet();
+          expect(
+            names,
+            containsAll([
+              'messages',
+              'contacts',
+              'system',
+              'meshRelay',
+              'archiveStatus',
+            ]),
+          );
+        },
+      );
     });
 
     group('priority mapping coverage', () {

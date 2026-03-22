@@ -14,8 +14,9 @@ class _TestArchiveManagementService implements ArchiveManagementService {
     required this.archiveUpdatesStream,
     Stream<ArchivePolicyEvent>? policyUpdatesStream,
     Stream<ArchiveMaintenanceEvent>? maintenanceUpdatesStream,
-  })  : policyUpdatesStream = policyUpdatesStream ?? const Stream.empty(),
-        maintenanceUpdatesStream = maintenanceUpdatesStream ?? const Stream.empty();
+  }) : policyUpdatesStream = policyUpdatesStream ?? const Stream.empty(),
+       maintenanceUpdatesStream =
+           maintenanceUpdatesStream ?? const Stream.empty();
 
   final Stream<ArchiveUpdateEvent> archiveUpdatesStream;
   final Stream<ArchivePolicyEvent> policyUpdatesStream;
@@ -967,34 +968,27 @@ void main() {
       },
     );
 
-    test(
-      'legacy archiveOperationsStateProvider mirrors modern notifier state',
-      () {
-        final updates = StreamController<ArchiveUpdateEvent>.broadcast();
-        addTearDown(updates.close);
+    test('archiveOperationsProvider mirrors notifier state', () {
+      final updates = StreamController<ArchiveUpdateEvent>.broadcast();
+      addTearDown(updates.close);
 
-        final management = _TestArchiveManagementService(
-          archiveUpdatesStream: updates.stream,
-        );
-        final search = _TestArchiveSearchService();
+      final management = _TestArchiveManagementService(
+        archiveUpdatesStream: updates.stream,
+      );
+      final search = _TestArchiveSearchService();
 
-        final container = ProviderContainer(
-          overrides: [
-            archiveManagementServiceProvider.overrideWithValue(management),
-            archiveSearchServiceProvider.overrideWithValue(search),
-          ],
-        );
-        addTearDown(container.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          archiveManagementServiceProvider.overrideWithValue(management),
+          archiveSearchServiceProvider.overrideWithValue(search),
+        ],
+      );
+      addTearDown(container.dispose);
 
-        final notifier = container.read(archiveOperationsProvider.notifier);
-        notifier.clearRecentMessages();
+      final notifier = container.read(archiveOperationsProvider.notifier);
+      notifier.clearRecentMessages();
 
-        expect(
-          // ignore: deprecated_member_use_from_same_package
-          container.read(archiveOperationsStateProvider),
-          container.read(archiveOperationsProvider),
-        );
-      },
-    );
+      expect(notifier.state, container.read(archiveOperationsProvider));
+    });
   });
 }

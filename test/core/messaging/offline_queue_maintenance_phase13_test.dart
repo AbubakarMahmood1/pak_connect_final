@@ -21,9 +21,7 @@ import 'package:pak_connect/domain/entities/queue_statistics.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_queue_persistence_manager.dart';
-import 'package:pak_connect/domain/interfaces/i_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/interfaces/i_retry_scheduler.dart';
-import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 
 // ─── Fakes ───────────────────────────────────────────────────────────
 
@@ -116,8 +114,7 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
       throw UnimplementedError();
 }
 
-class _FakePersistenceManager extends Fake
-    implements IQueuePersistenceManager {
+class _FakePersistenceManager extends Fake implements IQueuePersistenceManager {
   @override
   Future<bool> createQueueTablesIfNotExist() async => true;
 
@@ -128,8 +125,10 @@ class _FakePersistenceManager extends Fake
   }) async {}
 
   @override
-  Future<Map<String, dynamic>> getQueueTableStats() async =>
-      {'tableCount': 2, 'rowCount': 10};
+  Future<Map<String, dynamic>> getQueueTableStats() async => {
+    'tableCount': 2,
+    'rowCount': 10,
+  };
 
   @override
   Future<void> vacuumQueueTables() async {}
@@ -141,8 +140,10 @@ class _FakePersistenceManager extends Fake
   Future<bool> restoreQueueData(String backupPath) async => true;
 
   @override
-  Future<Map<String, dynamic>> getQueueTableHealth() async =>
-      {'ok': true, 'rowCount': 10};
+  Future<Map<String, dynamic>> getQueueTableHealth() async => {
+    'ok': true,
+    'rowCount': 10,
+  };
 
   @override
   Future<int> ensureQueueConsistency() async => 0;
@@ -250,91 +251,6 @@ class _FakeRetryScheduler extends Fake implements IRetryScheduler {
   void dispose() {}
 }
 
-class _FakeSyncCoordinator extends Fake implements IQueueSyncCoordinator {
-  bool initialized = false;
-  String lastHash = 'hash-maint';
-  final Set<String> _deletedIds = {};
-  DateTime? _lastHashTime;
-
-  @override
-  Future<void> initialize({required Set<String> deletedIds}) async {
-    initialized = true;
-  }
-
-  @override
-  String calculateQueueHash({bool forceRecalculation = false}) => lastHash;
-
-  @override
-  QueueSyncMessage createSyncMessage(String nodeId) {
-    return QueueSyncMessage(
-      nodeId: nodeId,
-      queueHash: lastHash,
-      messageIds: const [],
-      syncTimestamp: DateTime.now(),
-      syncType: QueueSyncType.request,
-    );
-  }
-
-  @override
-  bool needsSynchronization(String otherQueueHash) =>
-      otherQueueHash != lastHash;
-
-  @override
-  void invalidateHashCache() {}
-
-  @override
-  Future<void> markMessageDeleted(String messageId) async {
-    _deletedIds.add(messageId);
-  }
-
-  @override
-  bool isMessageDeleted(String messageId) => _deletedIds.contains(messageId);
-
-  @override
-  Future<void> cleanupOldDeletedIds() async {}
-
-  @override
-  int getDeletedMessageCount() => _deletedIds.length;
-
-  @override
-  Set<String> getDeletedMessageIds() => _deletedIds;
-
-  @override
-  bool isDeletedIdCapacityExceeded() => false;
-
-  @override
-  SyncCoordinatorStats getSyncStatistics() => SyncCoordinatorStats(
-        activeMessageCount: 0,
-        deletedMessageCount: _deletedIds.length,
-        deletedIdSetSize: _deletedIds.length,
-        currentHash: lastHash,
-        lastHashTime: _lastHashTime ?? DateTime.now(),
-        isCachValid: true,
-        syncRequestsCount: 0,
-      );
-
-  void setLastHashTime(DateTime? time) {
-    _lastHashTime = time;
-  }
-
-  @override
-  Future<void> resetSyncState() async {
-    _deletedIds.clear();
-  }
-
-  @override
-  Future<bool> addSyncedMessage(QueuedMessage message) async {
-    return !_deletedIds.contains(message.id);
-  }
-
-  @override
-  List<String> getMissingMessageIds(List<String> otherMessageIds) =>
-      otherMessageIds;
-
-  @override
-  List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) => [];
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 QueuedMessage _makeMessage({
@@ -381,13 +297,10 @@ void main() {
   late OfflineMessageQueue queue;
   late _FakeQueueRepository fakeRepo;
   late _FakeRetryScheduler fakeScheduler;
-  // ignore: unused_local_variable
-  late _FakeSyncCoordinator fakeSyncCoordinator;
 
   setUp(() async {
     fakeRepo = _FakeQueueRepository();
     fakeScheduler = _FakeRetryScheduler();
-    fakeSyncCoordinator = _FakeSyncCoordinator();
 
     queue = OfflineMessageQueue(
       queueRepository: fakeRepo,
@@ -503,9 +416,7 @@ void main() {
   group('updateStatistics', () {
     test('onStatsUpdated callback fires via getStatistics path', () async {
       QueueStatistics? receivedStats;
-      await queue.initialize(
-        onStatsUpdated: (stats) => receivedStats = stats,
-      );
+      await queue.initialize(onStatsUpdated: (stats) => receivedStats = stats);
 
       // Queue a message to trigger updateStatistics internally
       fakeRepo._messages.add(
@@ -635,9 +546,7 @@ void main() {
     });
 
     test('removeMessage delegates to store', () async {
-      fakeRepo._messages.add(
-        _makeMessage(id: 'rm-1'),
-      );
+      fakeRepo._messages.add(_makeMessage(id: 'rm-1'));
 
       await queue.removeMessage('rm-1');
 
@@ -658,7 +567,10 @@ void main() {
 
       // markMessageDelivered cancels retry timer
       fakeRepo._messages.add(
-        _makeMessage(id: 'msg-cancel-1', status: QueuedMessageStatus.awaitingAck),
+        _makeMessage(
+          id: 'msg-cancel-1',
+          status: QueuedMessageStatus.awaitingAck,
+        ),
       );
       await queue.markMessageDelivered('msg-cancel-1');
 
@@ -679,10 +591,26 @@ void main() {
   group('statistics aggregation from both queues', () {
     test('getStatistics counts pending from both queues', () {
       fakeRepo._messages.addAll([
-        _makeMessage(id: 'd1', status: QueuedMessageStatus.pending, isRelayMessage: false),
-        _makeMessage(id: 'd2', status: QueuedMessageStatus.sending, isRelayMessage: false),
-        _makeMessage(id: 'r1', status: QueuedMessageStatus.pending, isRelayMessage: true),
-        _makeMessage(id: 'r2', status: QueuedMessageStatus.retrying, isRelayMessage: true),
+        _makeMessage(
+          id: 'd1',
+          status: QueuedMessageStatus.pending,
+          isRelayMessage: false,
+        ),
+        _makeMessage(
+          id: 'd2',
+          status: QueuedMessageStatus.sending,
+          isRelayMessage: false,
+        ),
+        _makeMessage(
+          id: 'r1',
+          status: QueuedMessageStatus.pending,
+          isRelayMessage: true,
+        ),
+        _makeMessage(
+          id: 'r2',
+          status: QueuedMessageStatus.retrying,
+          isRelayMessage: true,
+        ),
       ]);
 
       final stats = queue.getStatistics();
@@ -697,8 +625,16 @@ void main() {
       final newer = DateTime.now().subtract(const Duration(hours: 1));
 
       fakeRepo._messages.addAll([
-        _makeMessage(id: 'old', status: QueuedMessageStatus.pending, queuedAt: older),
-        _makeMessage(id: 'new', status: QueuedMessageStatus.pending, queuedAt: newer),
+        _makeMessage(
+          id: 'old',
+          status: QueuedMessageStatus.pending,
+          queuedAt: older,
+        ),
+        _makeMessage(
+          id: 'new',
+          status: QueuedMessageStatus.pending,
+          queuedAt: newer,
+        ),
       ]);
 
       final stats = queue.getStatistics();
@@ -813,8 +749,16 @@ void main() {
   group('retryFailedMessages', () {
     test('resets failed messages to pending', () async {
       fakeRepo._messages.addAll([
-        _makeMessage(id: 'fail-1', status: QueuedMessageStatus.failed, attempts: 3),
-        _makeMessage(id: 'fail-2', status: QueuedMessageStatus.failed, attempts: 5),
+        _makeMessage(
+          id: 'fail-1',
+          status: QueuedMessageStatus.failed,
+          attempts: 3,
+        ),
+        _makeMessage(
+          id: 'fail-2',
+          status: QueuedMessageStatus.failed,
+          attempts: 5,
+        ),
         _makeMessage(id: 'ok', status: QueuedMessageStatus.pending),
       ]);
 
@@ -835,7 +779,10 @@ void main() {
       );
 
       await queue.retryFailedMessages();
-      expect(queue.getMessageById('pending-only')?.status, QueuedMessageStatus.pending);
+      expect(
+        queue.getMessageById('pending-only')?.status,
+        QueuedMessageStatus.pending,
+      );
     });
   });
 
@@ -845,26 +792,51 @@ void main() {
   group('retryFailedMessagesForChat', () {
     test('only retries failed messages for specific chat', () async {
       fakeRepo._messages.addAll([
-        _makeMessage(id: 'c1-fail', chatId: 'chat-A', status: QueuedMessageStatus.failed),
-        _makeMessage(id: 'c2-fail', chatId: 'chat-B', status: QueuedMessageStatus.failed),
-        _makeMessage(id: 'c1-ok', chatId: 'chat-A', status: QueuedMessageStatus.pending),
+        _makeMessage(
+          id: 'c1-fail',
+          chatId: 'chat-A',
+          status: QueuedMessageStatus.failed,
+        ),
+        _makeMessage(
+          id: 'c2-fail',
+          chatId: 'chat-B',
+          status: QueuedMessageStatus.failed,
+        ),
+        _makeMessage(
+          id: 'c1-ok',
+          chatId: 'chat-A',
+          status: QueuedMessageStatus.pending,
+        ),
       ]);
 
       await queue.retryFailedMessagesForChat('chat-A');
 
-      expect(queue.getMessageById('c1-fail')?.status, QueuedMessageStatus.pending);
-      // chat-B failed message should remain failed
-      expect(queue.getMessageById('c2-fail')?.status, QueuedMessageStatus.failed);
-    });
-
-    test('retryFailedMessagesForChat with no failed messages is no-op', () async {
-      fakeRepo._messages.add(
-        _makeMessage(id: 'fine', chatId: 'chat-X', status: QueuedMessageStatus.pending),
+      expect(
+        queue.getMessageById('c1-fail')?.status,
+        QueuedMessageStatus.pending,
       );
-
-      await queue.retryFailedMessagesForChat('chat-X');
-      // Should not throw
+      // chat-B failed message should remain failed
+      expect(
+        queue.getMessageById('c2-fail')?.status,
+        QueuedMessageStatus.failed,
+      );
     });
+
+    test(
+      'retryFailedMessagesForChat with no failed messages is no-op',
+      () async {
+        fakeRepo._messages.add(
+          _makeMessage(
+            id: 'fine',
+            chatId: 'chat-X',
+            status: QueuedMessageStatus.pending,
+          ),
+        );
+
+        await queue.retryFailedMessagesForChat('chat-X');
+        // Should not throw
+      },
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -901,7 +873,10 @@ void main() {
     });
 
     test('returns false for nonexistent message', () async {
-      final result = await queue.changePriority('nonexistent', MessagePriority.high);
+      final result = await queue.changePriority(
+        'nonexistent',
+        MessagePriority.high,
+      );
       expect(result, isFalse);
     });
 

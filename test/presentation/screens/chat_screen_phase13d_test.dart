@@ -132,10 +132,7 @@ class _FakeContactRepository extends Fake implements IContactRepository {
   ) async {}
 
   @override
-  Future<bool> upgradeContactSecurity(
-    String pk,
-    SecurityLevel level,
-  ) async =>
+  Future<bool> upgradeContactSecurity(String pk, SecurityLevel level) async =>
       true;
 
   @override
@@ -226,17 +223,9 @@ class _FakeChatsRepository extends Fake implements IChatsRepository {
 }
 
 class _FakeConnectionService extends Fake implements IConnectionService {
-  _FakeConnectionService({
-    this.activelyReconnecting = false,
-    // ignore: unused_element_parameter
-    this.persistentPublicKey,
-    // ignore: unused_element_parameter
-    this.sessionId,
-  });
+  _FakeConnectionService({this.activelyReconnecting = false});
 
   final bool activelyReconnecting;
-  final String? persistentPublicKey;
-  final String? sessionId;
 
   @override
   BluetoothLowEnergyState get state => BluetoothLowEnergyState.poweredOn;
@@ -245,13 +234,13 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   bool get isActivelyReconnecting => activelyReconnecting;
 
   @override
-  String? get theirPersistentPublicKey => persistentPublicKey;
+  String? get theirPersistentPublicKey => null;
 
   @override
-  String? get theirPersistentKey => persistentPublicKey;
+  String? get theirPersistentKey => null;
 
   @override
-  String? get currentSessionId => sessionId;
+  String? get currentSessionId => null;
 
   @override
   String? get theirEphemeralId => null;
@@ -260,10 +249,8 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   String? get otherUserName => null;
 
   @override
-  ConnectionInfo get currentConnectionInfo => const ConnectionInfo(
-    isConnected: true,
-    isReady: true,
-  );
+  ConnectionInfo get currentConnectionInfo =>
+      const ConnectionInfo(isConnected: true, isReady: true);
 
   @override
   Stream<ConnectionInfo> get connectionInfo => const Stream.empty();
@@ -319,15 +306,9 @@ const _defaultConnectionInfo = ConnectionInfo(
   otherUserName: 'Test User',
 );
 
-const _disconnectedInfo = ConnectionInfo(
-  isConnected: false,
-  isReady: false,
-);
+const _disconnectedInfo = ConnectionInfo(isConnected: false, isReady: false);
 
-const _connectingInfo = ConnectionInfo(
-  isConnected: true,
-  isReady: false,
-);
+const _connectingInfo = ConnectionInfo(isConnected: true, isReady: false);
 
 const _reconnectingInfo = ConnectionInfo(
   isConnected: false,
@@ -451,10 +432,9 @@ Future<void> _pumpChatScreen(
   final msgRepo = _FakeMessageRepository();
   final contactRepo = _FakeContactRepository();
   final chatsRepo = _FakeChatsRepository();
-  final connService = connectionServiceOverride ??
-      _FakeConnectionService(
-        activelyReconnecting: isActivelyReconnecting,
-      );
+  final connService =
+      connectionServiceOverride ??
+      _FakeConnectionService(activelyReconnecting: isActivelyReconnecting);
   final meshService = meshServiceOverride ?? _FakeMeshNetworkingService();
   if (pendingTransfers != null) {
     meshService.pendingTransfers = pendingTransfers;
@@ -479,9 +459,7 @@ Future<void> _pumpChatScreen(
         meshNetworkStatusProvider.overrideWith(
           (ref) => const AsyncValue.data(_defaultMeshStatus),
         ),
-        securityStateProvider.overrideWith(
-          (ref, key) async => secState,
-        ),
+        securityStateProvider.overrideWith((ref, key) async => secState),
         binaryPayloadStreamProvider.overrideWith(
           (ref) => meshService.binaryPayloadStream,
         ),
@@ -532,8 +510,9 @@ void main() {
     // but in repo mode _isRepositoryMode is true so the connection branch
     // is skipped. However we still exercise all SecurityStatus branches.
 
-    testWidgets('shows "Connected • ECDH Encrypted" wording in repo mode',
-        (tester) async {
+    testWidgets('shows "Connected • ECDH Encrypted" wording in repo mode', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         connectionInfo: _defaultConnectionInfo,
@@ -553,10 +532,7 @@ void main() {
     });
 
     testWidgets('shows Contact Sync Needed for asymmetric', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _asymmetricSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _asymmetricSecurityState());
       expect(find.textContaining('Contact Sync Needed'), findsOneWidget);
     });
 
@@ -569,10 +545,7 @@ void main() {
     });
 
     testWidgets('shows Disconnected for unknown status', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _unknownSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _unknownSecurityState());
       expect(find.textContaining('Disconnected'), findsOneWidget);
     });
 
@@ -590,10 +563,7 @@ void main() {
   // --------------------------------------------------------------------------
   group('ChatScreen – _getStatusColor branches', () {
     testWidgets('green for verifiedContact', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _verifiedSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _verifiedSecurityState());
       final t = tester.widget<Text>(find.textContaining('ECDH Encrypted'));
       expect(t.style?.color, Colors.green);
     });
@@ -605,12 +575,8 @@ void main() {
     });
 
     testWidgets('orange for asymmetricContact', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _asymmetricSecurityState(),
-      );
-      final t =
-          tester.widget<Text>(find.textContaining('Contact Sync Needed'));
+      await _pumpChatScreen(tester, securityState: _asymmetricSecurityState());
+      final t = tester.widget<Text>(find.textContaining('Contact Sync Needed'));
       expect(t.style?.color, Colors.orange);
     });
 
@@ -619,8 +585,7 @@ void main() {
         tester,
         securityState: _needsPairingSecurityState(),
       );
-      final t =
-          tester.widget<Text>(find.textContaining('Basic Encryption'));
+      final t = tester.widget<Text>(find.textContaining('Basic Encryption'));
       expect(t.style?.color, Colors.orange);
     });
 
@@ -634,10 +599,7 @@ void main() {
     });
 
     testWidgets('grey for unknown status', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _unknownSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _unknownSecurityState());
       final t = tester.widget<Text>(find.textContaining('Disconnected'));
       expect(t.style?.color, Colors.grey);
     });
@@ -647,8 +609,9 @@ void main() {
   // GROUP 3: _buildSingleActionButton taps (lines 490-530)
   // --------------------------------------------------------------------------
   group('ChatScreen – action button taps', () {
-    testWidgets('tapping pairing button (lock_open) does not crash',
-        (tester) async {
+    testWidgets('tapping pairing button (lock_open) does not crash', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         securityState: _needsPairingSecurityState(),
@@ -661,12 +624,10 @@ void main() {
       expect(find.byType(Scaffold), findsOneWidget);
     });
 
-    testWidgets('tapping add-contact button (person_add) does not crash',
-        (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _showAddContactState(),
-      );
+    testWidgets('tapping add-contact button (person_add) does not crash', (
+      tester,
+    ) async {
+      await _pumpChatScreen(tester, securityState: _showAddContactState());
 
       expect(find.byIcon(Icons.person_add), findsOneWidget);
       await tester.tap(find.byIcon(Icons.person_add));
@@ -676,10 +637,7 @@ void main() {
     });
 
     testWidgets('tapping sync button does not crash', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _asymmetricSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _asymmetricSecurityState());
 
       expect(find.byIcon(Icons.sync), findsOneWidget);
       await tester.tap(find.byIcon(Icons.sync));
@@ -689,10 +647,7 @@ void main() {
     });
 
     testWidgets('no action button when all flags false', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        securityState: _verifiedSecurityState(),
-      );
+      await _pumpChatScreen(tester, securityState: _verifiedSecurityState());
       expect(find.byIcon(Icons.lock_open), findsNothing);
       expect(find.byIcon(Icons.person_add), findsNothing);
       expect(find.byIcon(Icons.sync), findsNothing);
@@ -747,8 +702,9 @@ void main() {
   // GROUP 5: _toggleSearchMode (via search icon tap)
   // --------------------------------------------------------------------------
   group('ChatScreen – search toggle', () {
-    testWidgets('tapping search icon toggles mode without crash',
-        (tester) async {
+    testWidgets('tapping search icon toggles mode without crash', (
+      tester,
+    ) async {
       await _pumpChatScreen(tester);
       expect(find.byIcon(Icons.search), findsOneWidget);
       await tester.tap(find.byIcon(Icons.search));
@@ -763,10 +719,7 @@ void main() {
   // --------------------------------------------------------------------------
   group('ChatScreen – reconnection banner', () {
     testWidgets('shows banner when disconnected', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        connectionInfo: _disconnectedInfo,
-      );
+      await _pumpChatScreen(tester, connectionInfo: _disconnectedInfo);
       expect(find.byType(ReconnectionBanner), findsOneWidget);
     });
 
@@ -779,8 +732,9 @@ void main() {
       expect(find.byType(ReconnectionBanner), findsOneWidget);
     });
 
-    testWidgets('hides banner when connected and not reconnecting',
-        (tester) async {
+    testWidgets('hides banner when connected and not reconnecting', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         connectionInfo: _defaultConnectionInfo,
@@ -790,10 +744,7 @@ void main() {
     });
 
     testWidgets('banner onReconnect callback does not crash', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        connectionInfo: _disconnectedInfo,
-      );
+      await _pumpChatScreen(tester, connectionInfo: _disconnectedInfo);
       // Find the banner and trigger its reconnect button if present
       final bannerFinder = find.byType(ReconnectionBanner);
       expect(bannerFinder, findsOneWidget);
@@ -848,8 +799,9 @@ void main() {
       expect(find.byType(PendingBinaryBanner), findsOneWidget);
     });
 
-    testWidgets('tapping retry on pending banner does not crash',
-        (tester) async {
+    testWidgets('tapping retry on pending banner does not crash', (
+      tester,
+    ) async {
       final meshSvc = _FakeMeshNetworkingService();
       meshSvc.pendingTransfers = [
         PendingBinaryTransfer(
@@ -901,10 +853,7 @@ void main() {
         senderNodeId: 'test-public-key',
       );
 
-      await _pumpChatScreen(
-        tester,
-        binaryInbox: {'transfer-1': event},
-      );
+      await _pumpChatScreen(tester, binaryInbox: {'transfer-1': event});
 
       expect(find.byType(BinaryInboxList), findsOneWidget);
     });
@@ -914,8 +863,7 @@ void main() {
   // GROUP 10: ChatComposer and hint text (lines 414-420, 747-761)
   // --------------------------------------------------------------------------
   group('ChatScreen – composer hint text variants', () {
-    testWidgets('shows "Type a message..." in repository mode',
-        (tester) async {
+    testWidgets('shows "Type a message..." in repository mode', (tester) async {
       await _pumpChatScreen(tester);
       expect(find.text('Type a message...'), findsOneWidget);
     });
@@ -946,8 +894,9 @@ void main() {
   // GROUP 12: Security loading and error states in AppBar
   // --------------------------------------------------------------------------
   group('ChatScreen – security async loading/error (subtitle)', () {
-    testWidgets('shows "Loading..." when security state pending',
-        (tester) async {
+    testWidgets('shows "Loading..." when security state pending', (
+      tester,
+    ) async {
       final meshService = _FakeMeshNetworkingService();
       final connService = _FakeConnectionService();
       final msgRepo = _FakeMessageRepository();
@@ -999,8 +948,9 @@ void main() {
       expect(loadTxt.style?.color, Colors.grey);
     });
 
-    testWidgets('shows "Error" with red when security state fails',
-        (tester) async {
+    testWidgets('shows "Error" with red when security state fails', (
+      tester,
+    ) async {
       final meshService = _FakeMeshNetworkingService();
       final connService = _FakeConnectionService();
       final msgRepo = _FakeMessageRepository();
@@ -1022,11 +972,9 @@ void main() {
             meshNetworkStatusProvider.overrideWith(
               (ref) => const AsyncValue.data(_defaultMeshStatus),
             ),
-            securityStateProvider.overrideWith(
-              (ref, key) async {
-                throw StateError('boom');
-              },
-            ),
+            securityStateProvider.overrideWith((ref, key) async {
+              throw StateError('boom');
+            }),
             binaryPayloadStreamProvider.overrideWith(
               (ref) => meshService.binaryPayloadStream,
             ),
@@ -1120,11 +1068,9 @@ void main() {
             meshNetworkStatusProvider.overrideWith(
               (ref) => const AsyncValue.data(_defaultMeshStatus),
             ),
-            securityStateProvider.overrideWith(
-              (ref, key) async {
-                throw StateError('fail');
-              },
-            ),
+            securityStateProvider.overrideWith((ref, key) async {
+              throw StateError('fail');
+            }),
             binaryPayloadStreamProvider.overrideWith(
               (ref) => meshService.binaryPayloadStream,
             ),
@@ -1195,8 +1141,9 @@ void main() {
       expect(find.byType(SafeArea), findsAtLeastNWidgets(1));
     });
 
-    testWidgets('AppBar has Column with contact name and status',
-        (tester) async {
+    testWidgets('AppBar has Column with contact name and status', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         contactName: 'Zara',
@@ -1206,8 +1153,9 @@ void main() {
       expect(find.textContaining('Paired'), findsOneWidget);
     });
 
-    testWidgets('AppBar shows search and action buttons together',
-        (tester) async {
+    testWidgets('AppBar shows search and action buttons together', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         securityState: _needsPairingSecurityState(),
@@ -1242,19 +1190,14 @@ void main() {
   // --------------------------------------------------------------------------
   group('ChatScreen – image button', () {
     testWidgets('image icon present when connected', (tester) async {
-      await _pumpChatScreen(
-        tester,
-        connectionInfo: _defaultConnectionInfo,
-      );
+      await _pumpChatScreen(tester, connectionInfo: _defaultConnectionInfo);
       expect(find.byIcon(Icons.image), findsOneWidget);
     });
 
-    testWidgets('image icon present when disconnected (composer renders)',
-        (tester) async {
-      await _pumpChatScreen(
-        tester,
-        connectionInfo: _disconnectedInfo,
-      );
+    testWidgets('image icon present when disconnected (composer renders)', (
+      tester,
+    ) async {
+      await _pumpChatScreen(tester, connectionInfo: _disconnectedInfo);
       // ChatComposer always renders, canSendImage controls enabled state
       expect(find.byType(ChatComposer), findsOneWidget);
     });
@@ -1288,8 +1231,9 @@ void main() {
   // GROUP 19: Ensure security state provider resolves per key
   // --------------------------------------------------------------------------
   group('ChatScreen – securityStateProvider key', () {
-    testWidgets('securityStateKey is derived from contactPublicKey',
-        (tester) async {
+    testWidgets('securityStateKey is derived from contactPublicKey', (
+      tester,
+    ) async {
       await _pumpChatScreen(
         tester,
         contactPublicKey: 'my-key-123',
@@ -1332,8 +1276,9 @@ void main() {
   // GROUP 21: Connection subscription listener path
   // --------------------------------------------------------------------------
   group('ChatScreen – initState subscription callbacks', () {
-    testWidgets('widget initializes subscriptions without crash',
-        (tester) async {
+    testWidgets('widget initializes subscriptions without crash', (
+      tester,
+    ) async {
       await _pumpChatScreen(tester);
       // If initState subscriptions crash, pumpChatScreen will throw
       expect(find.byType(ChatScreen), findsOneWidget);
@@ -1364,10 +1309,7 @@ void main() {
 
     testWidgets('long contact name renders', (tester) async {
       final longName = 'A' * 50;
-      await _pumpChatScreen(
-        tester,
-        contactName: longName,
-      );
+      await _pumpChatScreen(tester, contactName: longName);
       expect(find.textContaining(longName), findsOneWidget);
     });
   });
@@ -1376,8 +1318,9 @@ void main() {
   // GROUP 23: ISecurityService registered in GetIt (lines 275-277)
   // --------------------------------------------------------------------------
   group('ChatScreen – ISecurityService registration', () {
-    testWidgets('resolves ISecurityService via GetIt without crash',
-        (tester) async {
+    testWidgets('resolves ISecurityService via GetIt without crash', (
+      tester,
+    ) async {
       final secService = _FakeSecurityService();
       _registerService<ISecurityService>(locator, secService);
 

@@ -108,8 +108,7 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
       throw UnimplementedError();
 }
 
-class _FakePersistenceManager extends Fake
-    implements IQueuePersistenceManager {
+class _FakePersistenceManager extends Fake implements IQueuePersistenceManager {
   bool createCalled = false;
 
   @override
@@ -125,8 +124,10 @@ class _FakePersistenceManager extends Fake
   }) async {}
 
   @override
-  Future<Map<String, dynamic>> getQueueTableStats() async =>
-      {'tableCount': 2, 'rowCount': 10};
+  Future<Map<String, dynamic>> getQueueTableStats() async => {
+    'tableCount': 2,
+    'rowCount': 10,
+  };
 
   @override
   Future<void> vacuumQueueTables() async {}
@@ -138,8 +139,10 @@ class _FakePersistenceManager extends Fake
   Future<bool> restoreQueueData(String backupPath) async => true;
 
   @override
-  Future<Map<String, dynamic>> getQueueTableHealth() async =>
-      {'ok': true, 'rowCount': 10};
+  Future<Map<String, dynamic>> getQueueTableHealth() async => {
+    'ok': true,
+    'rowCount': 10,
+  };
 
   @override
   Future<int> ensureQueueConsistency() async => 0;
@@ -311,13 +314,19 @@ void main() {
       queue.dispose();
     });
 
-    test('changePriority returns true when priority is already the same', () async {
-      // Use the queue's queueMessage path instead (it validates)
-      // Since queueMessage calls MessageSecurity which may not work in unit tests,
-      // we test changePriority on an empty queue returning false.
-      final result = await queue.changePriority('nonexistent', MessagePriority.high);
-      expect(result, isFalse);
-    });
+    test(
+      'changePriority returns true when priority is already the same',
+      () async {
+        // Use the queue's queueMessage path instead (it validates)
+        // Since queueMessage calls MessageSecurity which may not work in unit tests,
+        // we test changePriority on an empty queue returning false.
+        final result = await queue.changePriority(
+          'nonexistent',
+          MessagePriority.high,
+        );
+        expect(result, isFalse);
+      },
+    );
 
     test('changePriority catches exceptions and returns false', () async {
       // Verify the method handles errors gracefully
@@ -381,7 +390,10 @@ void main() {
 
     test('marks existing message as delivered and fires callback', () async {
       fakeRepo._messages.add(
-        _makeMessage(id: 'msg_deliver_1', status: QueuedMessageStatus.awaitingAck),
+        _makeMessage(
+          id: 'msg_deliver_1',
+          status: QueuedMessageStatus.awaitingAck,
+        ),
       );
 
       await queue.markMessageDelivered('msg_deliver_1');
@@ -496,10 +508,18 @@ void main() {
 
     test('retryFailedMessagesForChat only affects target chat', () async {
       fakeRepo._messages.add(
-        _makeMessage(id: 'fc1', chatId: 'chat_X', status: QueuedMessageStatus.failed),
+        _makeMessage(
+          id: 'fc1',
+          chatId: 'chat_X',
+          status: QueuedMessageStatus.failed,
+        ),
       );
       fakeRepo._messages.add(
-        _makeMessage(id: 'fc2', chatId: 'chat_Y', status: QueuedMessageStatus.failed),
+        _makeMessage(
+          id: 'fc2',
+          chatId: 'chat_Y',
+          status: QueuedMessageStatus.failed,
+        ),
       );
 
       await queue.retryFailedMessagesForChat('chat_X');
@@ -526,37 +546,38 @@ void main() {
         queuePersistenceManager: _FakePersistenceManager(),
         retryScheduler: fakeScheduler,
       );
-      await queue.initialize(
-        onSendMessage: (id) => sentMessageIds.add(id),
-      );
+      await queue.initialize(onSendMessage: (id) => sentMessageIds.add(id));
     });
 
     tearDown(() {
       queue.dispose();
     });
 
-    test('flushQueueForPeer attempts delivery of pending peer messages', () async {
-      fakeRepo._messages.add(
-        _makeMessage(id: 'pm1', recipientPublicKey: 'peer_A'),
-      );
-      fakeRepo._messages.add(
-        _makeMessage(id: 'pm2', recipientPublicKey: 'peer_B'),
-      );
-      fakeRepo._messages.add(
-        _makeMessage(
-          id: 'pm3',
-          recipientPublicKey: 'peer_A',
-          isRelayMessage: true,
-        ),
-      );
+    test(
+      'flushQueueForPeer attempts delivery of pending peer messages',
+      () async {
+        fakeRepo._messages.add(
+          _makeMessage(id: 'pm1', recipientPublicKey: 'peer_A'),
+        );
+        fakeRepo._messages.add(
+          _makeMessage(id: 'pm2', recipientPublicKey: 'peer_B'),
+        );
+        fakeRepo._messages.add(
+          _makeMessage(
+            id: 'pm3',
+            recipientPublicKey: 'peer_A',
+            isRelayMessage: true,
+          ),
+        );
 
-      await queue.flushQueueForPeer('peer_A');
+        await queue.flushQueueForPeer('peer_A');
 
-      // Messages for peer_A should have been attempted
-      expect(sentMessageIds, contains('pm1'));
-      expect(sentMessageIds, contains('pm3'));
-      expect(sentMessageIds, isNot(contains('pm2')));
-    });
+        // Messages for peer_A should have been attempted
+        expect(sentMessageIds, contains('pm1'));
+        expect(sentMessageIds, contains('pm3'));
+        expect(sentMessageIds, isNot(contains('pm2')));
+      },
+    );
 
     test('flushQueueForPeer ignores non-pending messages', () async {
       fakeRepo._messages.add(
@@ -610,8 +631,16 @@ void main() {
       final old = DateTime(2020, 1, 1);
       final recent = DateTime(2025, 1, 1);
       fakeRepo._messages.addAll([
-        _makeMessage(id: 'old', status: QueuedMessageStatus.pending, queuedAt: old),
-        _makeMessage(id: 'new', status: QueuedMessageStatus.pending, queuedAt: recent),
+        _makeMessage(
+          id: 'old',
+          status: QueuedMessageStatus.pending,
+          queuedAt: old,
+        ),
+        _makeMessage(
+          id: 'new',
+          status: QueuedMessageStatus.pending,
+          queuedAt: recent,
+        ),
       ]);
 
       final stats = queue.getStatistics();
@@ -842,15 +871,10 @@ void main() {
     });
 
     test('callbacks can be set via initialize', () async {
-      // ignore: unused_local_variable
-      // ignore: unused_local_variable
       QueuedMessage? queued;
-      // ignore: unused_local_variable
       QueuedMessage? delivered;
       QueueStatistics? stats;
-      // ignore: unused_local_variable
       String? sentId;
-      // ignore: unused_local_variable
       bool connectivityChecked = false;
 
       final queue = OfflineMessageQueue(
@@ -867,7 +891,11 @@ void main() {
 
       // clearQueue triggers stats update
       await queue.clearQueue();
+      expect(queued, isNull);
+      expect(delivered, isNull);
       expect(stats, isNotNull);
+      expect(sentId, isNull);
+      expect(connectivityChecked, isFalse);
       queue.dispose();
     });
   });

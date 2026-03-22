@@ -5,6 +5,7 @@
 ///   createOutgoingRelay, shouldAttemptDecryption, getStatistics, clearStatistics,
 ///   configureDependencyResolvers, clearDependencyResolvers
 library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
@@ -169,7 +170,6 @@ void main() {
       spamPrevention.bypassAllChecksForTests(enable: false);
       await spamPrevention.resetForTests();
 
-      // ignore: unused_local_variable
       RelayDecision? capturedDecision;
       await engine.initialize(
         currentNodeId: 'my_node_id',
@@ -191,16 +191,11 @@ void main() {
         relayMessage: msg,
         fromNodeId: 'spammer',
       );
-      // Whether blocked or not depends on internal thresholds,
-      // but stats should be updated
+      expect(capturedDecision, isNotNull);
     });
 
     test('relays to available next hops in non-flood mode', () async {
-      final msg = _buildRelay(
-        recipient: 'far_away_node',
-        ttl: 5,
-        hopCount: 1,
-      );
+      final msg = _buildRelay(recipient: 'far_away_node', ttl: 5, hopCount: 1);
 
       final result = await engine.processIncomingRelay(
         relayMessage: msg,
@@ -208,13 +203,10 @@ void main() {
         availableNextHops: ['hop_1', 'hop_2'],
       );
       // Either relayed or dropped depending on decision engine logic
-      expect(
-        [
-          RelayProcessingType.relayed,
-          RelayProcessingType.dropped,
-        ],
-        contains(result.type),
-      );
+      expect([
+        RelayProcessingType.relayed,
+        RelayProcessingType.dropped,
+      ], contains(result.type));
     });
 
     test('drops when no neighbors available for flood', () async {
@@ -226,11 +218,7 @@ void main() {
       );
       await floodEngine.initialize(currentNodeId: 'flood_node');
 
-      final msg = _buildRelay(
-        recipient: 'other_node',
-        ttl: 5,
-        hopCount: 1,
-      );
+      final msg = _buildRelay(recipient: 'other_node', ttl: 5, hopCount: 1);
 
       final result = await floodEngine.processIncomingRelay(
         relayMessage: msg,
@@ -485,10 +473,7 @@ void main() {
       );
 
       // Drop one (handshake type)
-      final msg2 = _buildRelay(
-        recipient: 'other',
-        msgId: 'msg_hs',
-      );
+      final msg2 = _buildRelay(recipient: 'other', msgId: 'msg_hs');
       await engine.processIncomingRelay(
         relayMessage: msg2,
         fromNodeId: 'sender',
@@ -627,8 +612,7 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
     String? relayNodeId,
     String? messageHash,
     bool persistToStorage = true,
-  }) async =>
-      'queued_id';
+  }) async => 'queued_id';
 
   @override
   Future<MessageId> queueMessageWithIds({
@@ -645,8 +629,7 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
     String? relayNodeId,
     String? messageHash,
     bool persistToStorage = true,
-  }) async =>
-      const MessageId('queued_id');
+  }) async => const MessageId('queued_id');
 
   @override
   Future<int> removeMessagesForChat(String chatId) async => 0;
@@ -660,16 +643,16 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
   Future<void> markMessageFailed(String messageId, String reason) async {}
   @override
   QueueStatistics getStatistics() => const QueueStatistics(
-        totalQueued: 0,
-        totalDelivered: 0,
-        totalFailed: 0,
-        pendingMessages: 0,
-        sendingMessages: 0,
-        retryingMessages: 0,
-        failedMessages: 0,
-        isOnline: false,
-        averageDeliveryTime: Duration.zero,
-      );
+    totalQueued: 0,
+    totalDelivered: 0,
+    totalFailed: 0,
+    pendingMessages: 0,
+    sendingMessages: 0,
+    retryingMessages: 0,
+    failedMessages: 0,
+    isOnline: false,
+    averageDeliveryTime: Duration.zero,
+  );
   @override
   Future<void> retryFailedMessages() async {}
   @override
@@ -690,8 +673,7 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
   Future<bool> changePriority(
     String messageId,
     MessagePriority newPriority,
-  ) async =>
-      false;
+  ) async => false;
   @override
   String calculateQueueHash({bool forceRecalculation = false}) => 'hash';
   @override
