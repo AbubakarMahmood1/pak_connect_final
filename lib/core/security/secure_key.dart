@@ -68,6 +68,17 @@ class SecureKey {
     return _data;
   }
 
+  /// Returns a defensive copy of the key bytes.
+  ///
+  /// Use this when transferring key ownership into another [SecureKey] or API
+  /// that may zero or retain the provided buffer.
+  Uint8List copyData() {
+    if (_destroyed) {
+      throw StateError('Cannot copy key: SecureKey has been destroyed');
+    }
+    return Uint8List.fromList(_data);
+  }
+
   /// Check if key is destroyed
   bool get isDestroyed => _destroyed;
 
