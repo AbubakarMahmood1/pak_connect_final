@@ -294,12 +294,8 @@ class OutboundMessageSender {
 
       _logOutboundDiagnostics(
         msgId: msgId,
-        recipientId: finalRecipientId,
         useEphemeralAddressing: useEphemeralAddressing,
-        contactPublicKey: contactKey,
-        currentNodeId: _currentNodeId,
         encryptionMethod: encryptionMethod,
-        message: message,
       );
 
       final jsonBytes = finalMessage.toBytes();
@@ -596,23 +592,10 @@ class OutboundMessageSender {
         ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
       );
 
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...',
-      );
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Recipient ID: ${_safeTruncate(finalRecipientId, 16, fallback: "NOT SPECIFIED")}...',
-      );
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}',
-      );
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Intended recipient: ${_safeTruncate(contactKey, 16, fallback: "NOT SPECIFIED")}...',
-      );
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Current node ID: ${_safeTruncate(_currentNodeId, 16, fallback: "NOT SET")}...',
-      );
-      _logger.info(
-        '🔧 PERIPHERAL SEND DEBUG: Encryption method: $encryptionMethod',
+      _logOutboundDiagnostics(
+        msgId: msgId,
+        useEphemeralAddressing: useEphemeralAddressing,
+        encryptionMethod: encryptionMethod,
       );
 
       final jsonBytes = finalMessage.toBytes();
@@ -709,40 +692,14 @@ class OutboundMessageSender {
 
   void _logOutboundDiagnostics({
     required String msgId,
-    required String? recipientId,
     required bool useEphemeralAddressing,
-    required String? contactPublicKey,
-    required String? currentNodeId,
     required String encryptionMethod,
-    required String message,
   }) {
-    _logger.fine('🔧 SEND DEBUG: ===== MESSAGE SENDING ANALYSIS =====');
-    _logger.fine('🔧 SEND DIAGNOSTIC: Message ID length: ${msgId.length}');
     _logger.fine(
-      '🔧 SEND DIAGNOSTIC: Contact key length: ${contactPublicKey?.length ?? 0}',
+      '📤 Outbound message prepared: id=${_safeTruncate(msgId, 16)}, '
+      'addressing=${useEphemeralAddressing ? "ephemeral" : "persistent"}, '
+      'encryption=$encryptionMethod',
     );
-    _logger.fine(
-      '🔧 SEND DIAGNOSTIC: Current node length: ${currentNodeId?.length ?? 0}',
-    );
-
-    _logger.fine('🔧 SEND DEBUG: Message ID: ${_safeTruncate(msgId, 16)}...');
-    _logger.fine(
-      '🔧 SEND DEBUG: Recipient ID: ${_safeTruncate(recipientId, 16, fallback: "NOT SPECIFIED")}...',
-    );
-    _logger.fine(
-      '🔧 SEND DEBUG: Addressing: ${useEphemeralAddressing ? "EPHEMERAL" : "PERSISTENT"}',
-    );
-    _logger.fine(
-      '🔧 SEND DEBUG: Intended recipient: ${_safeTruncate(contactPublicKey, 16, fallback: "NOT SPECIFIED")}...',
-    );
-    _logger.fine(
-      '🔧 SEND DEBUG: Current node ID: ${_safeTruncate(currentNodeId, 16, fallback: "NOT SET")}...',
-    );
-    _logger.fine('🔧 SEND DEBUG: Encryption method: $encryptionMethod');
-    _logger.fine(
-      '🔧 SEND DEBUG: Message content: "${_safeTruncate(message, 50)}..."',
-    );
-    _logger.fine('🔧 SEND DEBUG: ===== END SENDING ANALYSIS =====');
   }
 
   String _wireMethodForType(EncryptionType type) {

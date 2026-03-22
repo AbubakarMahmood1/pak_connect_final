@@ -96,6 +96,27 @@ void main() {
       expect(result, equals(original));
     });
 
+    test('debug logs do not leak chunk content', () {
+      const secret = 'TOP_SECRET_PAYLOAD_123';
+      final chunk = MessageChunk(
+        messageId: 'secret-msg',
+        chunkIndex: 0,
+        totalChunks: 1,
+        content: secret,
+        timestamp: DateTime.now(),
+      );
+
+      final bytes = chunk.toBytes();
+      final decoded = MessageChunk.fromBytes(bytes);
+      final result = reassembler.addChunk(decoded);
+
+      expect(result, equals(secret));
+      expect(
+        logRecords.where((log) => log.message.contains(secret)),
+        isEmpty,
+      );
+    });
+
     // TEST 3: Handle out-of-order chunks
     test('handles out-of-order chunks correctly', () {
       final original = Uint8List.fromList(List.generate(250, (i) => i % 256));

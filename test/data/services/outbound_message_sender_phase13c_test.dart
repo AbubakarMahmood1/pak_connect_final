@@ -213,6 +213,57 @@ void main() {
       expect(opChangedValues, contains(false));
     });
 
+    test('diagnostic logs omit plaintext payloads and full identifiers',
+        () async {
+      const message = 'TOP_SECRET_PAYLOAD_123';
+      const recipientId = 'recipient-secret-abcdef1234567890';
+
+      final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
+      final sender = OutboundMessageSender(
+        allowLegacyV2Send: true,
+        logger: logger,
+        ackTracker: ackTracker,
+        chunkSender: MessageChunkSender(logger: logger),
+        securityService: securityService,
+        
+        centralWrite: ({
+          required CentralManager centralManager,
+          required Peripheral peripheral,
+          required GATTCharacteristic characteristic,
+          required Uint8List value,
+        }) async {
+          ackTracker.complete('central-log-safety-001');
+        },
+      );
+      sender.setCurrentNodeId('node-secret-abcdef1234567890');
+
+      final result = await sender.sendCentralMessage(
+        centralManager: CentralManager(),
+        connectedDevice: fakePeripheral,
+        messageCharacteristic: fakeCharacteristic,
+        message: message,
+        mtuSize: 512,
+        messageId: 'central-log-safety-001',
+        contactPublicKey: recipientId,
+        contactRepository: contactRepo,
+        stateManager: stateManager,
+      );
+
+      expect(result, isTrue);
+      expect(logs.where((log) => log.message.contains(message)), isEmpty);
+      expect(logs.where((log) => log.message.contains(recipientId)), isEmpty);
+      expect(
+        logs.where(
+          (log) => log.message.contains('node-secret-abcdef1234567890'),
+        ),
+        isEmpty,
+      );
+      expect(
+        logs.where((log) => log.message.contains('SEND DEBUG: Message content')),
+        isEmpty,
+      );
+    });
+
     test('empty recipient throws and fires error callbacks', () async {
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 2));
       final sender = OutboundMessageSender(
@@ -587,9 +638,9 @@ void main() {
       expect(sentResult, isTrue);
       expect(sentMsgId?.value, 'periph-happy-001');
       expect(sentChunks, isNotEmpty);
-      // Verify peripheral debug logs present (lines 596-612)
+      // Verify sanitized outbound metadata log is still present.
       expect(
-        logs.any((l) => l.message.contains('PERIPHERAL SEND DEBUG')),
+        logs.any((l) => l.message.contains('Outbound message prepared')),
         isTrue,
       );
     });
