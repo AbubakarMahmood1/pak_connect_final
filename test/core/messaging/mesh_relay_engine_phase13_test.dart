@@ -6,14 +6,18 @@
 /// _getMyPersistentId error handling, relay efficiency calculation,
 /// onStatsUpdated callback firing, dependency resolver error paths.
 library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/mesh_relay_engine.dart';
+import 'package:pak_connect/domain/entities/contact.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
+import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/constants/special_recipients.dart';
@@ -36,10 +40,7 @@ void main() {
     MeshRelayEngine.clearDependencyResolvers();
   });
 
-  MeshRelayEngine makeEngine({
-    IRepositoryProvider? repo,
-    bool flood = false,
-  }) =>
+  MeshRelayEngine makeEngine({IRepositoryProvider? repo, bool flood = false}) =>
       MeshRelayEngine(
         repositoryProvider: repo,
         seenMessageStore: seenStore,
@@ -282,10 +283,7 @@ void main() {
       // Should have attempted to relay/broadcast
       expect(
         r.type,
-        anyOf(
-          RelayProcessingType.relayed,
-          RelayProcessingType.dropped,
-        ),
+        anyOf(RelayProcessingType.relayed, RelayProcessingType.dropped),
       );
     });
 
@@ -348,10 +346,10 @@ void main() {
       );
 
       // Either relayed (if send pipeline succeeded) or dropped
-      expect(
-        [RelayProcessingType.relayed, RelayProcessingType.dropped],
-        contains(r.type),
-      );
+      expect([
+        RelayProcessingType.relayed,
+        RelayProcessingType.dropped,
+      ], contains(r.type));
     });
 
     test('flood mode with empty next hops drops', () async {
@@ -452,6 +450,28 @@ void main() {
       );
       expect(r!.encryptedPayload, 'enc_data');
     });
+
+    test('resolves persistent recipient to current ephemeral alias', () async {
+      final engine = makeEngine(
+        repo: _AliasRepoProvider(
+          _contact(
+            publicKey: 'contact-root',
+            persistentPublicKey: 'recipient-persistent',
+            currentEphemeralId: 'recipient-ephemeral',
+          ),
+        ),
+      );
+      await engine.initialize(currentNodeId: 'me');
+
+      final relay = await engine.createOutgoingRelay(
+        originalMessageId: 'msg_alias',
+        originalContent: 'hello',
+        finalRecipientPublicKey: 'recipient-persistent',
+      );
+
+      expect(relay, isNotNull);
+      expect(relay!.relayMetadata.finalRecipient, 'recipient-ephemeral');
+    });
   });
 
   // =========================================================================
@@ -491,29 +511,32 @@ void main() {
       expect(engine.getStatistics().relayEfficiency, 1.0);
     });
 
-    test('efficiency = (relayed+delivered)/(relayed+delivered+dropped)', () async {
-      final engine = makeEngine();
-      await engine.initialize(currentNodeId: 'me');
+    test(
+      'efficiency = (relayed+delivered)/(relayed+delivered+dropped)',
+      () async {
+        final engine = makeEngine();
+        await engine.initialize(currentNodeId: 'me');
 
-      // 1 delivered
-      await engine.processIncomingRelay(
-        relayMessage: _relay(recipient: 'me', msgId: 'd1'),
-        fromNodeId: 's',
-      );
-
-      // 2 dropped (handshake type)
-      for (var i = 0; i < 2; i++) {
+        // 1 delivered
         await engine.processIncomingRelay(
-          relayMessage: _relay(recipient: 'other', msgId: 'h$i'),
+          relayMessage: _relay(recipient: 'me', msgId: 'd1'),
           fromNodeId: 's',
-          messageType: ProtocolMessageType.noiseHandshake1,
         );
-      }
 
-      final s = engine.getStatistics();
-      // 1 delivered / (1 delivered + 2 dropped) ≈ 0.333
-      expect(s.relayEfficiency, closeTo(1.0 / 3.0, 0.01));
-    });
+        // 2 dropped (handshake type)
+        for (var i = 0; i < 2; i++) {
+          await engine.processIncomingRelay(
+            relayMessage: _relay(recipient: 'other', msgId: 'h$i'),
+            fromNodeId: 's',
+            messageType: ProtocolMessageType.noiseHandshake1,
+          );
+        }
+
+        final s = engine.getStatistics();
+        // 1 delivered / (1 delivered + 2 dropped) ≈ 0.333
+        expect(s.relayEfficiency, closeTo(1.0 / 3.0, 0.01));
+      },
+    );
   });
 
   // =========================================================================
@@ -587,6 +610,35 @@ void main() {
   // Dependency resolvers
   // =========================================================================
   group('dependency resolvers', () {
+    test(
+      'persistent ID resolver delivers persistent-addressed relay to self',
+      () async {
+        MeshRelayEngine.configureDependencyResolvers(
+          persistentIdResolver: () => 'persistent-me',
+        );
+
+        String? delivered;
+        final engine = MeshRelayEngine(
+          messageQueue: queue,
+          spamPrevention: spam,
+          seenMessageStore: seenStore,
+        );
+        await engine.initialize(
+          currentNodeId: 'ephemeral-me',
+          onDeliverToSelf: (id, content, sender) => delivered = content,
+        );
+
+        final result = await engine.processIncomingRelay(
+          relayMessage: _relay(recipient: 'persistent-me'),
+          fromNodeId: 'sender',
+        );
+
+        expect(result.type, RelayProcessingType.deliveredToSelf);
+        expect(delivered, 'Hello mesh');
+        MeshRelayEngine.clearDependencyResolvers();
+      },
+    );
+
     test('repository provider resolver returning null', () {
       MeshRelayEngine.configureDependencyResolvers(
         repositoryProviderResolver: () => null,
@@ -617,10 +669,7 @@ void main() {
       MeshRelayEngine.configureDependencyResolvers(
         seenMessageStoreResolver: () => null,
       );
-      final engine = MeshRelayEngine(
-        messageQueue: queue,
-        spamPrevention: spam,
-      );
+      final engine = MeshRelayEngine(messageQueue: queue, spamPrevention: spam);
       expect(engine, isNotNull);
       MeshRelayEngine.clearDependencyResolvers();
     });
@@ -760,6 +809,52 @@ class _FakeSeenStore implements ISeenMessageStore {
   Future<void> performMaintenance() async {}
 }
 
+class _AliasRepoProvider implements IRepositoryProvider {
+  _AliasRepoProvider(this.contact);
+
+  final Contact contact;
+
+  @override
+  IContactRepository get contactRepository => _AliasContactRepo(contact);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _AliasContactRepo extends Fake implements IContactRepository {
+  _AliasContactRepo(this.contact);
+
+  final Contact contact;
+
+  @override
+  Future<Contact?> getContactByAnyId(String identifier) async {
+    if (identifier == contact.publicKey ||
+        identifier == contact.persistentPublicKey ||
+        identifier == contact.currentEphemeralId) {
+      return contact;
+    }
+    return null;
+  }
+}
+
+Contact _contact({
+  required String publicKey,
+  String? persistentPublicKey,
+  String? currentEphemeralId,
+}) {
+  final now = DateTime(2024, 1, 1);
+  return Contact(
+    publicKey: publicKey,
+    persistentPublicKey: persistentPublicKey,
+    currentEphemeralId: currentEphemeralId,
+    displayName: 'Alias',
+    trustStatus: TrustStatus.verified,
+    securityLevel: SecurityLevel.high,
+    firstSeen: now,
+    lastSeen: now,
+  );
+}
+
 class _ThrowingSeenStore implements ISeenMessageStore {
   @override
   Future<void> initialize() async {}
@@ -827,8 +922,7 @@ class _FakeOfflineQueue implements OfflineMessageQueueContract {
     String? relayNodeId,
     String? messageHash,
     bool persistToStorage = true,
-  }) async =>
-      'queued_id';
+  }) async => 'queued_id';
 
   @override
   Future<MessageId> queueMessageWithIds({
@@ -845,8 +939,7 @@ class _FakeOfflineQueue implements OfflineMessageQueueContract {
     String? relayNodeId,
     String? messageHash,
     bool persistToStorage = true,
-  }) async =>
-      MessageId('queued_id');
+  }) async => MessageId('queued_id');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

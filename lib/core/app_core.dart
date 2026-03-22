@@ -519,6 +519,9 @@ class AppCore {
           ? getIt.get<IBLEServiceFacade>()
           : getIt.get<IBLEServiceFacadeFactory>().create();
       final connectionService = bleFacade as IConnectionService;
+      MeshRelayEngine.configureDependencyResolvers(
+        persistentIdResolver: () => connectionService.myPersistentId,
+      );
       sharedMessageQueueProvider = getIt.get<ISharedMessageQueueProvider>();
       final sharedQueueProvider = sharedMessageQueueProvider;
       MessageRouter.configureQueueFactories(
@@ -1173,4 +1176,3 @@ class AppCoreException implements Exception {
   @override
   String toString() => 'AppCoreException: $message';
 }
-

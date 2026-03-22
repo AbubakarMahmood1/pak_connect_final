@@ -32,6 +32,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static final _logger = Logger('MeshRelayEngine');
   static IRepositoryProvider? Function()? _repositoryProviderResolver;
   static ISeenMessageStore? Function()? _seenMessageStoreResolver;
+  static String? Function()? _persistentIdResolver;
 
   final IRepositoryProvider? _repositoryProvider;
   final ISeenMessageStore _seenMessageStore;
@@ -73,6 +74,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   static void configureDependencyResolvers({
     IRepositoryProvider? Function()? repositoryProviderResolver,
     ISeenMessageStore? Function()? seenMessageStoreResolver,
+    String? Function()? persistentIdResolver,
   }) {
     if (repositoryProviderResolver != null) {
       _repositoryProviderResolver = repositoryProviderResolver;
@@ -80,12 +82,16 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
     if (seenMessageStoreResolver != null) {
       _seenMessageStoreResolver = seenMessageStoreResolver;
     }
+    if (persistentIdResolver != null) {
+      _persistentIdResolver = persistentIdResolver;
+    }
   }
 
   /// Clear dependency resolvers.
   static void clearDependencyResolvers() {
     _repositoryProviderResolver = null;
     _seenMessageStoreResolver = null;
+    _persistentIdResolver = null;
   }
 
   MeshRelayEngine({
@@ -110,6 +116,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       routingService: _routingService,
       topologyAnalyzer: _topologyAnalyzer,
       currentNodeId: '', // updated on initialize
+      myPersistentId: _getMyPersistentId(),
     );
     _sendPipeline = RelaySendPipeline(
       logger: _logger,
@@ -174,6 +181,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       currentNodeId: _currentNodeId,
       routingService: _routingService,
       topologyAnalyzer: _topologyAnalyzer,
+      myPersistentId: _getMyPersistentId(),
     );
     this.onRelayMessage = onRelayMessage;
     this.onDeliverToSelf = onDeliverToSelf;
@@ -550,11 +558,14 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       // to eliminate routing metadata. All peers flood; recipients self-identify.
       // Only activate when stealth/sealed sender is in use — without it,
       // the recipient needs the plaintext finalRecipient to know it's theirs.
-      final useBroadcastMode = _decisionEngine.isSmallNetworkBroadcast
-          && effectiveSealedSender;
+      final useBroadcastMode =
+          _decisionEngine.isSmallNetworkBroadcast && effectiveSealedSender;
+      final resolvedRecipient = await _resolveRelayRecipientAlias(
+        finalRecipientPublicKey,
+      );
       final wireRecipient = useBroadcastMode
           ? SpecialRecipients.broadcast
-          : finalRecipientPublicKey;
+          : resolvedRecipient;
 
       // Create relay metadata
       final baseMetadata = RelayMetadata.create(
@@ -640,9 +651,9 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.shortId()
           : originalMessageId;
-      final truncatedRecipient = finalRecipientPublicKey.length > 8
-          ? finalRecipientPublicKey.shortId(8)
-          : finalRecipientPublicKey;
+      final truncatedRecipient = wireRecipient.length > 8
+          ? wireRecipient.shortId(8)
+          : wireRecipient;
       _logger.info(
         'Created outgoing relay for $truncatedMessageId... to $truncatedRecipient...',
       );
@@ -680,7 +691,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
         // Check if we have a relationship with final recipient (could be group message)
         final recipientContact = await _repositoryProvider.contactRepository
-            .getContact(finalRecipientPublicKey);
+            .getContactByAnyId(finalRecipientPublicKey);
         if (recipientContact != null) {
           return true;
         }
@@ -774,6 +785,48 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
   void _updateStatistics() {
     final stats = getStatistics();
     onStatsUpdated?.call(stats);
+  }
+
+  Future<String> _resolveRelayRecipientAlias(
+    String finalRecipientPublicKey,
+  ) async {
+    if (_repositoryProvider == null ||
+        finalRecipientPublicKey.isEmpty ||
+        SpecialRecipients.isBroadcast(finalRecipientPublicKey)) {
+      return finalRecipientPublicKey;
+    }
+
+    try {
+      final contact = await _repositoryProvider.contactRepository
+          .getContactByAnyId(finalRecipientPublicKey);
+      final currentEphemeralId = contact?.currentEphemeralId;
+      if (currentEphemeralId != null &&
+          currentEphemeralId.isNotEmpty &&
+          currentEphemeralId != finalRecipientPublicKey) {
+        _logger.fine(
+          'Resolved relay recipient alias ${finalRecipientPublicKey.shortId(8)}... '
+          'to current ephemeral ${currentEphemeralId.shortId(8)}...',
+        );
+        return currentEphemeralId;
+      }
+    } catch (error) {
+      _logger.warning('Failed to resolve relay recipient alias: $error');
+    }
+
+    return finalRecipientPublicKey;
+  }
+
+  String? _getMyPersistentId() {
+    final resolver = _persistentIdResolver;
+    if (resolver == null) {
+      return null;
+    }
+    try {
+      return resolver();
+    } catch (error) {
+      _logger.warning('Failed to resolve persistent ID: $error');
+      return null;
+    }
   }
 
   static IRepositoryProvider? _resolveRepositoryProvider() {
