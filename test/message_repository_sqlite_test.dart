@@ -442,6 +442,35 @@ void main() {
       expect(messages, isEmpty);
     });
 
+    test('saveMessage auto-creates chats for short temp ids', () async {
+      final repository = MessageRepository();
+      final chatId = _cid('temp_abc123');
+
+      final message = Message(
+        id: _mid('msg_temp_short'),
+        chatId: chatId,
+        content: 'Hello temp chat',
+        timestamp: DateTime.now(),
+        isFromMe: false,
+        status: MessageStatus.delivered,
+      );
+
+      await repository.saveMessage(message);
+
+      final db = await DatabaseHelper.database;
+      final chats = await db.query(
+        'chats',
+        columns: ['chat_id', 'contact_name'],
+        where: 'chat_id = ?',
+        whereArgs: [chatId.value],
+        limit: 1,
+      );
+
+      expect(chats, hasLength(1));
+      expect(chats.first['contact_name'], equals('Device abc123...'));
+      expect(await repository.getMessages(chatId), hasLength(1));
+    });
+
     test('EnhancedMessage with minimal fields', () async {
       final repository = MessageRepository();
 

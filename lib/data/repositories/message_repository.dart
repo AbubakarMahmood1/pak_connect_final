@@ -275,7 +275,10 @@ class MessageRepository implements IMessageRepository {
       if (chatId.value.startsWith('persistent_chat_')) {
         contactName = 'Chat ${chatId.value.shortId(20)}...';
       } else if (chatId.value.startsWith('temp_')) {
-        contactName = 'Device ${chatId.value.substring(5, 20)}...';
+        final tempIdPreview = chatId.value.length > 5
+            ? chatId.value.substring(5)
+            : chatId.value;
+        contactName = 'Device ${tempIdPreview.shortId(15)}...';
       }
 
       if (contactPublicKey != null) {
