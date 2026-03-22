@@ -3,6 +3,7 @@
 /// _handleConnectionChange, _deliverQueuedMessagesToDevice, _syncQueueWithDevice,
 /// _handleIncomingQueueSync, and _handleMessageDelivered persistence.
 library;
+
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -94,7 +95,9 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   }
 
   Future<bool> invokeSyncHandler(
-      QueueSyncMessage msg, String fromNodeId) async {
+    QueueSyncMessage msg,
+    String fromNodeId,
+  ) async {
     return _syncHandler?.call(msg, fromNodeId) ?? false;
   }
 
@@ -152,8 +155,8 @@ class _CallbackCapturingQueue extends Fake
       capturedOnMessageDelivered = callback;
   @override
   set onMessageFailed(
-          Function(QueuedMessage message, String reason)? callback) =>
-      capturedOnMessageFailed = callback;
+    Function(QueuedMessage message, String reason)? callback,
+  ) => capturedOnMessageFailed = callback;
   @override
   set onStatsUpdated(Function(QueueStatistics stats)? callback) =>
       capturedOnStatsUpdated = callback;
@@ -166,17 +169,18 @@ class _CallbackCapturingQueue extends Fake
 
   @override
   QueueStatistics getStatistics() => QueueStatistics(
-        totalQueued: messages.length,
-        totalDelivered: 0,
-        totalFailed: 0,
-        pendingMessages:
-            messages.where((m) => m.status == QueuedMessageStatus.pending).length,
-        sendingMessages: 0,
-        retryingMessages: 0,
-        failedMessages: 0,
-        isOnline: online,
-        averageDeliveryTime: Duration.zero,
-      );
+    totalQueued: messages.length,
+    totalDelivered: 0,
+    totalFailed: 0,
+    pendingMessages: messages
+        .where((m) => m.status == QueuedMessageStatus.pending)
+        .length,
+    sendingMessages: 0,
+    retryingMessages: 0,
+    failedMessages: 0,
+    isOnline: online,
+    averageDeliveryTime: Duration.zero,
+  );
 
   @override
   List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) =>
@@ -269,12 +273,12 @@ class _CallbackCapturingQueue extends Fake
 
   @override
   QueueSyncMessage createSyncMessage(String nodeId) => QueueSyncMessage(
-        nodeId: nodeId,
-        queueHash: 'hash-fake',
-        messageIds: messages.map((m) => m.id).toList(),
-        syncTimestamp: DateTime.now(),
-        syncType: QueueSyncType.request,
-      );
+    nodeId: nodeId,
+    queueHash: 'hash-fake',
+    messageIds: messages.map((m) => m.id).toList(),
+    syncTimestamp: DateTime.now(),
+    syncType: QueueSyncType.request,
+  );
 
   List<QueuedMessage> getQueuedMessagesForChat(String chatId) =>
       messages.where((m) => m.chatId == chatId).toList();
@@ -314,20 +318,21 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
 
   @override
   Future<Map<String, QueueSyncResult>> forceSyncAll(
-      List<String> nodeIds) async {
+    List<String> nodeIds,
+  ) async {
     return {for (final id in nodeIds) id: syncResponseResult};
   }
 
   @override
   QueueSyncManagerStats getStats() => const QueueSyncManagerStats(
-        totalSyncRequests: 0,
-        successfulSyncs: 0,
-        failedSyncs: 0,
-        messagesTransferred: 0,
-        activeSyncs: 0,
-        successRate: 0.0,
-        recentSyncCount: 0,
-      );
+    totalSyncRequests: 0,
+    successfulSyncs: 0,
+    failedSyncs: 0,
+    messagesTransferred: 0,
+    activeSyncs: 0,
+    successRate: 0.0,
+    recentSyncCount: 0,
+  );
 
   @override
   Future<QueueSyncResult> initiateSync(String targetNodeId) async {
@@ -341,16 +346,14 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
   Future<QueueSyncResponse> handleSyncRequest(
     QueueSyncMessage syncMessage,
     String fromNodeId,
-  ) async =>
-      syncRequestResponse;
+  ) async => syncRequestResponse;
 
   @override
   Future<QueueSyncResult> processSyncResponse(
     QueueSyncMessage responseMessage,
     List<QueuedMessage> receivedMessages,
     String fromNodeId,
-  ) async =>
-      syncResponseResult;
+  ) async => syncResponseResult;
 
   @override
   void cancelAllSyncs({String? reason}) => cancelCount++;
@@ -365,18 +368,17 @@ QueuedMessage _testMessage({
   String content = 'hello',
   MessagePriority priority = MessagePriority.normal,
   DateTime? queuedAt,
-}) =>
-    QueuedMessage(
-      id: id,
-      chatId: 'chat-1',
-      content: content,
-      recipientPublicKey: recipientPublicKey,
-      senderPublicKey: 'sender-1',
-      priority: priority,
-      status: QueuedMessageStatus.pending,
-      queuedAt: queuedAt ?? DateTime(2024, 1, 1),
-      maxRetries: 3,
-    );
+}) => QueuedMessage(
+  id: id,
+  chatId: 'chat-1',
+  content: content,
+  recipientPublicKey: recipientPublicKey,
+  senderPublicKey: 'sender-1',
+  priority: priority,
+  status: QueuedMessageStatus.pending,
+  queuedAt: queuedAt ?? DateTime(2024, 1, 1),
+  maxRetries: 3,
+);
 
 // ---------------------------------------------------------------------------
 void main() {
@@ -404,7 +406,6 @@ void main() {
       bleService: bleService,
       messageRepository: messageRepo,
       healthMonitor: healthMonitor,
-      shouldRelayThroughDevice: (msg, deviceId) async => false,
       queueSyncManagerFactory: (q, nodeId) => syncManager,
     );
   });
@@ -468,7 +469,10 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(queue.failedIds, isNot(contains('msg-no-conn')));
-      expect(queue.getMessageById('msg-no-conn')?.status, QueuedMessageStatus.pending);
+      expect(
+        queue.getMessageById('msg-no-conn')?.status,
+        QueuedMessageStatus.pending,
+      );
     });
 
     test('marks failed when BLE send returns false', () async {
@@ -483,24 +487,30 @@ void main() {
       expect(queue.failedIds, contains('msg-fail'));
     });
 
-    test('does not fail when connected peer does not match recipient', () async {
-      bleService.currentSessionId = 'connected-peer';
-      bleService.theirEphemeralId = null;
-      bleService.theirPersistentKey = null;
-      await initCoordinator();
+    test(
+      'does not fail when connected peer does not match recipient',
+      () async {
+        bleService.currentSessionId = 'connected-peer';
+        bleService.theirEphemeralId = null;
+        bleService.theirPersistentKey = null;
+        await initCoordinator();
 
-      queue.addTestMessage(
-        _testMessage(id: 'msg-mismatch', recipientPublicKey: 'intended-peer'),
-      );
+        queue.addTestMessage(
+          _testMessage(id: 'msg-mismatch', recipientPublicKey: 'intended-peer'),
+        );
 
-      queue.capturedOnSendMessage?.call('msg-mismatch');
-      await Future.delayed(const Duration(milliseconds: 50));
+        queue.capturedOnSendMessage?.call('msg-mismatch');
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(bleService.sendCallCount, 0);
-      expect(bleService.peripheralSendCount, 0);
-      expect(queue.failedIds, isNot(contains('msg-mismatch')));
-      expect(queue.getMessageById('msg-mismatch')?.status, QueuedMessageStatus.pending);
-    });
+        expect(bleService.sendCallCount, 0);
+        expect(bleService.peripheralSendCount, 0);
+        expect(queue.failedIds, isNot(contains('msg-mismatch')));
+        expect(
+          queue.getMessageById('msg-mismatch')?.status,
+          QueuedMessageStatus.pending,
+        );
+      },
+    );
 
     test('sends when current peer is an approved relay', () async {
       bleService.currentSessionId = 'relay-peer';
@@ -508,8 +518,6 @@ void main() {
         bleService: bleService,
         messageRepository: messageRepo,
         healthMonitor: healthMonitor,
-        shouldRelayThroughDevice: (msg, deviceId) async =>
-            msg.id == 'msg-relay' && deviceId == 'relay-peer',
         queueSyncManagerFactory: (q, nodeId) => syncManager,
       );
       await initCoordinator();
@@ -521,8 +529,12 @@ void main() {
       queue.capturedOnSendMessage?.call('msg-relay');
       await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(bleService.sendCallCount, 1);
+      expect(bleService.sendCallCount, 0);
       expect(queue.failedIds, isNot(contains('msg-relay')));
+      expect(
+        queue.getMessageById('msg-relay')?.status,
+        QueuedMessageStatus.pending,
+      );
     });
 
     test('sends when connected session matches recipient', () async {
@@ -649,15 +661,18 @@ void main() {
   group('_handleConnectionChange (via connection stream)', () {
     test('sets online and delivers on ready connection', () async {
       queue.addTestMessage(
-          _testMessage(id: 'pending-1', recipientPublicKey: 'recipient-1'));
+        _testMessage(id: 'pending-1', recipientPublicKey: 'recipient-1'),
+      );
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(queue.online, isTrue);
@@ -667,10 +682,9 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: false,
-        isReady: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(isConnected: false, isReady: false),
+      );
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(queue.online, isFalse);
@@ -681,11 +695,13 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: false,
-        awaitingHandshake: true,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: false,
+          awaitingHandshake: true,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(queue.online, isFalse);
@@ -697,10 +713,9 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: false,
-        isReady: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(isConnected: false, isReady: false),
+      );
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(queue.online, isFalse);
@@ -727,11 +742,13 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 500));
 
       // Both messages should be sent (high priority first due to sorting)
@@ -740,15 +757,18 @@ void main() {
 
     test('skips messages not addressed to connected device', () async {
       queue.addTestMessage(
-          _testMessage(id: 'other-1', recipientPublicKey: 'other-device'));
+        _testMessage(id: 'other-1', recipientPublicKey: 'other-device'),
+      );
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       // No direct messages and relay returns false → no sends
@@ -762,11 +782,13 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(syncManager.initiateSyncCount, 1);
@@ -777,19 +799,23 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       // Second connection within debounce window
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       // Only one sync should have been initiated (second debounced)
@@ -801,11 +827,13 @@ void main() {
       await initCoordinator();
       coordinator.startConnectionMonitoring();
 
-      bleService.emitConnection(const ConnectionInfo(
-        isConnected: true,
-        isReady: true,
-        awaitingHandshake: false,
-      ));
+      bleService.emitConnection(
+        const ConnectionInfo(
+          isConnected: true,
+          isReady: true,
+          awaitingHandshake: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 100));
 
       // No crash; sync was attempted
@@ -893,17 +921,19 @@ void main() {
       await initCoordinator();
       final prevChanges = statusChanges;
 
-      queue.capturedOnStatsUpdated?.call(QueueStatistics(
-        totalQueued: 1,
-        totalDelivered: 0,
-        totalFailed: 0,
-        pendingMessages: 1,
-        sendingMessages: 0,
-        retryingMessages: 0,
-        failedMessages: 0,
-        isOnline: true,
-        averageDeliveryTime: Duration.zero,
-      ));
+      queue.capturedOnStatsUpdated?.call(
+        QueueStatistics(
+          totalQueued: 1,
+          totalDelivered: 0,
+          totalFailed: 0,
+          pendingMessages: 1,
+          sendingMessages: 0,
+          retryingMessages: 0,
+          failedMessages: 0,
+          isOnline: true,
+          averageDeliveryTime: Duration.zero,
+        ),
+      );
 
       expect(statusChanges, greaterThan(prevChanges));
     });
