@@ -183,6 +183,7 @@ void main() {
           encryptedKeys,
           encryptedPreferences,
           encryptedDatabase,
+          exportType.name,
           baseTimestamp?.toIso8601String() ?? '',
         ], key);
 
@@ -598,7 +599,7 @@ void main() {
 
         // Legitimate HMAC
         final legitimateHmac = EncryptionUtils.calculateHmac(
-          [encMeta, encKeys, encPrefs, encDb, ''],
+          [encMeta, encKeys, encPrefs, encDb, ExportType.full.name, ''],
           key,
         );
 
@@ -667,6 +668,28 @@ void main() {
         databaseBytes: dbBytes,
         hmacOverride: 'forged-hmac-value',
       );
+
+      final result = await ImportService.validateBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+      );
+
+      expect(result['valid'], isFalse);
+      expect(result['error'], contains('Integrity check failed'));
+    });
+
+    test('v2: tampering export_type is rejected by HMAC validation', () async {
+      final dbBytes = Uint8List.fromList(utf8.encode('db-data'));
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: dbBytes,
+        exportType: ExportType.full,
+      );
+
+      final originalJson =
+          jsonDecode(await File(bundlePath).readAsString()) as Map<String, dynamic>;
+      originalJson['export_type'] = ExportType.contactsOnly.name;
+      await File(bundlePath).writeAsString(jsonEncode(originalJson));
 
       final result = await ImportService.validateBundle(
         bundlePath: bundlePath,

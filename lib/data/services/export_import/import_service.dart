@@ -391,6 +391,7 @@ class ImportService {
         bundle.encryptedKeys,
         bundle.encryptedPreferences,
         bundle.encryptedDatabase!,
+        bundle.exportType.name,
         bundle.baseTimestamp?.toIso8601String() ?? '',
       ], key, bundle.hmac!);
     } else if (bundle.version == '1.0.0' && bundle.checksum != null) {
