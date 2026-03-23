@@ -196,12 +196,29 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   (`ecdh`/`pairing`/`noise`) and attempts legacy compatibility only as an
   explicit last-resort migration branch.
 - Repo guardrails now enforce that new runtime `lib/**` code does not add fresh
-  direct `SimpleCrypto.` call sites outside the compatibility facade and its
-  self-test helper.
+  direct `SimpleCrypto.` call sites outside the compatibility facade.
 - Pairing/contact-upgrade flows now route shared-secret caching and runtime
   conversation-key restore through `PairingCryptoService` instead of directly
   mixing `ConversationCryptoService` and `SigningCryptoService` calls inside
   controllers.
+- `LegacyCryptoMigrationPolicy` now centralizes the remaining kill switch and
+  compatibility seam for legacy/global decrypt.
+- `CryptoVerificationService` now owns diagnostic/self-test helpers that used
+  to live under `SimpleCrypto`, further shrinking the transitional facade.
+
+### Legacy Compatibility Removal Criteria
+
+Delete the compatibility lane only after all of these stay true together:
+
+- No supported peers still require legacy/global payload decrypt.
+- `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT=false` passes release-like validation
+  and staged rollouts.
+- Runtime code depends on active crypto services directly; legacy compatibility
+  remains boxed behind `LegacyCryptoMigrationPolicy` only.
+- Deprecated wrapper usage telemetry remains at zero outside explicitly
+  allowlisted tests.
+- The allowlist guard for `LegacyPayloadCompatService` can be removed because
+  the service itself is deleted.
 
 ---
 
@@ -266,7 +283,7 @@ Implemented now:
 
 Remaining:
 - make strict mode default globally in controlled stages.
-- add sealed/offline lane so strict mode does not block non-live delivery use cases.
+- complete the compatibility-lane deletion once the removal criteria above are met.
 
 ### Pass C (35-55%): Offline Async Prekey Lane
 

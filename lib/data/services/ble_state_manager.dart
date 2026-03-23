@@ -5,7 +5,7 @@ import 'package:pak_connect/domain/interfaces/i_pairing_state_manager.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../domain/services/legacy_payload_compat_service.dart';
+import '../../domain/services/legacy_crypto_migration_policy.dart';
 import '../../domain/services/pairing_crypto_service.dart';
 import '../../domain/services/signing_crypto_service.dart';
 import '../../domain/models/protocol_message.dart';

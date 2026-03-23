@@ -2,10 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/export.dart';
 
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/services/crypto_verification_service.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 
 void main() {
-  group('SimpleCrypto verification helpers', () {
+  group('CryptoVerificationService', () {
     late _FakeContactRepository repository;
 
     setUp(() {
@@ -20,7 +21,8 @@ void main() {
     });
 
     test('generateVerificationChallenge returns expected tagged format', () {
-      final challenge = SimpleCrypto.generateVerificationChallenge();
+      final challenge =
+          CryptoVerificationService.generateVerificationChallenge();
 
       expect(challenge, startsWith('CRYPTO_VERIFY_'));
       final parts = challenge.split('_');
@@ -30,7 +32,10 @@ void main() {
     });
 
     test('verifyCryptoStandards returns detailed results map', () async {
-      final results = await SimpleCrypto.verifyCryptoStandards(null, null);
+      final results = await CryptoVerificationService.verifyCryptoStandards(
+        null,
+        null,
+      );
 
       expect(results['timestamp'], isA<String>());
       expect(results['tests'], isA<Map<String, dynamic>>());
@@ -45,7 +50,7 @@ void main() {
     test(
       'verifyCryptoStandards includes keyStorage and ecdhSharedSecret branches',
       () async {
-        final results = await SimpleCrypto.verifyCryptoStandards(
+        final results = await CryptoVerificationService.verifyCryptoStandards(
           'not_a_valid_public_key',
           repository,
         );
@@ -65,7 +70,10 @@ void main() {
         SimpleCrypto.clear();
         SimpleCrypto.initialize();
 
-        final results = await SimpleCrypto.verifyCryptoStandards(null, null);
+        final results = await CryptoVerificationService.verifyCryptoStandards(
+          null,
+          null,
+        );
         final tests = results['tests'] as Map<String, dynamic>;
 
         expect((tests['messageSigning'] as Map)['success'], isFalse);
@@ -76,11 +84,12 @@ void main() {
     test(
       'testBidirectionalEncryption returns failure result for invalid contact key',
       () async {
-        final result = await SimpleCrypto.testBidirectionalEncryption(
-          'not_a_valid_public_key',
-          repository,
-          'hello world',
-        );
+        final result =
+            await CryptoVerificationService.testBidirectionalEncryption(
+              'not_a_valid_public_key',
+              repository,
+              'hello world',
+            );
 
         expect(result['testName'], 'Bidirectional Encryption');
         expect(result['success'], isFalse);

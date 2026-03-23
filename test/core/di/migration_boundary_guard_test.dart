@@ -29,9 +29,6 @@ void main() {
     test('SimpleCrypto direct runtime usage is quarantined', () {
       final allowedFiles = <String>{
         path.normalize('lib/domain/services/simple_crypto.dart'),
-        path.normalize(
-          'lib/domain/services/simple_crypto_verification_helper.dart',
-        ),
       };
 
       final violations = <String>[];
@@ -57,6 +54,38 @@ void main() {
         reason: violations.isEmpty
             ? 'Direct SimpleCrypto usage is quarantined to the transitional facade.'
             : 'Unexpected direct SimpleCrypto usage found:\n${violations.join('\n')}',
+      );
+    });
+
+    test('legacy compatibility service usage is quarantined', () {
+      final allowedFiles = <String>{
+        path.normalize(
+          'lib/domain/services/legacy_crypto_migration_policy.dart',
+        ),
+      };
+      final violations = <String>[];
+
+      for (final file in dartFilesUnder('lib')) {
+        final relativePath = relativePathFor(file);
+        final lines = file.readAsLinesSync();
+
+        for (var i = 0; i < lines.length; i++) {
+          if (!lines[i].contains('LegacyPayloadCompatService.')) {
+            continue;
+          }
+          if (allowedFiles.contains(relativePath)) {
+            continue;
+          }
+          violations.add('$relativePath:${i + 1} -> ${lines[i].trim()}');
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason: violations.isEmpty
+            ? 'Legacy payload compatibility is boxed behind the migration policy seam.'
+            : 'Unexpected direct LegacyPayloadCompatService usage found:\n${violations.join('\n')}',
       );
     });
 
