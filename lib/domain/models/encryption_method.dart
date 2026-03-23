@@ -2,8 +2,8 @@ import 'package:meta/meta.dart';
 
 /// Encryption method used for a particular message.
 ///
-/// `global` remains only as an explicit legacy-compatibility decrypt marker.
-/// It must not be selected for new outbound messages.
+/// `global` remains only as an explicit unsupported sentinel for old fixtures
+/// and fail-closed paths. It must not be selected for new outbound messages.
 @immutable
 class EncryptionMethod {
   final EncryptionType type;
@@ -20,7 +20,7 @@ class EncryptionMethod {
   factory EncryptionMethod.pairing(String publicKey) =>
       EncryptionMethod._(EncryptionType.pairing, publicKey);
 
-  /// Compatibility-only marker for legacy/global inbound decrypt handling.
+  /// Unsupported sentinel for removed legacy/global payload handling.
   factory EncryptionMethod.global() =>
       const EncryptionMethod._(EncryptionType.global);
 
@@ -33,6 +33,6 @@ enum EncryptionType {
   noise,
   pairing,
 
-  /// Compatibility-only legacy/global decrypt lane.
+  /// Unsupported sentinel for removed legacy/global payload handling.
   global,
 }

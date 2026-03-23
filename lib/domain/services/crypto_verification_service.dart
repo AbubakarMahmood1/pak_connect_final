@@ -4,7 +4,6 @@ import 'package:pointycastle/export.dart';
 import '../interfaces/i_contact_repository.dart';
 import 'contact_crypto_service.dart';
 import 'conversation_crypto_service.dart';
-import 'legacy_crypto_migration_policy.dart';
 import 'signing_crypto_service.dart';
 
 /// Diagnostic-only crypto self-test helpers.
@@ -32,7 +31,8 @@ class CryptoVerificationService {
 
     try {
       results['tests']['ecdhKeyGeneration'] = await _testECDHKeyGeneration();
-      results['tests']['aesEncryption'] = await _testLegacyCompatibilityLane();
+      results['tests']['conversationEncryption'] =
+          await _testConversationEncryption();
       results['tests']['enhancedKeyDerivation'] =
           await _testEnhancedKeyDerivation();
       results['tests']['messageSigning'] = await _testMessageSigning();
@@ -105,50 +105,46 @@ class CryptoVerificationService {
     }
   }
 
-  static Future<Map<String, dynamic>> _testLegacyCompatibilityLane() async {
+  static Future<Map<String, dynamic>> _testConversationEncryption() async {
     try {
-      _log('🔍 TEST: Legacy Compatibility Lane');
-
-      if (!LegacyCryptoMigrationPolicy.allowCompatibilityDecrypt) {
-        return {
-          'success': false,
-          'error': 'Legacy compatibility decrypt disabled by policy',
-          'testName': 'Legacy Compatibility Lane',
-        };
-      }
+      _log('🔍 TEST: Conversation Encryption');
 
       const testMessage = 'PakConnect_Crypto_Test_Message_123';
-      if (!LegacyCryptoMigrationPolicy.isCompatibilityLayerInitialized) {
-        LegacyCryptoMigrationPolicy.initializeCompatibilityLayer();
-      }
+      const publicKey = 'verification-conversation-peer';
+      const sharedSecret = 'verification-shared-secret';
 
-      final encrypted = LegacyCryptoMigrationPolicy.encodeLegacyPlaintext(
+      ConversationCryptoService.initializeConversation(publicKey, sharedSecret);
+      final encrypted = ConversationCryptoService.encryptForConversation(
         testMessage,
+        publicKey,
       );
-      final decrypted = LegacyCryptoMigrationPolicy.decryptLegacyCompatible(
+      final decrypted = ConversationCryptoService.decryptFromConversation(
         encrypted,
+        publicKey,
       );
+      ConversationCryptoService.clearConversationKey(publicKey);
+
       if (decrypted != testMessage) {
         return {
           'success': false,
           'error':
-              'Legacy compatibility round-trip failed - decrypted message does not match original',
-          'testName': 'Legacy Compatibility Lane',
+              'Conversation encryption round-trip failed - decrypted message does not match original',
+          'testName': 'Conversation Encryption',
         };
       }
 
-      _log('🔍 TEST: ✅ Legacy Compatibility Lane - Round trip successful');
+      _log('🔍 TEST: ✅ Conversation Encryption - Round trip successful');
       return {
         'success': true,
-        'details': 'Migration-only legacy compatibility decrypt is functional',
-        'testName': 'Legacy Compatibility Lane',
+        'details': 'Conversation/session encryption is functional',
+        'testName': 'Conversation Encryption',
       };
     } catch (e) {
-      _log('🔍 TEST: ❌ Legacy Compatibility Lane failed: $e');
+      _log('🔍 TEST: ❌ Conversation Encryption failed: $e');
       return {
         'success': false,
         'error': e.toString(),
-        'testName': 'Legacy Compatibility Lane',
+        'testName': 'Conversation Encryption',
       };
     }
   }

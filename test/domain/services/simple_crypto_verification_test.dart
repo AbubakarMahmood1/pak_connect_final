@@ -41,7 +41,7 @@ void main() {
       expect(results['tests'], isA<Map<String, dynamic>>());
       final tests = results['tests'] as Map<String, dynamic>;
       expect(tests.containsKey('ecdhKeyGeneration'), isTrue);
-      expect(tests.containsKey('aesEncryption'), isTrue);
+      expect(tests.containsKey('conversationEncryption'), isTrue);
       expect(tests.containsKey('enhancedKeyDerivation'), isTrue);
       expect(tests.containsKey('messageSigning'), isTrue);
       expect(results['overallSuccess'], isA<bool>());

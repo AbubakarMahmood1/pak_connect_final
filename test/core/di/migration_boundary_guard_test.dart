@@ -57,35 +57,32 @@ void main() {
       );
     });
 
-    test('legacy compatibility service usage is quarantined', () {
-      final allowedFiles = <String>{
-        path.normalize(
-          'lib/domain/services/legacy_crypto_migration_policy.dart',
+    test('legacy compatibility modules have been removed', () {
+      final removedFiles = <String>{
+        path.join(
+          projectRoot.path,
+          'lib',
+          'domain',
+          'services',
+          'legacy_crypto_migration_policy.dart',
+        ),
+        path.join(
+          projectRoot.path,
+          'lib',
+          'domain',
+          'services',
+          'legacy_payload_compat_service.dart',
         ),
       };
-      final violations = <String>[];
 
-      for (final file in dartFilesUnder('lib')) {
-        final relativePath = relativePathFor(file);
-        final lines = file.readAsLinesSync();
-
-        for (var i = 0; i < lines.length; i++) {
-          if (!lines[i].contains('LegacyPayloadCompatService.')) {
-            continue;
-          }
-          if (allowedFiles.contains(relativePath)) {
-            continue;
-          }
-          violations.add('$relativePath:${i + 1} -> ${lines[i].trim()}');
-        }
-      }
+      final existing = removedFiles.where((filePath) => File(filePath).existsSync());
 
       expect(
-        violations,
+        existing,
         isEmpty,
-        reason: violations.isEmpty
-            ? 'Legacy payload compatibility is boxed behind the migration policy seam.'
-            : 'Unexpected direct LegacyPayloadCompatService usage found:\n${violations.join('\n')}',
+        reason: existing.isEmpty
+            ? 'Legacy compatibility modules have been deleted from the runtime.'
+            : 'Legacy compatibility modules should not exist anymore:\n${existing.join('\n')}',
       );
     });
 

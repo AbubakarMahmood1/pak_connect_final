@@ -13,7 +13,6 @@ import '../security/noise/models/noise_models.dart';
 import '../security/sealed/sealed_encryption_service.dart';
 import 'package:pak_connect/domain/services/contact_crypto_service.dart';
 import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
-import 'package:pak_connect/domain/services/legacy_crypto_migration_policy.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 import '../exceptions/encryption_exception.dart';
@@ -430,8 +429,8 @@ class SecurityManager implements ISecurityService {
   ) async {
     final level = await getCurrentLevel(publicKey, repo);
 
-    // Try active decrypt methods first. Legacy/global is an explicit
-    // migration-only compatibility lane, not a normal runtime method.
+    // Try active decrypt methods only. Legacy/global decrypt is no longer
+    // supported and must not be treated as a runtime fallback.
     final methods = _getActiveDecryptMethodsForLevel(level);
 
     for (final method in methods) {
@@ -445,22 +444,6 @@ class SecurityManager implements ISecurityService {
       } catch (e) {
         _logger.warning('🔒 DECRYPT: ${method.name} ❌ → $e');
         continue;
-      }
-    }
-
-    if (LegacyCryptoMigrationPolicy.allowCompatibilityDecrypt) {
-      try {
-        _logger.info(
-          '🔒 DECRYPT: attempting legacy compatibility fallback for ${publicKey.shortId(8)}',
-        );
-        return await decryptMessageByType(
-          encryptedMessage,
-          publicKey,
-          repo,
-          EncryptionType.global,
-        );
-      } catch (e) {
-        _logger.warning('🔒 DECRYPT: legacy_compat ❌ → $e');
       }
     }
 
@@ -524,11 +507,9 @@ class SecurityManager implements ISecurityService {
         return decrypted;
 
       case EncryptionType.global:
-        final decrypted = LegacyCryptoMigrationPolicy.decryptLegacyCompatible(
-          encryptedMessage,
+        throw Exception(
+          'Legacy/global decrypt is no longer supported',
         );
-        _logger.info('🔒 DECRYPT: LEGACY_COMPAT ✅');
-        return decrypted;
     }
   }
 

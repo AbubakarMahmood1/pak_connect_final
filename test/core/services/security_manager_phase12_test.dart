@@ -12,7 +12,6 @@ import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
-import 'package:pak_connect/domain/services/simple_crypto.dart';
 
 // ─── Fake Contact Repository ─────────────────────────────────────────
 
@@ -195,16 +194,22 @@ void main() {
       repo = _FakeContactRepository();
     });
 
-    test('global decryption uses legacy compatible path', () async {
-      // SimpleCrypto.decryptLegacyCompatible should handle legacy plaintext markers.
-      final encrypted = SimpleCrypto.encodeLegacyPlaintext('hello world');
-      final decrypted = await sm.decryptMessageByType(
-        encrypted,
-        'pk_test',
-        repo,
-        EncryptionType.global,
+    test('global decryption is blocked', () async {
+      await expectLater(
+        () => sm.decryptMessageByType(
+          'PLAINTEXT:hello world',
+          'pk_test',
+          repo,
+          EncryptionType.global,
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('no longer supported'),
+          ),
+        ),
       );
-      expect(decrypted, 'hello world');
     });
 
     test('noise decryption without service throws', () async {
@@ -257,13 +262,20 @@ void main() {
       repo = _FakeContactRepository();
     });
 
-    test('decryptMessage at LOW level tries methods in order', () async {
+    test('decryptMessage at LOW level fails closed and requests resync', () async {
       repo.setSecurityLevel(SecurityLevel.low);
       repo.setContact(_makeContact('pk_dec'));
 
-      final encrypted = SimpleCrypto.encodeLegacyPlaintext('secret message');
-      final decrypted = await sm.decryptMessage(encrypted, 'pk_dec', repo);
-      expect(decrypted, 'secret message');
+      await expectLater(
+        () => sm.decryptMessage('PLAINTEXT:secret message', 'pk_dec', repo),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('security resync requested'),
+          ),
+        ),
+      );
     });
   });
 

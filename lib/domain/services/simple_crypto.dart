@@ -1,56 +1,29 @@
 import '../interfaces/i_contact_repository.dart';
 import 'contact_crypto_service.dart';
 import 'conversation_crypto_service.dart';
-import 'legacy_crypto_migration_policy.dart';
 import 'signing_crypto_service.dart';
 
-/// Transitional facade kept for compatibility while call sites migrate to the
-/// dedicated crypto services.
+/// Transitional active-crypto facade kept for tests and compatibility helpers.
 ///
-/// New runtime code should depend on the narrower services directly instead of
-/// extending this facade.
+/// Runtime production code should depend on the narrower services directly
+/// instead of extending this facade.
 class SimpleCrypto {
-  /// Initializes the migration-only legacy compatibility decryptor.
-  static void initialize() {
-    LegacyCryptoMigrationPolicy.initializeCompatibilityLayer();
-  }
+  /// Kept as a no-op so older tests can continue to call setup hooks safely.
+  static void initialize() {}
 
-  static Map<String, int> getDeprecatedWrapperUsageCounts() =>
-      LegacyCryptoMigrationPolicy.getDeprecatedWrapperUsageCounts();
+  /// Deprecated wrapper telemetry always stays at zero because the legacy
+  /// wrapper/decrypt lane has been removed.
+  static Map<String, int> getDeprecatedWrapperUsageCounts() => const {
+    'encrypt': 0,
+    'decrypt': 0,
+    'total': 0,
+  };
 
-  static void resetDeprecatedWrapperUsageCounts() =>
-      LegacyCryptoMigrationPolicy.resetDeprecatedWrapperUsageCounts();
+  static void resetDeprecatedWrapperUsageCounts() {}
 
-  /// Compatibility helper for legacy test fixtures and migration reads only.
-  static String encodeLegacyPlaintext(String plaintext) {
-    return LegacyCryptoMigrationPolicy.encodeLegacyPlaintext(plaintext);
-  }
-
-  /// Compatibility helper for legacy inbound payload migration only.
-  static String decryptLegacyCompatible(String encryptedBase64) {
-    return LegacyCryptoMigrationPolicy.decryptLegacyCompatible(encryptedBase64);
-  }
-
-  @Deprecated(
-    'Use proper encryption methods (Noise, ECDH, or Pairing). '
-    'This method does NOT provide real security.',
-  )
-  static String encrypt(String plaintext) {
-    return LegacyCryptoMigrationPolicy.encryptDeprecatedWrapper(plaintext);
-  }
-
-  @Deprecated('Use proper decryption methods (Noise, ECDH, or Pairing)')
-  static String decrypt(String encryptedBase64) {
-    return LegacyCryptoMigrationPolicy.decryptDeprecatedWrapper(
-      encryptedBase64,
-    );
-  }
-
-  static bool get isInitialized =>
-      LegacyCryptoMigrationPolicy.isCompatibilityLayerInitialized;
+  static bool get isInitialized => false;
 
   static void clear() {
-    LegacyCryptoMigrationPolicy.clearCompatibilityState();
     SigningCryptoService.clear();
   }
 

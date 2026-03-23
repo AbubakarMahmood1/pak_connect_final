@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
-import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/core/exceptions/encryption_exception.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
@@ -30,20 +29,6 @@ class _MockContactRepository implements IContactRepository {
 
 void main() {
   group('Encryption Fail-Open Security Tests', () {
-    setUp(() {
-      SimpleCrypto.resetDeprecatedWrapperUsageCounts();
-    });
-
-    tearDown(() {
-      final usage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
-      expect(
-        usage['total'],
-        equals(0),
-        reason:
-            'Deprecated SimpleCrypto wrappers were used unexpectedly: $usage',
-      );
-    });
-
     test('EncryptionException contains proper error information', () {
       // Arrange & Act
       final exception = EncryptionException(
@@ -168,7 +153,7 @@ void main() {
         final testData = Uint8List.fromList([1, 2, 3, 4, 5]);
         const publicKey = 'test_public_key_12345';
 
-        // Mock contact with LOW security level (triggers global encryption path)
+        // Mock contact with LOW security level (no active encryption method)
         final contact = Contact(
           publicKey: publicKey,
           displayName: 'Test Contact',
@@ -200,10 +185,9 @@ void main() {
     );
 
     test(
-      'decryptMessage global fallback uses explicit legacy compatibility path',
+      'decryptMessage low-security payloads fail closed and request resync',
       () async {
         // Arrange
-        const plaintext = 'legacy inbound message';
         const publicKey = 'test_public_key_12345';
 
         final contact = Contact(
@@ -215,22 +199,21 @@ void main() {
           lastSeen: DateTime.now(),
         );
         final mockRepo = _MockContactRepository(contact: contact);
-        final legacyMarkedPayload = SimpleCrypto.encodeLegacyPlaintext(
-          plaintext,
-        );
 
-        // Act
-        final decrypted = await SecurityManager.instance.decryptMessage(
-          legacyMarkedPayload,
-          publicKey,
-          mockRepo,
+        await expectLater(
+          () => SecurityManager.instance.decryptMessage(
+            'PLAINTEXT:legacy inbound message',
+            publicKey,
+            mockRepo,
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (e) => e.toString(),
+              'message',
+              contains('security resync requested'),
+            ),
+          ),
         );
-
-        // Assert
-        expect(decrypted, equals(plaintext));
-        final usage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
-        expect(usage['encrypt'], equals(0));
-        expect(usage['decrypt'], equals(0));
       },
     );
 
@@ -250,9 +233,7 @@ void main() {
           lastSeen: DateTime.now(),
         );
         final mockRepo = _MockContactRepository(contact: contact);
-        final legacyMarkedPayload = SimpleCrypto.encodeLegacyPlaintext(
-          base64.encode(plaintextBytes),
-        );
+        final legacyMarkedPayload = 'PLAINTEXT:${base64.encode(plaintextBytes)}';
         final encryptedInput = Uint8List.fromList(
           utf8.encode(legacyMarkedPayload),
         );
@@ -273,10 +254,6 @@ void main() {
           ),
         );
 
-        // Deprecated wrappers remain unused even on rejection.
-        final usage = SimpleCrypto.getDeprecatedWrapperUsageCounts();
-        expect(usage['encrypt'], equals(0));
-        expect(usage['decrypt'], equals(0));
       },
     );
   });

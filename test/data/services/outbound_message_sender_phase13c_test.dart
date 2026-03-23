@@ -34,7 +34,9 @@ import '../../test_helpers/mocks/in_memory_secure_storage.dart';
 // ---------------------------------------------------------------------------
 
 class _FakeSecurityService extends Fake implements ISecurityService {
-  EncryptionMethod nextMethod = EncryptionMethod.global();
+  EncryptionMethod nextMethod = EncryptionMethod.ecdh(
+    'default-ecdh-recipient-key',
+  );
   SecurityLevel nextLevel = SecurityLevel.low;
   bool nextHasNoise = false;
   bool getCurrentLevelThrows = false;
