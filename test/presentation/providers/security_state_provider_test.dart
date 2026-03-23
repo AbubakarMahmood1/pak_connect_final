@@ -9,6 +9,8 @@ import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/security_state.dart';
 import 'package:pak_connect/domain/services/security_state_computer.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 
 class _FakeContactRepository extends Fake implements IContactRepository {
@@ -113,11 +115,13 @@ void main() {
   setUp(() async {
     clearSecurityStateCache();
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     clearSecurityStateCache();
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('securityStateProvider helpers', () {

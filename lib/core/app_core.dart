@@ -604,7 +604,7 @@ class AppCore {
         meshQueueSyncCoordinator: meshNetworkingService.queueCoordinator,
         meshHealthMonitor: meshNetworkingService.healthMonitor,
       );
-      _logger.info('📦 BLE + mesh services registered with GetIt');
+      _logger.info('📦 BLE + mesh services published to runtime composition');
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize BLE integration: $e');
       _logger.severe('Stack trace: $stackTrace');
@@ -1154,6 +1154,7 @@ class AppCore {
 
   @visibleForTesting
   static void resetForTesting() {
+    clearPublishedAppServices();
     _instance = null;
   }
 }

@@ -7,6 +7,8 @@ import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/pinning_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/presentation/providers/chat_notification_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/pinning_service_provider.dart'
     as pinning;
 
@@ -59,10 +61,12 @@ void main() {
 
   setUp(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('chatNotificationProviders', () {

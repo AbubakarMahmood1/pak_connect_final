@@ -17,8 +17,6 @@ import '../../domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
-import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
@@ -264,43 +262,37 @@ Future<void> setupServiceLocator() async {
 
 AppBootstrapServices resolveAppBootstrapServices() {
   return AppBootstrapServices(
-    contactRepository: resolveRegistered<IContactRepository>(),
-    messageRepository: resolveRegistered<IMessageRepository>(),
-    archiveRepository: resolveRegistered<IArchiveRepository>(),
-    chatsRepository: resolveRegistered<IChatsRepository>(),
-    userPreferences: resolveRegistered<IUserPreferences>(),
-    preferencesRepository: resolveRegistered<IPreferencesRepository>(),
-    repositoryProvider: resolveRegistered<IRepositoryProvider>(),
-    sharedMessageQueueProvider: resolveRegistered<ISharedMessageQueueProvider>(),
-    databaseProvider: resolveRegistered<IDatabaseProvider>(),
-    seenMessageStore: resolveRegistered<ISeenMessageStore>(),
-    bleServiceFacadeFactory: resolveRegistered<IBLEServiceFacadeFactory>(),
-    meshRelayEngineFactory: resolveRegistered<IMeshRelayEngineFactory>(),
-    bleServiceFacade: maybeResolveRegistered<IBLEServiceFacade>(),
-    groupRepository: maybeResolveRegistered<IGroupRepository>(),
-    introHintRepository: maybeResolveRegistered<IIntroHintRepository>(),
-    exportService: maybeResolveRegistered<IExportService>(),
-    importService: maybeResolveRegistered<IImportService>(),
-    homeScreenFacadeFactory:
-        maybeResolveRegistered<IHomeScreenFacadeFactory>(),
+    contactRepository: _registry.resolve<IContactRepository>(),
+    messageRepository: _registry.resolve<IMessageRepository>(),
+    archiveRepository: _registry.resolve<IArchiveRepository>(),
+    chatsRepository: _registry.resolve<IChatsRepository>(),
+    userPreferences: _registry.resolve<IUserPreferences>(),
+    preferencesRepository: _registry.resolve<IPreferencesRepository>(),
+    repositoryProvider: _registry.resolve<IRepositoryProvider>(),
+    sharedMessageQueueProvider: _registry.resolve<ISharedMessageQueueProvider>(),
+    databaseProvider: _registry.resolve<IDatabaseProvider>(),
+    seenMessageStore: _registry.resolve<ISeenMessageStore>(),
+    bleServiceFacadeFactory: _registry.resolve<IBLEServiceFacadeFactory>(),
+    meshRelayEngineFactory: _registry.resolve<IMeshRelayEngineFactory>(),
+    bleServiceFacade: _registry.maybeResolve<IBLEServiceFacade>(),
+    groupRepository: _registry.maybeResolve<IGroupRepository>(),
+    introHintRepository: _registry.maybeResolve<IIntroHintRepository>(),
+    exportService: _registry.maybeResolve<IExportService>(),
+    importService: _registry.maybeResolve<IImportService>(),
+    homeScreenFacadeFactory: _registry.maybeResolve<IHomeScreenFacadeFactory>(),
     chatConnectionManagerFactory:
-        maybeResolveRegistered<IChatConnectionManagerFactory>(),
+        _registry.maybeResolve<IChatConnectionManagerFactory>(),
     chatListCoordinatorFactory:
-        maybeResolveRegistered<IChatListCoordinatorFactory>(),
+        _registry.maybeResolve<IChatListCoordinatorFactory>(),
   );
 }
 
 void publishAppServices(AppServices services) {
-  if (getIt.isRegistered<AppServices>()) {
-    getIt.unregister<AppServices>();
-  }
-  getIt.registerSingleton<AppServices>(services);
+  AppRuntimeServicesRegistry.publish(services);
 }
 
 void clearPublishedAppServices() {
-  if (getIt.isRegistered<AppServices>()) {
-    getIt.unregister<AppServices>();
-  }
+  AppRuntimeServicesRegistry.clear();
 }
 
 /// Register services after they're initialized by AppCore
@@ -313,67 +305,26 @@ void registerInitializedServices({
   MeshQueueSyncCoordinator? meshQueueSyncCoordinator,
   MeshNetworkHealthMonitor? meshHealthMonitor,
 }) {
-  _logger.info('📋 Registering initialized services...');
+  _logger.info('📋 Publishing initialized runtime services...');
 
   try {
     SecurityServiceLocator.configureServiceResolver(() => securityService);
-
-    // Register security interface
-    if (!getIt.isRegistered<ISecurityService>()) {
-      getIt.registerSingleton<ISecurityService>(securityService);
-      _logger.fine('✅ ISecurityService registered in DI container');
-    }
-
-    // Register BLE/IConnectionService abstractions
-    if (!getIt.isRegistered<IMeshBleService>()) {
-      getIt.registerSingleton<IMeshBleService>(connectionService);
-      _logger.fine('✅ IMeshBleService registered in DI container');
-    }
-    if (!getIt.isRegistered<IConnectionService>()) {
-      getIt.registerSingleton<IConnectionService>(connectionService);
-      _logger.fine('✅ IConnectionService registered in DI container');
-    }
-    if (connectionService is IBLEServiceFacade &&
-        !getIt.isRegistered<IBLEServiceFacade>()) {
-      getIt.registerSingleton<IBLEServiceFacade>(
-        connectionService as IBLEServiceFacade,
-      );
-      _logger.fine('✅ IBLEServiceFacade registered in DI container');
-    }
-
-    // Register MeshNetworkingService singleton + interface
-    if (!getIt.isRegistered<MeshNetworkingService>()) {
-      getIt.registerSingleton<MeshNetworkingService>(meshNetworkingService);
-      _logger.fine('✅ MeshNetworkingService registered in DI container');
-    }
-    if (!getIt.isRegistered<IMeshNetworkingService>()) {
-      getIt.registerSingleton<IMeshNetworkingService>(meshNetworkingService);
-      _logger.fine('✅ IMeshNetworkingService registered in DI container');
-    }
-
-    if (meshRelayCoordinator != null &&
-        !getIt.isRegistered<MeshRelayCoordinator>()) {
-      getIt.registerSingleton<MeshRelayCoordinator>(meshRelayCoordinator);
-      _logger.fine('✅ MeshRelayCoordinator registered in DI container');
-    }
-    if (meshQueueSyncCoordinator != null &&
-        !getIt.isRegistered<MeshQueueSyncCoordinator>()) {
-      getIt.registerSingleton<MeshQueueSyncCoordinator>(
-        meshQueueSyncCoordinator,
-      );
-      _logger.fine('✅ MeshQueueSyncCoordinator registered in DI container');
-    }
-    if (meshHealthMonitor != null &&
-        !getIt.isRegistered<MeshNetworkHealthMonitor>()) {
-      getIt.registerSingleton<MeshNetworkHealthMonitor>(meshHealthMonitor);
-      _logger.fine('✅ MeshNetworkHealthMonitor registered in DI container');
-    }
+    AppRuntimeServicesRegistry.publishBindings(
+      AppRuntimeBindings(
+        securityService: securityService,
+        connectionService: connectionService,
+        meshNetworkingService: meshNetworkingService,
+        meshRelayCoordinator: meshRelayCoordinator,
+        meshQueueSyncCoordinator: meshQueueSyncCoordinator,
+        meshHealthMonitor: meshHealthMonitor,
+      ),
+    );
 
     _logger.info(
-      '✅ All initialized services registered (includes Phase 3 interfaces)',
+      '✅ Initialized runtime services published outside GetIt',
     );
   } catch (e, stackTrace) {
-    _logger.severe('❌ Failed to register initialized services', e, stackTrace);
+    _logger.severe('❌ Failed to publish initialized runtime services', e, stackTrace);
     rethrow;
   }
 }
@@ -390,19 +341,25 @@ Future<void> resetServiceLocator() async {
   HandshakeCoordinator.clearRepositoryProviderResolver();
   SmartHandshakeManager.clearRepositoryProviderResolver();
   MeshRelayEngine.clearDependencyResolvers();
+  AppRuntimeServicesRegistry.clear();
   await getIt.reset();
   _logger.info('✅ Service locator reset complete');
 }
 
 /// Checks if a service is registered
 bool isRegistered<T extends Object>() {
-  return getIt.isRegistered<T>();
+  return AppRuntimeServicesRegistry.has<T>() || getIt.isRegistered<T>();
 }
 
 T resolveRegistered<T extends Object>({String? dependencyName}) {
+  final runtimeValue = AppRuntimeServicesRegistry.maybeResolve<T>();
+  if (runtimeValue != null) {
+    return runtimeValue;
+  }
   return _registry.resolve<T>(dependencyName: dependencyName);
 }
 
 T? maybeResolveRegistered<T extends Object>() {
-  return _registry.maybeResolve<T>();
+  final runtimeValue = AppRuntimeServicesRegistry.maybeResolve<T>();
+  return runtimeValue ?? _registry.maybeResolve<T>();
 }

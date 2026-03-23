@@ -13,6 +13,8 @@ import 'package:pak_connect/domain/models/connection_status.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/presentation/controllers/chat_list_controller.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/home_screen_providers.dart';
 import 'package:pak_connect/presentation/services/chat_interaction_handler.dart';
 
@@ -115,10 +117,12 @@ void main() {
 
   setUp(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('homeScreenProviders', () {

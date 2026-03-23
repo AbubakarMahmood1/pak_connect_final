@@ -15,6 +15,8 @@ import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 import 'package:pak_connect/domain/services/hint_cache_manager.dart';
 import 'package:pak_connect/presentation/controllers/discovery_overlay_controller.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/widgets/discovery/discovery_types.dart';
 
 import '../../test_helpers/mocks/mock_connection_service.dart';
@@ -159,6 +161,7 @@ void main() {
 
   setUp(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
     DeviceDeduplicationManager.clearAll();
     HintCacheManager.dispose();
     HintCacheManager.clearContactRepository();
@@ -171,6 +174,7 @@ void main() {
     HintCacheManager.dispose();
     HintCacheManager.clearContactRepository();
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   _Harness createHarness({

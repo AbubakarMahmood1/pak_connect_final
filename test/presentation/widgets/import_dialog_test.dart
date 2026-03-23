@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/models/export_bundle.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/widgets/import_dialog.dart';
 
 class _FakeImportService implements IImportService {
@@ -139,6 +141,7 @@ void main() {
 
   setUp(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
     importService = _FakeImportService();
     getIt.registerSingleton<IImportService>(importService);
 
@@ -160,6 +163,7 @@ void main() {
 
   tearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);
     }

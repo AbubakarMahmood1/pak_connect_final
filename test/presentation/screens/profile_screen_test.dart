@@ -8,6 +8,8 @@ import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/screens/profile_screen.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
@@ -164,6 +166,7 @@ void main() {
 
   setUp(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
 
     userPreferences = _FakeUserPreferences(
       deviceId: 'device-123',
@@ -185,6 +188,7 @@ void main() {
 
   tearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('ProfileScreen', () {

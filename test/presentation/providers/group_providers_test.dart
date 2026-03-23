@@ -8,6 +8,8 @@ import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart
 import 'package:pak_connect/domain/models/contact_group.dart';
 import 'package:pak_connect/domain/services/group_messaging_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/group_providers.dart';
 
 class _FakeGroupRepository implements IGroupRepository {
@@ -221,10 +223,12 @@ void main() {
 
   setUp(() async {
     await locator.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     await locator.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('group_providers', () {
