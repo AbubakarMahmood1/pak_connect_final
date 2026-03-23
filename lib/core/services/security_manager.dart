@@ -13,17 +13,12 @@ import '../security/noise/models/noise_models.dart';
 import '../security/sealed/sealed_encryption_service.dart';
 import 'package:pak_connect/domain/services/contact_crypto_service.dart';
 import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
-import 'package:pak_connect/domain/services/legacy_payload_compat_service.dart';
+import 'package:pak_connect/domain/services/legacy_crypto_migration_policy.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 import '../exceptions/encryption_exception.dart';
 
 class SecurityManager implements ISecurityService {
-  static const bool _allowLegacyCompatibilityDecrypt = bool.fromEnvironment(
-    'PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT',
-    defaultValue: true,
-  );
-
   SecurityManager._internal();
   static final SecurityManager _instance = SecurityManager._internal();
   static IContactRepository Function()? _contactRepositoryResolver;
@@ -453,7 +448,7 @@ class SecurityManager implements ISecurityService {
       }
     }
 
-    if (_allowLegacyCompatibilityDecrypt) {
+    if (LegacyCryptoMigrationPolicy.allowCompatibilityDecrypt) {
       try {
         _logger.info(
           '🔒 DECRYPT: attempting legacy compatibility fallback for ${publicKey.shortId(8)}',
@@ -529,12 +524,7 @@ class SecurityManager implements ISecurityService {
         return decrypted;
 
       case EncryptionType.global:
-        if (!_allowLegacyCompatibilityDecrypt) {
-          throw Exception(
-            'Legacy compatibility decrypt disabled by policy for ${publicKey.shortId(8)}',
-          );
-        }
-        final decrypted = LegacyPayloadCompatService.decryptLegacyCompatible(
+        final decrypted = LegacyCryptoMigrationPolicy.decryptLegacyCompatible(
           encryptedMessage,
         );
         _logger.info('🔒 DECRYPT: LEGACY_COMPAT ✅');

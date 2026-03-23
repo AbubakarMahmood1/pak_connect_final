@@ -88,7 +88,7 @@ class _BleStateManagerSessionHelper {
 
   Future<void> initializeCrypto() async {
     try {
-      LegacyPayloadCompatService.initialize();
+      LegacyCryptoMigrationPolicy.initializeCompatibilityLayer();
       _owner._logger.info('Legacy compatibility decryptor initialized');
     } catch (e) {
       _owner._logger.warning('Failed to initialize encryption: $e');

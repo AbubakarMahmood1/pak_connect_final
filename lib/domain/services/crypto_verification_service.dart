@@ -1,6 +1,25 @@
-part of 'simple_crypto.dart';
+import 'package:logging/logging.dart';
+import 'package:pointycastle/export.dart';
 
-class _SimpleCryptoVerificationHelper {
+import '../interfaces/i_contact_repository.dart';
+import 'contact_crypto_service.dart';
+import 'conversation_crypto_service.dart';
+import 'legacy_crypto_migration_policy.dart';
+import 'signing_crypto_service.dart';
+
+/// Diagnostic-only crypto self-test helpers.
+///
+/// This is intentionally separate from [SimpleCrypto] so the transitional
+/// facade does not keep accumulating long-tail responsibilities that belong to
+/// dedicated services.
+class CryptoVerificationService {
+  static final _logger = Logger('CryptoVerificationService');
+
+  static void _log(Object? message, {Level level = Level.FINE}) {
+    _logger.log(level, message);
+  }
+
+  /// Comprehensive crypto standards verification.
   static Future<Map<String, dynamic>> verifyCryptoStandards(
     String? contactPublicKey,
     IContactRepository? repo,
@@ -12,25 +31,23 @@ class _SimpleCryptoVerificationHelper {
     };
 
     try {
-      results['tests']['ecdhKeyGeneration'] =
-          await SimpleCrypto._testECDHKeyGeneration();
-      results['tests']['aesEncryption'] =
-          await SimpleCrypto._testAESEncryption();
+      results['tests']['ecdhKeyGeneration'] = await _testECDHKeyGeneration();
+      results['tests']['aesEncryption'] = await _testLegacyCompatibilityLane();
       results['tests']['enhancedKeyDerivation'] =
-          await SimpleCrypto._testEnhancedKeyDerivation();
-      results['tests']['messageSigning'] =
-          await SimpleCrypto._testMessageSigning();
+          await _testEnhancedKeyDerivation();
+      results['tests']['messageSigning'] = await _testMessageSigning();
 
       if (repo != null && contactPublicKey != null) {
-        results['tests']['keyStorage'] = await SimpleCrypto._testKeyStorage(
+        results['tests']['keyStorage'] = await _testKeyStorage(
           contactPublicKey,
           repo,
         );
       }
 
       if (contactPublicKey != null) {
-        results['tests']['ecdhSharedSecret'] =
-            await SimpleCrypto._testECDHSharedSecret(contactPublicKey);
+        results['tests']['ecdhSharedSecret'] = await _testECDHSharedSecret(
+          contactPublicKey,
+        );
       }
 
       final tests = results['tests'] as Map<String, dynamic>;
@@ -39,21 +56,19 @@ class _SimpleCryptoVerificationHelper {
       );
       results['overallSuccess'] = allPassed;
 
-      SimpleCrypto._log('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
+      _log('🔍 CRYPTO VERIFICATION: Overall success = $allPassed');
       return results;
     } catch (e) {
-      SimpleCrypto._log(
-        '🔍 CRYPTO VERIFICATION: Fatal error during verification: $e',
-      );
+      _log('🔍 CRYPTO VERIFICATION: Fatal error during verification: $e');
       results['error'] = e.toString();
       results['overallSuccess'] = false;
       return results;
     }
   }
 
-  static Future<Map<String, dynamic>> testECDHKeyGeneration() async {
+  static Future<Map<String, dynamic>> _testECDHKeyGeneration() async {
     try {
-      SimpleCrypto._log('🔍 TEST: ECDH Key Generation');
+      _log('🔍 TEST: ECDH Key Generation');
 
       if (!SigningCryptoService.hasPrivateKey) {
         return {
@@ -74,16 +89,14 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto._log(
-        '🔍 TEST: ✅ ECDH Key Generation - All components available',
-      );
+      _log('🔍 TEST: ✅ ECDH Key Generation - All components available');
       return {
         'success': true,
         'details': 'Private key and curve available for ECDH operations',
         'testName': 'ECDH Key Generation',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ ECDH Key Generation failed: $e');
+      _log('🔍 TEST: ❌ ECDH Key Generation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -92,52 +105,62 @@ class _SimpleCryptoVerificationHelper {
     }
   }
 
-  static Future<Map<String, dynamic>> testAESEncryption() async {
+  static Future<Map<String, dynamic>> _testLegacyCompatibilityLane() async {
     try {
-      SimpleCrypto._log('🔍 TEST: AES Encryption/Decryption');
+      _log('🔍 TEST: Legacy Compatibility Lane');
 
-      const testMessage = 'PakConnect_Crypto_Test_Message_123';
-      if (!SimpleCrypto.isInitialized) {
-        SimpleCrypto.initialize();
+      if (!LegacyCryptoMigrationPolicy.allowCompatibilityDecrypt) {
+        return {
+          'success': false,
+          'error': 'Legacy compatibility decrypt disabled by policy',
+          'testName': 'Legacy Compatibility Lane',
+        };
       }
 
-      final encrypted = SimpleCrypto.encodeLegacyPlaintext(testMessage);
-      final decrypted = SimpleCrypto.decryptLegacyCompatible(encrypted);
+      const testMessage = 'PakConnect_Crypto_Test_Message_123';
+      if (!LegacyCryptoMigrationPolicy.isCompatibilityLayerInitialized) {
+        LegacyCryptoMigrationPolicy.initializeCompatibilityLayer();
+      }
+
+      final encrypted = LegacyCryptoMigrationPolicy.encodeLegacyPlaintext(
+        testMessage,
+      );
+      final decrypted = LegacyCryptoMigrationPolicy.decryptLegacyCompatible(
+        encrypted,
+      );
       if (decrypted != testMessage) {
         return {
           'success': false,
           'error':
-              'AES round-trip failed - decrypted message does not match original',
-          'testName': 'AES Encryption',
+              'Legacy compatibility round-trip failed - decrypted message does not match original',
+          'testName': 'Legacy Compatibility Lane',
         };
       }
 
-      SimpleCrypto._log(
-        '🔍 TEST: ✅ AES Encryption/Decryption - Round trip successful',
-      );
+      _log('🔍 TEST: ✅ Legacy Compatibility Lane - Round trip successful');
       return {
         'success': true,
-        'details': 'AES-256 encryption/decryption working correctly',
-        'testName': 'AES Encryption',
+        'details': 'Migration-only legacy compatibility decrypt is functional',
+        'testName': 'Legacy Compatibility Lane',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ AES Encryption/Decryption failed: $e');
+      _log('🔍 TEST: ❌ Legacy Compatibility Lane failed: $e');
       return {
         'success': false,
         'error': e.toString(),
-        'testName': 'AES Encryption',
+        'testName': 'Legacy Compatibility Lane',
       };
     }
   }
 
-  static Future<Map<String, dynamic>> testEnhancedKeyDerivation() async {
+  static Future<Map<String, dynamic>> _testEnhancedKeyDerivation() async {
     try {
-      SimpleCrypto._log('🔍 TEST: Enhanced Key Derivation');
+      _log('🔍 TEST: Enhanced Key Derivation');
 
       const mockECDHSecret = 'test_ecdh_secret_12345';
       const mockPublicKey = 'test_public_key_67890';
 
-      final standardKey = SimpleCrypto._deriveEnhancedContactKey(
+      final standardKey = ContactCryptoService.deriveEnhancedContactKey(
         mockECDHSecret,
         mockPublicKey,
       );
@@ -149,8 +172,11 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto.initializeConversation(mockPublicKey, 'mock_pairing_secret');
-      final enhancedKey = SimpleCrypto._deriveEnhancedContactKey(
+      ConversationCryptoService.initializeConversation(
+        mockPublicKey,
+        'mock_pairing_secret',
+      );
+      final enhancedKey = ContactCryptoService.deriveEnhancedContactKey(
         mockECDHSecret,
         mockPublicKey,
       );
@@ -164,9 +190,9 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto.clearConversationKey(mockPublicKey);
+      ConversationCryptoService.clearConversationKey(mockPublicKey);
 
-      SimpleCrypto._log(
+      _log(
         '🔍 TEST: ✅ Enhanced Key Derivation - Multiple derivation methods working',
       );
       return {
@@ -176,7 +202,7 @@ class _SimpleCryptoVerificationHelper {
         'testName': 'Enhanced Key Derivation',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
+      _log('🔍 TEST: ❌ Enhanced Key Derivation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -185,12 +211,12 @@ class _SimpleCryptoVerificationHelper {
     }
   }
 
-  static Future<Map<String, dynamic>> testMessageSigning() async {
+  static Future<Map<String, dynamic>> _testMessageSigning() async {
     try {
-      SimpleCrypto._log('🔍 TEST: Message Signing/Verification');
+      _log('🔍 TEST: Message Signing/Verification');
 
       const testMessage = 'PakConnect_Signature_Test_Message';
-      if (!SimpleCrypto.isSigningReady) {
+      if (!SigningCryptoService.isSigningReady) {
         return {
           'success': false,
           'error': 'Message signing not initialized',
@@ -198,7 +224,7 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      final signature = SimpleCrypto.signMessage(testMessage);
+      final signature = SigningCryptoService.signMessage(testMessage);
       if (signature == null) {
         return {
           'success': false,
@@ -207,7 +233,7 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto._log(
+      _log(
         '🔍 TEST: ✅ Message Signing/Verification - Signature generation and verification working',
       );
       return {
@@ -216,7 +242,7 @@ class _SimpleCryptoVerificationHelper {
         'testName': 'Message Signing',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ Message Signing/Verification failed: $e');
+      _log('🔍 TEST: ❌ Message Signing/Verification failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -225,12 +251,12 @@ class _SimpleCryptoVerificationHelper {
     }
   }
 
-  static Future<Map<String, dynamic>> testKeyStorage(
+  static Future<Map<String, dynamic>> _testKeyStorage(
     String contactPublicKey,
     IContactRepository repo,
   ) async {
     try {
-      SimpleCrypto._log('🔍 TEST: Key Storage/Retrieval');
+      _log('🔍 TEST: Key Storage/Retrieval');
 
       const testSecret = 'test_shared_secret_for_storage_12345';
       const testSecretUpdated = 'updated_test_shared_secret_67890';
@@ -269,7 +295,7 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto._log(
+      _log(
         '🔍 TEST: ✅ Key Storage/Retrieval - All operations working correctly',
       );
       return {
@@ -279,7 +305,7 @@ class _SimpleCryptoVerificationHelper {
         'testName': 'Key Storage',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
+      _log('🔍 TEST: ❌ Key Storage/Retrieval failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -288,13 +314,15 @@ class _SimpleCryptoVerificationHelper {
     }
   }
 
-  static Future<Map<String, dynamic>> testECDHSharedSecret(
+  static Future<Map<String, dynamic>> _testECDHSharedSecret(
     String contactPublicKey,
   ) async {
     try {
-      SimpleCrypto._log('🔍 TEST: ECDH Shared Secret Computation');
+      _log('🔍 TEST: ECDH Shared Secret Computation');
 
-      final sharedSecret = SimpleCrypto.computeSharedSecret(contactPublicKey);
+      final sharedSecret = SigningCryptoService.computeSharedSecret(
+        contactPublicKey,
+      );
       if (sharedSecret == null || sharedSecret.isEmpty) {
         return {
           'success': false,
@@ -313,7 +341,7 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      SimpleCrypto._log(
+      _log(
         '🔍 TEST: ✅ ECDH Shared Secret Computation - Successfully computed shared secret',
       );
       return {
@@ -323,7 +351,7 @@ class _SimpleCryptoVerificationHelper {
         'testName': 'ECDH Shared Secret',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
+      _log('🔍 TEST: ❌ ECDH Shared Secret Computation failed: $e');
       return {
         'success': false,
         'error': e.toString(),
@@ -344,9 +372,9 @@ class _SimpleCryptoVerificationHelper {
     String testMessage,
   ) async {
     try {
-      SimpleCrypto._log('🔍 TEST: Bidirectional Encryption with contact');
+      _log('🔍 TEST: Bidirectional Encryption with contact');
 
-      final encryptedMessage = await SimpleCrypto.encryptForContact(
+      final encryptedMessage = await ContactCryptoService.encryptForContact(
         testMessage,
         contactPublicKey,
         repo,
@@ -359,37 +387,31 @@ class _SimpleCryptoVerificationHelper {
         };
       }
 
-      final decryptedMessage = await SimpleCrypto.decryptFromContact(
+      final decryptedMessage = await ContactCryptoService.decryptFromContact(
         encryptedMessage,
         contactPublicKey,
         repo,
       );
-      if (decryptedMessage == null) {
-        return {
-          'success': false,
-          'error': 'Failed to decrypt message from contact',
-          'testName': 'Bidirectional Encryption',
-        };
-      }
-
       if (decryptedMessage != testMessage) {
         return {
           'success': false,
-          'error': 'Decrypted message does not match original',
+          'error':
+              'Bidirectional encryption round-trip failed - decrypted message does not match original',
           'testName': 'Bidirectional Encryption',
         };
       }
 
-      SimpleCrypto._log(
-        '🔍 TEST: ✅ Bidirectional Encryption - Round trip successful',
+      _log(
+        '🔍 TEST: ✅ Bidirectional Encryption - Contact encrypt/decrypt round trip successful',
       );
       return {
         'success': true,
-        'details': 'Bidirectional encryption/decryption working correctly',
+        'details':
+            'Contact-targeted encryption/decryption round trip functional',
         'testName': 'Bidirectional Encryption',
       };
     } catch (e) {
-      SimpleCrypto._log('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
+      _log('🔍 TEST: ❌ Bidirectional Encryption failed: $e');
       return {
         'success': false,
         'error': e.toString(),
