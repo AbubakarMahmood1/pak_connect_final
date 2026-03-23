@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_pairing_state_manager.dart';
-import '../../domain/services/conversation_crypto_service.dart';
-import '../../domain/services/signing_crypto_service.dart';
 import '../../domain/models/security_level.dart';
+import '../../domain/services/pairing_crypto_service.dart';
 import '../widgets/pairing_dialog.dart';
 import '../../domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -45,6 +44,7 @@ class ChatPairingDialogController {
   final IPairingStateManager stateManager;
   final IConnectionService connectionService;
   final IContactRepository contactRepository;
+  final PairingCryptoService _pairingCrypto;
   final BuildContext context;
   final NavigatorState navigator;
   final String? Function() getTheirPersistentKey;
@@ -65,11 +65,17 @@ class ChatPairingDialogController {
     required this.context,
     required this.navigator,
     required this.getTheirPersistentKey,
+    PairingCryptoService? pairingCryptoService,
     this.onPairingCompleted,
     this.onAsymmetricContact,
     this.onPairingError,
     this.onPairingSuccess,
-  });
+  }) : _pairingCrypto =
+           pairingCryptoService ??
+           PairingCryptoService(
+             logger: _logger,
+             contactRepository: contactRepository,
+           );
 
   /// User requested pairing dialog
   ///
@@ -254,18 +260,10 @@ class ChatPairingDialogController {
       await contactRepository.markContactVerified(userId.value);
 
       // Compute and cache ECDH shared secret
-      final sharedSecret = SigningCryptoService.computeSharedSecret(
+      final sharedSecret = await _pairingCrypto.computeAndCacheSharedSecret(
         userId.value,
       );
       if (sharedSecret != null) {
-        await contactRepository.cacheSharedSecret(userId.value, sharedSecret);
-
-        // Restore it in the conversation crypto lane for immediate use.
-        await ConversationCryptoService.restoreConversationKey(
-          userId.value,
-          sharedSecret,
-        );
-
         _logger.info('🔐 Cached ECDH shared secret for: $displayName');
       }
 

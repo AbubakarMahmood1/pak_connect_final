@@ -4,7 +4,7 @@ import '../../domain/models/identity_session_state.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
-import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
+import 'package:pak_connect/domain/services/pairing_crypto_service.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -17,15 +17,22 @@ class PairingFailureHandler {
     required ContactRepository contactRepository,
     required Map<String, String> conversationKeys,
     ISecurityService? securityService,
+    PairingCryptoService? pairingCryptoService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
-       _conversationKeys = conversationKeys,
-       _securityService = securityService;
+       _securityService = securityService,
+       _pairingCrypto =
+           pairingCryptoService ??
+           PairingCryptoService(
+             logger: logger,
+             contactRepository: contactRepository,
+             runtimeConversationSecrets: conversationKeys,
+           );
 
   final Logger _logger;
   final ContactRepository _contactRepository;
-  final Map<String, String> _conversationKeys;
   final ISecurityService? _securityService;
+  final PairingCryptoService _pairingCrypto;
 
   ISecurityService get _resolvedSecurityService =>
       _securityService ?? SecurityServiceLocator.resolveService();
@@ -63,11 +70,7 @@ class PairingFailureHandler {
 
     onPairingCancelled?.call();
 
-    for (final id in idsToClear) {
-      _conversationKeys.remove(id);
-      ConversationCryptoService.clearConversationKey(id);
-      await _contactRepository.clearCachedSecrets(id);
-    }
+    await _pairingCrypto.clearConversationState(idsToClear);
 
     if (theirPersistentKey != null) {
       try {

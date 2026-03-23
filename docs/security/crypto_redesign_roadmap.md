@@ -181,6 +181,8 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     deprecated wrapper tracking only
   - `ConversationCryptoService`: pairing/session conversation payload helpers
   - `ContactCryptoService`: contact-targeted ECDH payload helpers
+  - `PairingCryptoService`: pairing/shared-secret lifecycle, cache restore,
+    and contact-upgrade crypto orchestration
   - `SigningCryptoService`: signing and shared-secret derivation
 - Active outbound encryption selection no longer uses `global` as a normal
   send mode. If no live method is available, outbound fails closed.
@@ -190,6 +192,10 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Repo guardrails now enforce that new runtime `lib/**` code does not add fresh
   direct `SimpleCrypto.` call sites outside the compatibility facade and its
   self-test helper.
+- Pairing/contact-upgrade flows now route shared-secret caching and runtime
+  conversation-key restore through `PairingCryptoService` instead of directly
+  mixing `ConversationCryptoService` and `SigningCryptoService` calls inside
+  controllers.
 
 ---
 

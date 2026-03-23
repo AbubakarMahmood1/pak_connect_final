@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import '../../domain/models/protocol_message.dart';
-import '../../domain/services/conversation_crypto_service.dart';
-import '../../domain/services/signing_crypto_service.dart';
+import '../../domain/services/pairing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/models/security_level.dart';
@@ -21,13 +20,20 @@ class ContactStatusSyncController {
     this.onContactRequestCompleted,
     this.onSendContactStatus,
     Duration statusCooldown = const Duration(seconds: 2),
+    PairingCryptoService? pairingCryptoService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
        _getMyPersistentId = myPersistentIdProvider,
        _weHaveThemAsContact = weHaveThemAsContactProvider,
        _currentSessionId = currentSessionIdProvider,
        _triggerMutualConsentPrompt = triggerMutualConsentPrompt,
-       _statusCooldownDuration = statusCooldown;
+       _statusCooldownDuration = statusCooldown,
+       _pairingCrypto =
+           pairingCryptoService ??
+           PairingCryptoService(
+             logger: logger,
+             contactRepository: contactRepository,
+           );
 
   final Logger _logger;
   final ContactRepository _contactRepository;
@@ -35,6 +41,7 @@ class ContactStatusSyncController {
   final Future<bool> Function() _weHaveThemAsContact;
   final String? Function() _currentSessionId;
   final void Function(String theirPublicKey) _triggerMutualConsentPrompt;
+  final PairingCryptoService _pairingCrypto;
 
   Function(String, String)? onAsymmetricContactDetected;
   Function(bool)? onContactRequestCompleted;
@@ -264,20 +271,16 @@ class ContactStatusSyncController {
       );
 
       if (existingSecret == null) {
-        final sharedSecret = SigningCryptoService.computeSharedSecret(
+        final sharedSecret = await _pairingCrypto.computeAndCacheSharedSecret(
           theirPublicKey,
         );
         if (sharedSecret != null) {
-          await _contactRepository.cacheSharedSecret(
-            theirPublicKey,
-            sharedSecret,
-          );
-          await ConversationCryptoService.restoreConversationKey(
-            theirPublicKey,
-            sharedSecret,
-          );
           _logger.info('📱 ECDH secret computed for mutual contact');
         }
+      } else if (!_pairingCrypto.hasConversationKey(theirPublicKey)) {
+        await _pairingCrypto.restoreConversationFromCachedSecret(
+          theirPublicKey,
+        );
       }
 
       final currentLevel = await _contactRepository.getContactSecurityLevel(

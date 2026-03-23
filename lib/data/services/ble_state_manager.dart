@@ -5,8 +5,8 @@ import 'package:pak_connect/domain/interfaces/i_pairing_state_manager.dart';
 import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../data/repositories/user_preferences.dart';
-import '../../domain/services/conversation_crypto_service.dart';
 import '../../domain/services/legacy_payload_compat_service.dart';
+import '../../domain/services/pairing_crypto_service.dart';
 import '../../domain/services/signing_crypto_service.dart';
 import '../../domain/models/protocol_message.dart';
 import '../../domain/models/security_level.dart';
@@ -94,6 +94,7 @@ class BLEStateManager implements IPairingStateManager {
   late final ContactStatusSyncController _contactStatusSyncController;
   late final ContactRequestController _contactRequestController;
   late final PairingFlowController _pairingController;
+  late final PairingCryptoService _pairingCrypto;
   late final _BleStateManagerSessionHelper _sessionHelper =
       _BleStateManagerSessionHelper(this);
 
@@ -185,6 +186,11 @@ class BLEStateManager implements IPairingStateManager {
 
   BLEStateManager({IIdentityManager? identityManager})
     : _identityManager = identityManager {
+    _pairingCrypto = PairingCryptoService(
+      logger: _logger,
+      contactRepository: _contactRepository,
+      runtimeConversationSecrets: _conversationKeys,
+    );
     _contactStatusSyncController = ContactStatusSyncController(
       logger: _logger,
       contactRepository: _contactRepository,
@@ -196,6 +202,7 @@ class BLEStateManager implements IPairingStateManager {
       },
       currentSessionIdProvider: () => _currentSessionId,
       triggerMutualConsentPrompt: _triggerMutualConsentPrompt,
+      pairingCryptoService: _pairingCrypto,
     );
     _contactRequestController = ContactRequestController(
       logger: _logger,
@@ -226,6 +233,7 @@ class BLEStateManager implements IPairingStateManager {
             contactName: contactName,
           ),
       identityManager: _identityManager,
+      pairingCryptoService: _pairingCrypto,
     );
     _pairingController = PairingFlowController(
       logger: _logger,
@@ -236,6 +244,7 @@ class BLEStateManager implements IPairingStateManager {
       myUserNameProvider: () => _myUserName,
       otherUserNameProvider: () => _otherUserName,
       pairingLifecycleService: pairingLifecycleService,
+      pairingCryptoService: _pairingCrypto,
     );
   }
 
@@ -684,25 +693,13 @@ class BLEStateManager implements IPairingStateManager {
 
   Future<bool> checkExistingPairing(String publicKey) async {
     try {
-      // Check if we have a cached shared secret for this contact
-      final cachedSecret = await _contactRepository.getCachedSharedSecret(
+      final restored = await _pairingCrypto.restoreConversationFromCachedSecret(
         publicKey,
       );
-
-      if (cachedSecret != null) {
+      if (restored) {
         _logger.info(
           'Found cached pairing/ECDH secret for ${publicKey.shortId(8)}...',
         );
-
-        // Restore it in the conversation crypto lane
-        await ConversationCryptoService.restoreConversationKey(
-          publicKey,
-          cachedSecret,
-        );
-
-        // Update local cache
-        _conversationKeys[publicKey] = cachedSecret;
-
         return true;
       }
 

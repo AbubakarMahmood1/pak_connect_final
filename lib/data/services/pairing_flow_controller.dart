@@ -5,9 +5,8 @@ import 'package:pak_connect/domain/models/pairing_state.dart';
 import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
 import '../../domain/models/security_level.dart';
-import '../../domain/services/conversation_crypto_service.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
-import '../../domain/services/signing_crypto_service.dart';
+import '../../domain/services/pairing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'pairing_lifecycle_service.dart';
 import 'pairing_service.dart';
@@ -32,24 +31,32 @@ class PairingFlowController {
     PairingFailureHandler? pairingFailureHandler,
     PairingRequestCoordinator? pairingRequestCoordinator,
     PairingUiOrchestrator? pairingUiOrchestrator,
+    PairingCryptoService? pairingCryptoService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
        _identityState = identityState,
-       _conversationKeys = conversationKeys,
        _getMyPersistentId = myPersistentIdProvider,
        _myUserName = myUserNameProvider,
        _otherUserName = otherUserNameProvider,
        _pairingLifecycle = pairingLifecycleService,
-       _pairingFailureHandler =
-           pairingFailureHandler ??
-           PairingFailureHandler(
-             logger: logger,
-             contactRepository: contactRepository,
-             conversationKeys: conversationKeys,
-           ),
        _pairingRequestCoordinator = pairingRequestCoordinator,
        _pairingUiOrchestrator =
            pairingUiOrchestrator ?? PairingUiOrchestrator(logger: logger) {
+    _pairingCrypto =
+        pairingCryptoService ??
+        PairingCryptoService(
+          logger: logger,
+          contactRepository: contactRepository,
+          runtimeConversationSecrets: conversationKeys,
+        );
+    _pairingFailureHandler =
+        pairingFailureHandler ??
+        PairingFailureHandler(
+          logger: logger,
+          contactRepository: contactRepository,
+          conversationKeys: conversationKeys,
+          pairingCryptoService: _pairingCrypto,
+        );
     _pairingService =
         pairingService ??
         PairingService(
@@ -69,12 +76,12 @@ class PairingFlowController {
   final Logger _logger;
   final ContactRepository _contactRepository;
   final IdentitySessionState _identityState;
-  final Map<String, String> _conversationKeys;
   final Future<String> Function() _getMyPersistentId;
   final String? Function() _myUserName;
   final String? Function() _otherUserName;
   final PairingLifecycleService _pairingLifecycle;
-  final PairingFailureHandler _pairingFailureHandler;
+  late final PairingCryptoService _pairingCrypto;
+  late final PairingFailureHandler _pairingFailureHandler;
   PairingRequestCoordinator? _pairingRequestCoordinator;
   final PairingUiOrchestrator _pairingUiOrchestrator;
 
@@ -217,7 +224,7 @@ class PairingFlowController {
       return;
     }
 
-    if (ConversationCryptoService.hasConversationKey(userId.value)) {
+    if (_pairingCrypto.hasConversationKey(userId.value)) {
       _logger.info('✅ Contact already has maximum security (ECDH + Pairing)');
       return;
     }
@@ -226,20 +233,17 @@ class PairingFlowController {
       '🔐 Creating pairing key for contact to enable enhanced security',
     );
 
-    final cachedSecret = await _contactRepository.getCachedSharedSecret(
-      userId.value,
-    );
-    if (cachedSecret != null) {
-      final myId = await _getMyPersistentId();
-      final conversationSeed = cachedSecret + myId + userId.value;
-
-      ConversationCryptoService.initializeConversation(
-        userId.value,
-        conversationSeed,
-      );
-      _conversationKeys[userId.value] = conversationSeed;
-
+    final initialized = await _pairingCrypto
+        .initializePairingConversationFromCachedSecret(
+          contactId: userId.value,
+          myPersistentIdProvider: _getMyPersistentId,
+        );
+    if (initialized) {
       _logger.info('✅ Enhanced security initialized for contact');
+    } else {
+      _logger.info(
+        'ℹ️ No cached pairing secret available for ${_truncateId(userId.value)}',
+      );
     }
   }
 
@@ -349,7 +353,7 @@ class PairingFlowController {
       );
 
       if (success) {
-        ConversationCryptoService.clearConversationKey(userId.value);
+        _pairingCrypto.clearConversationKey(userId.value);
         onContactRequestCompleted?.call(true);
       }
 
@@ -480,23 +484,16 @@ class PairingFlowController {
   ) async {
     switch (level) {
       case SecurityLevel.medium:
-        if (!ConversationCryptoService.hasConversationKey(publicKey)) {
-          final secret = _conversationKeys[publicKey];
-          if (secret != null) {
-            ConversationCryptoService.initializeConversation(publicKey, secret);
-          }
-        }
+        _pairingCrypto.restoreConversationFromRuntimeSecret(publicKey);
         break;
 
       case SecurityLevel.high:
-        final sharedSecret = SigningCryptoService.computeSharedSecret(
+        final sharedSecret = await _pairingCrypto.computeAndCacheSharedSecret(
           publicKey,
         );
         if (sharedSecret != null) {
-          await _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
-          await ConversationCryptoService.restoreConversationKey(
-            publicKey,
-            sharedSecret,
+          _logger.fine(
+            '🔐 Restored high-security pairing lane for ${_truncateId(publicKey)}',
           );
         }
         break;
