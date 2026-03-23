@@ -36,23 +36,13 @@ import '../domain/services/hint_scanner_service.dart';
 import '../domain/entities/message.dart';
 import '../domain/entities/preference_keys.dart';
 import '../domain/interfaces/i_archive_repository.dart';
-import '../domain/interfaces/i_ble_service_facade.dart';
-import '../domain/interfaces/i_ble_service_facade_factory.dart';
-import '../domain/interfaces/i_chat_connection_manager_factory.dart';
 import '../domain/interfaces/i_chats_repository.dart';
 import '../domain/interfaces/i_contact_repository.dart';
 import '../domain/interfaces/i_database_provider.dart';
-import '../domain/interfaces/i_export_service.dart';
-import '../domain/interfaces/i_group_repository.dart';
-import '../domain/interfaces/i_home_screen_facade_factory.dart';
-import '../domain/interfaces/i_import_service.dart';
-import '../domain/interfaces/i_intro_hint_repository.dart';
 import '../domain/interfaces/i_message_repository.dart';
-import '../domain/interfaces/i_mesh_relay_engine_factory.dart';
 import '../domain/interfaces/i_preferences_repository.dart';
 import '../domain/interfaces/i_repository_provider.dart';
 import '../domain/interfaces/i_security_service.dart';
-import '../domain/interfaces/i_seen_message_store.dart';
 import '../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -108,10 +98,21 @@ class AppCore {
   Stream<AppStatus>? _statusStream;
   final Set<void Function(AppStatus)> _statusListeners = {};
   AppServices? _services;
+  AppBootstrapServices? _bootstrapServices;
   @visibleForTesting
   static Future<void> Function()? initializationOverride;
   AppCore._();
   factory AppCore() => instance;
+
+  AppBootstrapServices get _bootstrap {
+    final services = _bootstrapServices;
+    if (services == null) {
+      throw StateError(
+        'App bootstrap services are not available before DI initialization.',
+      );
+    }
+    return services;
+  }
 
   /// Get singleton instance
   static AppCore get instance {
@@ -206,11 +207,12 @@ class AppCore {
       // Setup dependency injection container
       _logger.info('🏗️ Setting up DI container...');
       await setupServiceLocator();
+      _bootstrapServices = resolveAppBootstrapServices();
       _logger.info('✅ DI container setup complete');
       if (_shouldAbortInitialization('dependency injection setup')) return;
 
       // Load kill switches before bringing up subsystems.
-      final prefsRepo = getIt.get<IPreferencesRepository>();
+      final prefsRepo = _bootstrap.preferencesRepository;
       await KillSwitches.load(
         getBool: (key, {defaultValue = false}) =>
             prefsRepo.getBool(key, defaultValue: defaultValue),
@@ -228,7 +230,7 @@ class AppCore {
 
       // Initialize seen message store after database setup
       _logger.info('👀 Initializing SeenMessageStore...');
-      final seenMessageStore = getIt.get<ISeenMessageStore>();
+      final seenMessageStore = _bootstrap.seenMessageStore;
       await seenMessageStore.initialize();
       MeshRelayEngine.configureDependencyResolvers(
         seenMessageStoreResolver: () => seenMessageStore,
@@ -297,10 +299,7 @@ class AppCore {
       if (_shouldAbortInitialization('integrated system startup')) return;
 
       _services = _buildAppServices();
-      if (getIt.isRegistered<AppServices>()) {
-        getIt.unregister<AppServices>();
-      }
-      getIt.registerSingleton<AppServices>(_services!);
+      publishAppServices(_services!);
 
       _isInitialized = true;
       _initializationTime = DateTime.now();
@@ -342,7 +341,7 @@ class AppCore {
   Future<void> _initializeRepositories() async {
     // Initialize database first to ensure it's ready
     _logger.info('Initializing database...');
-    final databaseProvider = getIt.get<IDatabaseProvider>();
+    final databaseProvider = _bootstrap.databaseProvider;
     await databaseProvider.database;
     _logger.info('Database initialized successfully');
 
@@ -351,12 +350,12 @@ class AppCore {
     QueuePersistenceManager.configureDefaultDatabaseProvider(databaseProvider);
 
     // Initialize repositories
-    contactRepository = getIt.get<IContactRepository>();
-    messageRepository = getIt.get<IMessageRepository>();
-    userPreferences = getIt.get<IUserPreferences>();
-    archiveRepository = getIt.get<IArchiveRepository>();
-    chatsRepository = getIt.get<IChatsRepository>();
-    preferencesRepository = getIt.get<IPreferencesRepository>();
+    contactRepository = _bootstrap.contactRepository;
+    messageRepository = _bootstrap.messageRepository;
+    userPreferences = _bootstrap.userPreferences;
+    archiveRepository = _bootstrap.archiveRepository;
+    chatsRepository = _bootstrap.chatsRepository;
+    preferencesRepository = _bootstrap.preferencesRepository;
     MessageRouter.configureDependencyResolvers(
       preferencesRepositoryResolver: () => preferencesRepository,
       userPreferencesResolver: () => userPreferences,
@@ -378,7 +377,7 @@ class AppCore {
       archiveRepositoryResolver: () => archiveRepository,
     );
 
-    repositoryProvider = getIt.get<IRepositoryProvider>();
+    repositoryProvider = _bootstrap.repositoryProvider;
     OfflineMessageQueue.configureDefaultRepositoryProvider(repositoryProvider);
     HintScannerService.configureRepositoryProvider(repositoryProvider);
     HandshakeCoordinator.configureRepositoryProviderResolver(
@@ -540,14 +539,13 @@ class AppCore {
     _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
 
     try {
-      final bleFacade = getIt.isRegistered<IBLEServiceFacade>()
-          ? getIt.get<IBLEServiceFacade>()
-          : getIt.get<IBLEServiceFacadeFactory>().create();
+      final bleFacade =
+          _bootstrap.bleServiceFacade ?? _bootstrap.bleServiceFacadeFactory.create();
       final connectionService = bleFacade as IConnectionService;
       MeshRelayEngine.configureDependencyResolvers(
         persistentIdResolver: () => connectionService.myPersistentId,
       );
-      sharedMessageQueueProvider = getIt.get<ISharedMessageQueueProvider>();
+      sharedMessageQueueProvider = _bootstrap.sharedMessageQueueProvider;
       final sharedQueueProvider = sharedMessageQueueProvider;
       MessageRouter.configureQueueFactories(
         standaloneQueueFactory: () => OfflineMessageQueue(),
@@ -586,7 +584,7 @@ class AppCore {
         repositoryProvider: repositoryProvider,
         sharedQueueProvider: sharedQueueProvider,
         relayEngineFactory: (queue, spam) =>
-            getIt.get<IMeshRelayEngineFactory>().create(
+            _bootstrap.meshRelayEngineFactory.create(
               messageQueue: queue,
               spamPrevention: spam,
               forceFloodMode: false,
@@ -620,7 +618,7 @@ class AppCore {
   /// using the [IDatabaseProvider] for raw SQL queries against the change_log
   /// and queue_sync_state tables.
   void _wireChangeLogSync(MeshNetworkingService meshService) {
-    final databaseProvider = getIt.get<IDatabaseProvider>();
+    final databaseProvider = _bootstrap.databaseProvider;
 
     meshService.configureChangeLogSync(
       onQueryChangeLogSince: (int sinceCursorId) async {
@@ -878,15 +876,7 @@ class AppCore {
   }
 
   AppServices _buildAppServices() {
-    return AppServices(
-      contactRepository: contactRepository,
-      messageRepository: messageRepository,
-      archiveRepository: archiveRepository,
-      chatsRepository: chatsRepository,
-      userPreferences: userPreferences,
-      preferencesRepository: preferencesRepository,
-      repositoryProvider: repositoryProvider,
-      sharedMessageQueueProvider: sharedMessageQueueProvider,
+    return _bootstrap.buildRuntimeSnapshot(
       connectionService: bleService,
       meshNetworkingService: meshNetworkingService,
       meshNetworkHealthMonitor: meshNetworkingService.healthMonitor,
@@ -895,15 +885,6 @@ class AppCore {
       chatManagementService: chatService,
       archiveManagementService: archiveManagementService,
       archiveSearchService: archiveSearchService,
-      databaseProvider: maybeResolveRegistered<IDatabaseProvider>(),
-      groupRepository: maybeResolveRegistered<IGroupRepository>(),
-      introHintRepository: maybeResolveRegistered<IIntroHintRepository>(),
-      exportService: maybeResolveRegistered<IExportService>(),
-      importService: maybeResolveRegistered<IImportService>(),
-      homeScreenFacadeFactory:
-          maybeResolveRegistered<IHomeScreenFacadeFactory>(),
-      chatConnectionManagerFactory:
-          maybeResolveRegistered<IChatConnectionManagerFactory>(),
     );
   }
 
@@ -1147,9 +1128,8 @@ class AppCore {
       ArchiveManagementService.clearArchiveRepositoryResolver();
       ArchiveSearchService.clearArchiveRepositoryResolver();
       ChatManagementService.clearDependencyResolvers();
-      if (getIt.isRegistered<AppServices>()) {
-        getIt.unregister<AppServices>();
-      }
+      clearPublishedAppServices();
+      _bootstrapServices = null;
       _services = null;
 
       try {

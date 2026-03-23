@@ -1,6 +1,9 @@
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_chat_list_coordinator_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
@@ -10,10 +13,12 @@ import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart'
 import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/services/archive_management_service.dart';
@@ -21,6 +26,94 @@ import 'package:pak_connect/domain/services/archive_search_service.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/contact_management_service.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
+
+/// Typed bootstrap dependency bundle resolved from the legacy runtime locator.
+///
+/// `AppCore` uses this during startup so the remaining locator reads stay
+/// centralized and mechanically replaceable ahead of full GetIt removal.
+class AppBootstrapServices {
+  const AppBootstrapServices({
+    required this.contactRepository,
+    required this.messageRepository,
+    required this.archiveRepository,
+    required this.chatsRepository,
+    required this.userPreferences,
+    required this.preferencesRepository,
+    required this.repositoryProvider,
+    required this.sharedMessageQueueProvider,
+    required this.databaseProvider,
+    required this.seenMessageStore,
+    required this.bleServiceFacadeFactory,
+    required this.meshRelayEngineFactory,
+    this.bleServiceFacade,
+    this.groupRepository,
+    this.introHintRepository,
+    this.exportService,
+    this.importService,
+    this.homeScreenFacadeFactory,
+    this.chatConnectionManagerFactory,
+    this.chatListCoordinatorFactory,
+  });
+
+  final IContactRepository contactRepository;
+  final IMessageRepository messageRepository;
+  final IArchiveRepository archiveRepository;
+  final IChatsRepository chatsRepository;
+  final IUserPreferences userPreferences;
+  final IPreferencesRepository preferencesRepository;
+  final IRepositoryProvider repositoryProvider;
+  final ISharedMessageQueueProvider sharedMessageQueueProvider;
+  final IDatabaseProvider databaseProvider;
+  final ISeenMessageStore seenMessageStore;
+  final IBLEServiceFacadeFactory bleServiceFacadeFactory;
+  final IMeshRelayEngineFactory meshRelayEngineFactory;
+  final IBLEServiceFacade? bleServiceFacade;
+  final IGroupRepository? groupRepository;
+  final IIntroHintRepository? introHintRepository;
+  final IExportService? exportService;
+  final IImportService? importService;
+  final IHomeScreenFacadeFactory? homeScreenFacadeFactory;
+  final IChatConnectionManagerFactory? chatConnectionManagerFactory;
+  final IChatListCoordinatorFactory? chatListCoordinatorFactory;
+
+  AppServices buildRuntimeSnapshot({
+    required IConnectionService connectionService,
+    required IMeshNetworkingService meshNetworkingService,
+    required MeshNetworkHealthMonitor meshNetworkHealthMonitor,
+    required ISecurityService securityService,
+    required ContactManagementService contactManagementService,
+    required ChatManagementService chatManagementService,
+    required ArchiveManagementService archiveManagementService,
+    required ArchiveSearchService archiveSearchService,
+  }) {
+    return AppServices(
+      contactRepository: contactRepository,
+      messageRepository: messageRepository,
+      archiveRepository: archiveRepository,
+      chatsRepository: chatsRepository,
+      userPreferences: userPreferences,
+      preferencesRepository: preferencesRepository,
+      repositoryProvider: repositoryProvider,
+      sharedMessageQueueProvider: sharedMessageQueueProvider,
+      connectionService: connectionService,
+      meshNetworkingService: meshNetworkingService,
+      meshNetworkHealthMonitor: meshNetworkHealthMonitor,
+      securityService: securityService,
+      contactManagementService: contactManagementService,
+      chatManagementService: chatManagementService,
+      archiveManagementService: archiveManagementService,
+      archiveSearchService: archiveSearchService,
+      databaseProvider: databaseProvider,
+      groupRepository: groupRepository,
+      introHintRepository: introHintRepository,
+      exportService: exportService,
+      importService: importService,
+      homeScreenFacadeFactory: homeScreenFacadeFactory,
+      chatConnectionManagerFactory: chatConnectionManagerFactory,
+      chatListCoordinatorFactory: chatListCoordinatorFactory,
+    );
+  }
+}
 
 /// Typed composition-root snapshot exposed by [AppCore].
 ///
@@ -51,6 +144,7 @@ class AppServices {
     this.importService,
     this.homeScreenFacadeFactory,
     this.chatConnectionManagerFactory,
+    this.chatListCoordinatorFactory,
   });
 
   final IContactRepository contactRepository;
@@ -76,4 +170,5 @@ class AppServices {
   final IImportService? importService;
   final IHomeScreenFacadeFactory? homeScreenFacadeFactory;
   final IChatConnectionManagerFactory? chatConnectionManagerFactory;
+  final IChatListCoordinatorFactory? chatListCoordinatorFactory;
 }

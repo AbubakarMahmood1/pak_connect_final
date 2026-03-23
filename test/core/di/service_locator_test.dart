@@ -1,7 +1,25 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/core/di/app_services.dart';
 import 'package:pak_connect/core/di/service_locator.dart';
 import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_service_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
+import 'package:pak_connect/domain/services/archive_management_service.dart';
+import 'package:pak_connect/domain/services/archive_search_service.dart';
+import 'package:pak_connect/domain/services/chat_management_service.dart';
+import 'package:pak_connect/domain/services/contact_management_service.dart';
+import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 
 /// Tests for dependency injection setup
 ///
@@ -196,6 +214,102 @@ void main() {
         expect(isRegistered, isNotNull);
         expect(getIt, isNotNull);
         expect(useDi, isNotNull);
+        expect(resolveAppBootstrapServices, isNotNull);
+        expect(publishAppServices, isNotNull);
+        expect(clearPublishedAppServices, isNotNull);
+      });
+    });
+
+    group('Typed Composition Snapshots', () {
+      test(
+        'resolveAppBootstrapServices returns required bootstrap bundle',
+        () async {
+        await setupServiceLocator();
+
+        final bootstrap = resolveAppBootstrapServices();
+
+        expect(
+          bootstrap.contactRepository,
+          same(resolveRegistered<IContactRepository>()),
+        );
+        expect(
+          bootstrap.messageRepository,
+          same(resolveRegistered<IMessageRepository>()),
+        );
+        expect(
+          bootstrap.archiveRepository,
+          same(resolveRegistered<IArchiveRepository>()),
+        );
+        expect(
+          bootstrap.chatsRepository,
+          same(resolveRegistered<IChatsRepository>()),
+        );
+        expect(
+          bootstrap.preferencesRepository,
+          same(resolveRegistered<IPreferencesRepository>()),
+        );
+        expect(
+          bootstrap.sharedMessageQueueProvider,
+          same(resolveRegistered<ISharedMessageQueueProvider>()),
+        );
+        expect(
+          bootstrap.seenMessageStore,
+          same(resolveRegistered<ISeenMessageStore>()),
+        );
+        expect(
+          bootstrap.bleServiceFacadeFactory,
+          same(resolveRegistered<IBLEServiceFacadeFactory>()),
+        );
+        expect(
+          bootstrap.meshRelayEngineFactory,
+          same(resolveRegistered<IMeshRelayEngineFactory>()),
+        );
+        expect(bootstrap.homeScreenFacadeFactory, isNotNull);
+        expect(bootstrap.chatConnectionManagerFactory, isNotNull);
+        expect(bootstrap.chatListCoordinatorFactory, isNotNull);
+      },
+      );
+
+      test('publishAppServices registers and clears runtime snapshot', () async {
+        await setupServiceLocator();
+        final bootstrap = resolveAppBootstrapServices();
+
+        final archiveManagementService =
+            ArchiveManagementService.withDependencies(
+              archiveRepository: bootstrap.archiveRepository,
+            );
+        final archiveSearchService = ArchiveSearchService.withDependencies(
+          archiveRepository: bootstrap.archiveRepository,
+        );
+        final contactManagementService =
+            ContactManagementService.withDependencies(
+              contactRepository: bootstrap.contactRepository,
+              messageRepository: bootstrap.messageRepository,
+            );
+        final chatManagementService = ChatManagementService.withDependencies(
+          chatsRepository: bootstrap.chatsRepository,
+          messageRepository: bootstrap.messageRepository,
+          archiveRepository: bootstrap.archiveRepository,
+          archiveManagementService: archiveManagementService,
+          archiveSearchService: archiveSearchService,
+        );
+
+        final snapshot = bootstrap.buildRuntimeSnapshot(
+          connectionService: _FakeConnectionService(),
+          meshNetworkingService: _FakeMeshNetworkingService(),
+          meshNetworkHealthMonitor: MeshNetworkHealthMonitor(),
+          securityService: _FakeSecurityService(),
+          contactManagementService: contactManagementService,
+          chatManagementService: chatManagementService,
+          archiveManagementService: archiveManagementService,
+          archiveSearchService: archiveSearchService,
+        );
+
+        publishAppServices(snapshot);
+        expect(resolveRegistered<AppServices>(), same(snapshot));
+
+        clearPublishedAppServices();
+        expect(maybeResolveRegistered<AppServices>(), isNull);
       });
     });
 
@@ -261,4 +375,19 @@ void main() {
       });
     });
   });
+}
+
+class _FakeConnectionService implements IConnectionService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeMeshNetworkingService implements IMeshNetworkingService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeSecurityService implements ISecurityService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
 }
