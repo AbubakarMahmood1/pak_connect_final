@@ -19,7 +19,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
@@ -484,7 +484,7 @@ void main() {
     });
 
     test('resolves from GetIt when registered', () async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       await locator.reset();
       final fake = _FakeMeshService();
       locator.registerSingleton<IMeshNetworkingService>(fake);
@@ -505,7 +505,7 @@ void main() {
     });
 
     test('throws when not registered — loading bootstrap', () async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       await locator.reset();
       addTearDown(() => locator.reset());
 
@@ -530,7 +530,7 @@ void main() {
     });
 
     test('throws when not registered — ready bootstrap', () async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       await locator.reset();
       addTearDown(() => locator.reset());
 

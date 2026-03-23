@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_export_service.dart';
 import 'package:pak_connect/domain/models/export_bundle.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart'
@@ -94,16 +94,16 @@ Future<void> _enterMatchingPassphrases(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final getIt = GetIt.instance;
+  final locator = getIt;
   late _FakeExportService exportService;
   late Directory tempDir;
   late File bundleFile;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
     exportService = _FakeExportService();
-    getIt.registerSingleton<IExportService>(exportService);
+    locator.registerSingleton<IExportService>(exportService);
 
     tempDir = await Directory.systemTemp.createTemp('export_dialog_test_');
     bundleFile = File(
@@ -112,7 +112,7 @@ void main() {
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

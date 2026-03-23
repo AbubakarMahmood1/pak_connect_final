@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/models/export_bundle.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart'
@@ -133,17 +133,17 @@ Future<void> _pumpImportDialog(WidgetTester tester) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final getIt = GetIt.instance;
+  final locator = getIt;
   late _FakeImportService importService;
   late _FakeFilePicker filePicker;
   late Directory tempDir;
   late File backupFile;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
     importService = _FakeImportService();
-    getIt.registerSingleton<IImportService>(importService);
+    locator.registerSingleton<IImportService>(importService);
 
     filePicker = _FakeFilePicker();
     FilePicker.platform = filePicker;
@@ -162,7 +162,7 @@ void main() {
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
     if (tempDir.existsSync()) {
       tempDir.deleteSync(recursive: true);

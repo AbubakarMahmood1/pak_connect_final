@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/di/app_services.dart';
 import 'package:pak_connect/core/di/service_locator.dart' as di_service_locator;
@@ -120,8 +120,8 @@ class TestSetup {
     await resetDIServiceLocator();
     di_service_locator.configureDataLayerRegistrar(registerDataLayerServices);
     await di_service_locator.setupServiceLocator();
-    _configureDefaultDependenciesFromLocator(GetIt.instance);
-    _registerAppServicesSnapshot(GetIt.instance);
+    _configureDefaultDependenciesFromLocator(getIt);
+    _registerAppServicesSnapshot(getIt);
 
     if (configureDiWithMocks) {
       await configureTestDI(
@@ -164,7 +164,7 @@ class TestSetup {
     IDatabaseProvider? databaseProvider,
     bool resetGraph = false,
   }) async {
-    final locator = GetIt.instance;
+    final locator = getIt;
 
     // Detect if no overrides were provided so we can optionally reset to a clean graph
     final noOverridesProvided =
@@ -332,7 +332,7 @@ class TestSetup {
     resetSharedPreferences();
   }
 
-  static T getService<T extends Object>() => GetIt.instance<T>();
+  static T getService<T extends Object>() => getIt<T>();
 
   static String readProjectFile(String relativePath) {
     final file = File(relativePath);

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -160,12 +160,12 @@ Future<void> _scrollUntilVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   late _FakeUserPreferences userPreferences;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
 
     userPreferences = _FakeUserPreferences(
@@ -173,21 +173,21 @@ void main() {
       name: 'Alice',
     );
 
-    getIt.registerSingleton<IUserPreferences>(userPreferences);
-    getIt.registerSingleton<IContactRepository>(
+    locator.registerSingleton<IUserPreferences>(userPreferences);
+    locator.registerSingleton<IContactRepository>(
       _FakeContactRepository(contactCount: 4, verified: 2),
     );
-    getIt.registerSingleton<IChatsRepository>(
+    locator.registerSingleton<IChatsRepository>(
       _FakeChatsRepository(chatCount: 3, messageCount: 12),
     );
-    getIt.registerSingleton<IArchiveRepository>(
+    locator.registerSingleton<IArchiveRepository>(
       _FakeArchiveRepository(archivedCount: 1),
     );
-    getIt.registerSingleton<IDatabaseProvider>(_FakeDatabaseProvider('5.50'));
+    locator.registerSingleton<IDatabaseProvider>(_FakeDatabaseProvider('5.50'));
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 

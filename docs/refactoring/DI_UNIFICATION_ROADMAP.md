@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-03-24 (explicit runtime composition checkpoint)
+**Last Updated**: 2026-03-24 (checkpoint 7 final cleanup)
 
 ---
 
@@ -32,9 +32,12 @@
 
 ---
 
-## Latest Snapshot (Pass 7 Current)
+## Latest Snapshot (Historical Pass 7 Baseline)
 
 Source: `validation_outputs/di_pass7_snapshot.json`
+
+This snapshot predates the final registry cleanup completed on 2026-03-24.
+Use the checkpoint notes below for the current end state.
 
 - `GetIt` resolutions in `lib/**`: 43
 - `.instance` usages in `lib/**`: 24
@@ -278,6 +281,22 @@ Pass 7 progress highlights:
 - Test harness snapshot wiring now mirrors production by publishing
   `AppServices` through the runtime registry instead of stuffing snapshots
   into `GetIt`.
+
+2026-03-24 final cleanup checkpoint:
+
+- `lib/core/di/service_locator.dart` now uses an internal `ServiceRegistry`
+  implementation; production code no longer imports `package:get_it/get_it.dart`.
+- The repo no longer declares `get_it` in `pubspec.yaml`; lockfile and package
+  graph were refreshed after removal.
+- Test suites now use `test/test_helpers/test_service_registry.dart` instead of
+  importing `get_it` directly, preserving layer-boundary compliance while
+  keeping the registry API stable during the final transition.
+- Bootstrap/data registration remains centralized in `service_locator.dart`,
+  while runtime `AppServices` and live service bindings stay in
+  `AppRuntimeServicesRegistry`.
+- Guardrails now cover the post-`get_it` state: no direct `get_it` dependency,
+  no presentation-layer locator globals, and no runtime service publication back
+  into the bootstrap registry.
 
 ---
 

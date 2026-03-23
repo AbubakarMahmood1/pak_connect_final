@@ -4,7 +4,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import 'test_helpers/test_service_registry.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/ble_message_handler_facade_impl.dart';
 import 'package:pak_connect/main.dart';
@@ -30,7 +30,7 @@ void main() {
   setUp(() {
     AppCore.resetForTesting();
     AppCore.initializationOverride = () async {};
-    final locator = GetIt.instance;
+    final locator = getIt;
     if (locator.isRegistered<ISharedMessageQueueProvider>()) {
       locator.unregister<ISharedMessageQueueProvider>();
     }
@@ -67,7 +67,7 @@ void main() {
     AppCore.initializationOverride = null;
     AppCore.resetForTesting();
     BLEMessageHandlerFacadeImpl.clearDependencyResolvers();
-    final locator = GetIt.instance;
+    final locator = getIt;
     if (locator.isRegistered<ISharedMessageQueueProvider>()) {
       locator.unregister<ISharedMessageQueueProvider>();
     }

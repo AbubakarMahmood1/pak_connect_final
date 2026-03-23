@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
@@ -208,7 +208,7 @@ GroupMessage _groupMessage({required String id, required String groupId}) {
 }
 
 void main() {
-  final locator = GetIt.instance;
+  final locator = getIt;
 
   void unregisterIfPresent<T extends Object>() {
     if (locator.isRegistered<T>()) {
@@ -402,10 +402,3 @@ void main() {
     });
   });
 }
-
-
-
-
-
-
-

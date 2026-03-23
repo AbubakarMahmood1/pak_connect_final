@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
@@ -365,7 +365,7 @@ SecurityState _showAddContactState() => const SecurityState(
 );
 
 // ============================================================================
-// GetIt REGISTRATION HELPERS
+// Registry helpers
 // ============================================================================
 
 void _registerService<T extends Object>(GetIt locator, T instance) {
@@ -375,7 +375,7 @@ void _registerService<T extends Object>(GetIt locator, T instance) {
   locator.registerSingleton<T>(instance);
 }
 
-void _cleanupGetIt(GetIt locator) {
+void _cleanupRegistry(GetIt locator) {
   if (locator.isRegistered<IMessageRepository>()) {
     locator.unregister<IMessageRepository>();
   }
@@ -400,7 +400,7 @@ Future<void> _pumpChatScreen(
   String contactName = 'Test User',
   String contactPublicKey = 'test-public-key',
 }) async {
-  final locator = GetIt.instance;
+  final locator = getIt;
   final msgRepo = _FakeMessageRepository();
   final contactRepo = _FakeContactRepository();
   final chatsRepo = _FakeChatsRepository();
@@ -463,14 +463,14 @@ Future<void> _pumpChatScreen(
 // ============================================================================
 
 void main() {
-  final locator = GetIt.instance;
+  final locator = getIt;
 
   setUp(() {
     // Clear any stale registrations
   });
 
   tearDown(() {
-    _cleanupGetIt(locator);
+    _cleanupRegistry(locator);
   });
 
   // --------------------------------------------------------------------------
@@ -928,7 +928,7 @@ void main() {
       tester,
     ) async {
       // Override securityStateProvider with a never-completing future
-      final locator = GetIt.instance;
+      final locator = getIt;
       final msgRepo = _FakeMessageRepository();
       final contactRepo = _FakeContactRepository();
       final chatsRepo = _FakeChatsRepository();
@@ -979,7 +979,7 @@ void main() {
     });
 
     testWidgets('shows "Error" when security state fails', (tester) async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       final msgRepo = _FakeMessageRepository();
       final contactRepo = _FakeContactRepository();
       final chatsRepo = _FakeChatsRepository();
@@ -1035,7 +1035,7 @@ void main() {
     testWidgets('shows no action button during security loading', (
       tester,
     ) async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       final msgRepo = _FakeMessageRepository();
       final contactRepo = _FakeContactRepository();
       final chatsRepo = _FakeChatsRepository();
@@ -1277,7 +1277,7 @@ void main() {
     testWidgets('AppBar subtitle uses grey for loading state', (
       tester,
     ) async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       final msgRepo = _FakeMessageRepository();
       final contactRepo = _FakeContactRepository();
       final chatsRepo = _FakeChatsRepository();
@@ -1329,7 +1329,7 @@ void main() {
     });
 
     testWidgets('AppBar subtitle uses red for error state', (tester) async {
-      final locator = GetIt.instance;
+      final locator = getIt;
       final msgRepo = _FakeMessageRepository();
       final contactRepo = _FakeContactRepository();
       final chatsRepo = _FakeChatsRepository();

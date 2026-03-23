@@ -32,7 +32,7 @@ import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 /// Typed bootstrap dependency bundle resolved from the legacy runtime locator.
 ///
 /// `AppCore` uses this during startup so the remaining locator reads stay
-/// centralized and mechanically replaceable ahead of full GetIt removal.
+/// centralized and mechanically replaceable ahead of final DI cleanup.
 class AppBootstrapServices {
   const AppBootstrapServices({
     required this.contactRepository,
@@ -121,7 +121,8 @@ class AppBootstrapServices {
 /// progresses.
 ///
 /// This replaces the previous pattern of publishing initialized runtime
-/// services into GetIt before the full `AppServices` snapshot exists.
+/// services into the runtime registry before the full `AppServices` snapshot
+/// exists.
 class AppRuntimeBindings {
   const AppRuntimeBindings({
     required this.securityService,
@@ -236,7 +237,7 @@ class AppServices {
 }
 
 /// Explicit runtime composition registry used by `AppCore` and the provider
-/// bridge during the GetIt retirement migration.
+/// bridge during the DI retirement migration.
 class AppRuntimeServicesRegistry {
   AppRuntimeServicesRegistry._();
 

@@ -1030,12 +1030,15 @@ void main() {
         expect(testRoot.existsSync(), isTrue, reason: 'test/ should exist');
 
         final violations = <String>[];
-        final allowedCoreImportsByFile = <String, List<String>>{
-          path.normalize('test/data/services/ble_write_adapter_test.dart'): [
-            'package:pak_connect/core/security/noise/primitives/dh_state.dart',
-            'package:pak_connect/core/security/peer_protocol_version_guard.dart',
-          ],
-        };
+          final allowedCoreImportsByFile = <String, List<String>>{
+            path.normalize('test/data/services/ble_write_adapter_test.dart'): [
+              'package:pak_connect/core/security/noise/primitives/dh_state.dart',
+              'package:pak_connect/core/security/peer_protocol_version_guard.dart',
+            ],
+            path.normalize('test/test_helpers/test_service_registry.dart'): [
+              'package:pak_connect/core/di/service_locator.dart',
+            ],
+          };
         bool isAllowedCoreImport(String relativePath, String importLine) {
           final allowPatterns = allowedCoreImportsByFile[relativePath];
           if (allowPatterns == null || allowPatterns.isEmpty) {
