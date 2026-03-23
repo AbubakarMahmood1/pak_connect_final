@@ -12,10 +12,8 @@ This document describes the current, implemented guarantees in this repository.
 - Outbound text and binary send paths call `SecurityManager` encryption first.
 - If encryption is unavailable/fails, send aborts and transport write is not executed.
 
-3. No hardcoded global passphrase in active runtime code
-- Legacy global passphrase is no longer embedded in source.
-- Optional legacy decrypt support now requires runtime define:
-  - `--dart-define=PAKCONNECT_LEGACY_PASSPHRASE=...`
+3. No hardcoded legacy/global passphrase in runtime code
+- Legacy/global compatibility lanes have been removed from active runtime code.
 
 4. No timestamp-based PRNG seeding for cryptographic operations
 - Cryptographic seeding uses `Random.secure()` rather than timestamp-derived seeds.
@@ -29,9 +27,9 @@ This document describes the current, implemented guarantees in this repository.
 1. Desktop/test DBs
 - Desktop/test DB factories may run without SQLCipher; this guarantee targets Android/iOS runtime builds.
 
-2. Legacy archive/global ciphertext migration
-- Legacy payload decrypt requires `PAKCONNECT_LEGACY_PASSPHRASE`.
-- If not provided, legacy payloads are handled safely (no plaintext fallback send), and archive legacy values are returned as-is.
+2. Removed compatibility lanes
+- Legacy archive field decrypt and legacy global payload decrypt are no longer supported.
+- Older data written in those deprecated formats will not be decoded by current runtime code.
 
 ## Verification Artifacts
 

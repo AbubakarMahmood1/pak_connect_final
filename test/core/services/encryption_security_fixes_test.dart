@@ -182,17 +182,16 @@ void main() {
       expect(result, equals(plaintext));
     });
 
-    test('legacy formatted archive payloads are handled gracefully', () {
+    test('legacy formatted archive payloads are left unchanged', () {
       final simulatedLegacy =
           'enc::archive::v1::${base64.encode('legacy test data'.codeUnits)}';
 
       final result = ArchiveCrypto.decryptField(simulatedLegacy);
 
-      expect(result, isNotNull);
-      expect(result, isA<String>());
+      expect(result, equals(simulatedLegacy));
     });
 
-    test('malformed legacy encrypted format is handled gracefully', () {
+    test('malformed legacy encrypted format is left unchanged', () {
       const malformedLegacy = 'enc::archive::v1::invalid_base64!!!';
 
       final result = ArchiveCrypto.decryptField(malformedLegacy);
