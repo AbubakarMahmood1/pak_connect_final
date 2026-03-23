@@ -711,14 +711,14 @@ class OutboundMessageSender {
       case EncryptionType.pairing:
         return 'pairing';
       case EncryptionType.global:
-        return 'global';
+        throw StateError(
+          'Legacy/global outbound encryption is no longer supported',
+        );
     }
   }
 
   bool _isLegacyEncryptionType(EncryptionType type) {
-    return type == EncryptionType.ecdh ||
-        type == EncryptionType.pairing ||
-        type == EncryptionType.global;
+    return type == EncryptionType.ecdh || type == EncryptionType.pairing;
   }
 
   Future<_SealedPayload?> _tryEncryptWithSealedV1({
@@ -891,7 +891,7 @@ class OutboundMessageSender {
       case 'pairing':
         return CryptoMode.legacyPairingV1;
       case 'global':
-        return CryptoMode.legacyGlobalV1;
+        return null;
       case 'none':
         return CryptoMode.none;
       default:

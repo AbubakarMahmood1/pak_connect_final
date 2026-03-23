@@ -357,15 +357,24 @@ void main() {
       );
     });
 
-    test('LOW with global encrypted data decrypts via legacy', () async {
+    test(
+      'LOW with unsupported legacy payload requests resync and fails closed',
+      () async {
       repo.byAnyId['pk-lo'] = _contact(
         key: 'pk-lo',
         trustStatus: TrustStatus.newContact,
         securityLevel: SecurityLevel.low,
       );
-      final encrypted = SimpleCrypto.encodeLegacyPlaintext('low level msg');
-      final dec = await sm.decryptMessage(encrypted, 'pk-lo', repo);
-      expect(dec, 'low level msg');
+      await expectLater(
+        () => sm.decryptMessage('PLAINTEXT:low level msg', 'pk-lo', repo),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('security resync requested'),
+          ),
+        ),
+      );
     });
   });
 
@@ -519,7 +528,7 @@ void main() {
       );
       final originalData = Uint8List.fromList([42, 43, 44]);
       final b64 = base64.encode(originalData);
-      final encryptedString = SimpleCrypto.encodeLegacyPlaintext(b64);
+      final encryptedString = 'PLAINTEXT:$b64';
       final encryptedBytes = Uint8List.fromList(utf8.encode(encryptedString));
       await expectLater(
         () => sm.decryptBinaryPayload(encryptedBytes, 'pk-gbd', repo),
@@ -546,48 +555,26 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // decryptMessageByType — global legacy path
+  // decryptMessageByType — global unsupported path
   // -------------------------------------------------------------------------
-  group('decryptMessageByType — global legacy', () {
-    test('global type decrypts legacy-compatible encrypted data', () async {
-      final encrypted = SimpleCrypto.encodeLegacyPlaintext('legacy msg');
-      final dec = await sm.decryptMessageByType(
-        encrypted,
-        'any-pk-1234567890',
-        repo,
-        EncryptionType.global,
+  group('decryptMessageByType — global unsupported', () {
+    test('global type decrypt is blocked', () async {
+      await expectLater(
+        () => sm.decryptMessageByType(
+          'legacy msg',
+          'any-pk-1234567890',
+          repo,
+          EncryptionType.global,
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (error) => error.toString(),
+            'message',
+            contains('no longer supported'),
+          ),
+        ),
       );
-      expect(dec, 'legacy msg');
     });
-
-    test(
-      'global type decrypt is blocked when legacy compatibility policy is disabled',
-      () async {
-        final encrypted = SimpleCrypto.encodeLegacyPlaintext('legacy msg');
-        await expectLater(
-          () => sm.decryptMessageByType(
-            encrypted,
-            'any-pk-1234567890',
-            repo,
-            EncryptionType.global,
-          ),
-          throwsA(
-            isA<Exception>().having(
-              (error) => error.toString(),
-              'message',
-              contains('disabled by policy'),
-            ),
-          ),
-        );
-      },
-      skip:
-          const bool.fromEnvironment(
-            'PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT',
-            defaultValue: true,
-          )
-          ? 'Run with --dart-define=PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT=false'
-          : false,
-    );
   });
 
   // -------------------------------------------------------------------------

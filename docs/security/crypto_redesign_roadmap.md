@@ -177,11 +177,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 
 ## Implementation Checkpoint (2026-03-23)
 
-- `SimpleCrypto` is now a transitional facade instead of the active runtime
-  owner for all crypto paths.
+- `SimpleCrypto` is now an active-crypto convenience facade for tests and
+  compatibility shims, not the runtime owner for all crypto paths.
 - Responsibility split now exists across dedicated services:
-  - `LegacyPayloadCompatService`: legacy/global compatibility decode and
-    deprecated wrapper tracking only
   - `ConversationCryptoService`: pairing/session conversation payload helpers
   - `ContactCryptoService`: contact-targeted ECDH payload helpers
   - `PairingCryptoService`: pairing/shared-secret lifecycle, cache restore,
@@ -189,36 +187,31 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - `SigningCryptoService`: signing and shared-secret derivation
 - Active outbound encryption selection no longer uses `global` as a normal
   send mode. If no live method is available, outbound fails closed.
-- Legacy/global decrypt remains supported only as an inbound compatibility lane
-  and is policy-gated by
-  `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT` (default `true` for migration).
-- Normal runtime decrypt ordering now tries only active lanes first
-  (`ecdh`/`pairing`/`noise`) and attempts legacy compatibility only as an
-  explicit last-resort migration branch.
+- Legacy/global decrypt support has been removed from runtime. Unknown or old
+  global payloads now fail closed and trigger normal resync/error handling.
+- Normal runtime decrypt ordering now tries only active lanes
+  (`ecdh`/`pairing`/`noise`).
 - Repo guardrails now enforce that new runtime `lib/**` code does not add fresh
   direct `SimpleCrypto.` call sites outside the compatibility facade.
 - Pairing/contact-upgrade flows now route shared-secret caching and runtime
   conversation-key restore through `PairingCryptoService` instead of directly
   mixing `ConversationCryptoService` and `SigningCryptoService` calls inside
   controllers.
-- `LegacyCryptoMigrationPolicy` now centralizes the remaining kill switch and
-  compatibility seam for legacy/global decrypt.
 - `CryptoVerificationService` now owns diagnostic/self-test helpers that used
   to live under `SimpleCrypto`, further shrinking the transitional facade.
 
-### Legacy Compatibility Removal Criteria
+### Legacy Compatibility Removal Result
 
-Delete the compatibility lane only after all of these stay true together:
+The legacy/global compatibility lane has now been removed. The repo no longer
+ships:
 
-- No supported peers still require legacy/global payload decrypt.
-- `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT=false` passes release-like validation
-  and staged rollouts.
-- Runtime code depends on active crypto services directly; legacy compatibility
-  remains boxed behind `LegacyCryptoMigrationPolicy` only.
-- Deprecated wrapper usage telemetry remains at zero outside explicitly
-  allowlisted tests.
-- The allowlist guard for `LegacyPayloadCompatService` can be removed because
-  the service itself is deleted.
+- `LegacyPayloadCompatService`
+- `LegacyCryptoMigrationPolicy`
+- `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT`
+- any runtime decrypt fallback that treats `global` payloads as supported
+
+Remaining legacy/global markers are retained only where useful as explicit
+unsupported sentinels in tests or wire parsing logic.
 
 ---
 

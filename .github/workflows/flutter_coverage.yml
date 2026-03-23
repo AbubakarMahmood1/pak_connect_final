@@ -88,22 +88,8 @@ jobs:
       - name: Guard inline ignore allowlist in non-generated tests
         run: |
           set -euo pipefail
-          matches="$(grep -R -n -E --include="*.dart" --exclude="*.mocks.dart" '^[[:space:]]*//[[:space:]]*ignore:' test || true)"
-          if [ -z "$matches" ]; then
-            exit 0
-          fi
-
-          fail=0
-          while IFS= read -r line; do
-            if echo "$line" | grep -Eq '^test/core/services/encryption_security_fixes_test\.dart:[0-9]+:[[:space:]]*//[[:space:]]*ignore:[[:space:]]*deprecated_member_use_from_same_package[[:space:]]*$'; then
-              continue
-            fi
-            echo "Unexpected inline ignore directive in non-generated tests: $line" >&2
-            fail=1
-          done <<< "$matches"
-
-          if [ "$fail" -ne 0 ]; then
-            echo "Only allowlisted, justified inline ignores are permitted in non-generated tests." >&2
+          if grep -R -n -E --include="*.dart" --exclude="*.mocks.dart" '^[[:space:]]*//[[:space:]]*ignore:' test; then
+            echo "Inline ignore directives are not permitted in non-generated tests." >&2
             exit 1
           fi
 

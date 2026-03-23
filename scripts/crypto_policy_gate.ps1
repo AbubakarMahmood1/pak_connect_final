@@ -128,12 +128,6 @@ $testCases = @(
         TestFile = 'test/data/services/inbound_text_processor_test.dart'
         PlainName = 'blocks legacy v2 decrypt mode for peers already observed at v2 floor'
         Defines = @()
-    },
-    [PSCustomObject]@{
-        Label = 'security manager blocks legacy compatibility decrypt when policy is disabled'
-        TestFile = 'test/core/services/security_manager_phase13_test.dart'
-        PlainName = 'global type decrypt is blocked when legacy compatibility policy is disabled'
-        Defines = @('--dart-define=PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT=false')
     }
 )
 
