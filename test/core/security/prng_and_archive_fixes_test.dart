@@ -18,14 +18,13 @@ void _initializeSigningForTests() {
   SimpleCrypto.initializeSigning(privateKeyHex, publicKeyHex);
 }
 
-/// Tests for weak PRNG seeding fixes and archive PLAINTEXT migration bug
+/// Tests for weak PRNG seeding fixes and archive field pass-through behavior.
 ///
 /// These tests verify:
 /// 1. Random IV/nonce: Sign same message twice → signatures MUST be different
 /// 2. No timestamp-seeded PRNG in cryptographic code
-/// 3. Archive PLAINTEXT migration: enc::archive::v1::PLAINTEXT:hello → 'hello'
-/// 4. Archive normal legacy decryption still works
-/// 5. Archive v2 format still works
+/// 3. Archive fields are stored as plaintext within SQLCipher-backed storage
+/// 4. Unsupported legacy archive prefixes are left unchanged
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -138,24 +137,7 @@ void main() {
     });
   });
 
-  group('Archive PLAINTEXT Migration Fix', () {
-    test(
-      'decryptField handles enc::archive::v1::PLAINTEXT: prefix correctly',
-      () {
-        const testValue = 'hello world';
-        const legacyPlaintextValue = 'enc::archive::v1::PLAINTEXT:$testValue';
-
-        final result = ArchiveCrypto.decryptField(legacyPlaintextValue);
-
-        expect(
-          result,
-          equals(testValue),
-          reason:
-              'Should extract plaintext from enc::archive::v1::PLAINTEXT: format',
-        );
-      },
-    );
-
+  group('Archive field pass-through', () {
     test('decryptField handles normal plaintext (no prefix)', () {
       const plaintext = 'plain text value';
 
@@ -168,20 +150,16 @@ void main() {
       );
     });
 
-    test('decryptField handles legacy AES encrypted values', () {
-      // This test verifies that real legacy encrypted values still work
-      // Note: We can't create real legacy encrypted values without the old key,
-      // so we test that the path exists and doesn't crash
-
+    test('decryptField leaves unsupported legacy prefixes unchanged', () {
       const fakeLegacyEncrypted =
           'enc::archive::v1::YWJjZGVmZ2g='; // base64 "abcdefgh"
 
-      // This should either decrypt successfully or return the value as-is on failure
-      // It should NOT crash with base64 parsing error
+      final result = ArchiveCrypto.decryptField(fakeLegacyEncrypted);
+
       expect(
-        () => ArchiveCrypto.decryptField(fakeLegacyEncrypted),
-        returnsNormally,
-        reason: 'Should handle legacy encrypted values gracefully',
+        result,
+        equals(fakeLegacyEncrypted),
+        reason: 'Legacy archive ciphertext should fail closed and remain untouched',
       );
     });
 
@@ -212,19 +190,11 @@ void main() {
       );
     });
 
-    test('handles multiple PLAINTEXT: patterns correctly', () {
-      // Edge case: what if the actual plaintext contains "PLAINTEXT:"?
-      const testValue = 'PLAINTEXT:nested value';
-      const legacyValue = 'enc::archive::v1::PLAINTEXT:$testValue';
-
+    test('legacy plaintext markers are not decoded anymore', () {
+      const legacyValue = 'enc::archive::v1::PLAINTEXT:hello world';
       final result = ArchiveCrypto.decryptField(legacyValue);
 
-      expect(
-        result,
-        equals(testValue),
-        reason:
-            'Should only strip the first PLAINTEXT: marker after legacy prefix',
-      );
+      expect(result, equals(legacyValue));
     });
   });
 }
