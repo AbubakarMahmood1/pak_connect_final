@@ -332,16 +332,16 @@ void main() {
   group('ExportBundle', () {
     test('toJson/fromJson round-trip preserves data', () {
       final bundle = ExportBundle(
-        version: '1.0.0',
+        version: '2.0.0',
         timestamp: DateTime.now(),
         deviceId: 'device123',
         username: 'TestUser',
         encryptedMetadata: 'encrypted_meta_data',
         encryptedKeys: 'encrypted_keys_data',
         encryptedPreferences: 'encrypted_prefs_data',
-        databasePath: '/path/to/database.db',
+        encryptedDatabase: 'encrypted_db_data',
         salt: Uint8List.fromList(List.filled(32, 42)),
-        checksum: 'abc123checksum',
+        hmac: 'abc123hmac',
       );
 
       final json = bundle.toJson();
@@ -357,9 +357,9 @@ void main() {
         restored.encryptedPreferences,
         equals(bundle.encryptedPreferences),
       );
-      expect(restored.databasePath, equals(bundle.databasePath));
+      expect(restored.encryptedDatabase, equals(bundle.encryptedDatabase));
       expect(restored.salt, equals(bundle.salt));
-      expect(restored.checksum, equals(bundle.checksum));
+      expect(restored.hmac, equals(bundle.hmac));
     });
   });
 

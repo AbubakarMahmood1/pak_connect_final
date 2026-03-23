@@ -14,12 +14,9 @@ enum ExportType {
 ///
 /// **v2.1.0** bundles add incremental backup support with [baseTimestamp].
 ///
-/// **v2.0.0** bundles are self-contained: the database bytes are encrypted and
-/// embedded in [encryptedDatabase], integrity is protected by HMAC-SHA256
-/// ([hmac]), and [databasePath] is unused.
-///
-/// **v1.0.0** (legacy) bundles reference an external DB file via
-/// [databasePath] and use an unkeyed SHA-256 [checksum].
+/// Supported bundles are self-contained: the database bytes are encrypted and
+/// embedded in [encryptedDatabase], and integrity is protected by HMAC-SHA256
+/// ([hmac]).
 class ExportBundle {
   // Bundle metadata
   final String version;
@@ -37,20 +34,14 @@ class ExportBundle {
   final String encryptedKeys;
   final String encryptedPreferences;
 
-  /// v2: AES-256-GCM encrypted database bytes (base64). Null for v1 bundles.
+  /// AES-256-GCM encrypted database bytes (base64).
   final String? encryptedDatabase;
-
-  /// v1 only: path to external database file. Empty string for v2 bundles.
-  final String databasePath;
 
   // Encryption metadata
   final Uint8List salt;
 
-  /// v2: HMAC-SHA256 keyed with the derived encryption key. Null for v1.
+  /// HMAC-SHA256 keyed with the derived encryption key.
   final String? hmac;
-
-  /// v1 only: unkeyed SHA-256 checksum. Null for v2 bundles.
-  final String? checksum;
 
   const ExportBundle({
     required this.version,
@@ -63,17 +54,13 @@ class ExportBundle {
     required this.encryptedKeys,
     required this.encryptedPreferences,
     this.encryptedDatabase,
-    this.databasePath = '',
     required this.salt,
     this.hmac,
-    this.checksum,
   });
 
   /// Whether this is a v2+ self-contained bundle.
-  bool get isSelfContained => encryptedDatabase != null && encryptedDatabase!.isNotEmpty;
-
-  /// Whether this is a legacy v1 bundle with an external DB path.
-  bool get isLegacy => !isSelfContained;
+  bool get isSelfContained =>
+      encryptedDatabase != null && encryptedDatabase!.isNotEmpty;
 
   /// Whether this bundle contains only incremental changes since [baseTimestamp].
   bool get isIncremental => baseTimestamp != null;
@@ -96,12 +83,11 @@ class ExportBundle {
       json['base_timestamp'] = baseTimestamp!.toIso8601String();
     }
 
-    if (isSelfContained) {
+    if (encryptedDatabase != null && encryptedDatabase!.isNotEmpty) {
       json['encrypted_database'] = encryptedDatabase;
+    }
+    if (hmac != null && hmac!.isNotEmpty) {
       json['hmac'] = hmac;
-    } else {
-      json['database_path'] = databasePath;
-      json['checksum'] = checksum;
     }
 
     return json;
@@ -125,10 +111,8 @@ class ExportBundle {
       encryptedKeys: json['encrypted_keys'] as String,
       encryptedPreferences: json['encrypted_preferences'] as String,
       encryptedDatabase: json['encrypted_database'] as String?,
-      databasePath: (json['database_path'] as String?) ?? '',
       salt: Uint8List.fromList((json['salt'] as List).cast<int>()),
       hmac: json['hmac'] as String?,
-      checksum: json['checksum'] as String?,
     );
   }
 }

@@ -383,7 +383,7 @@ void main() {
   group('ExportBundle with exportType', () {
     test('serializes and deserializes exportType correctly', () {
       final bundle = ExportBundle(
-        version: '1.0.0',
+        version: '2.0.0',
         timestamp: DateTime.now(),
         deviceId: 'device123',
         username: 'TestUser',
@@ -391,9 +391,9 @@ void main() {
         encryptedMetadata: 'meta',
         encryptedKeys: 'keys',
         encryptedPreferences: 'prefs',
-        databasePath: '/path/to/db',
+        encryptedDatabase: 'db',
         salt: Uint8List(32),
-        checksum: 'checksum',
+        hmac: 'hmac',
       );
 
       final json = bundle.toJson();
@@ -405,7 +405,7 @@ void main() {
 
     test('defaults to full export type if not specified', () {
       final json = {
-        'version': '1.0.0',
+        'version': '2.0.0',
         'timestamp': DateTime.now().toIso8601String(),
         'device_id': 'device123',
         'username': 'TestUser',
@@ -413,9 +413,9 @@ void main() {
         'encrypted_metadata': 'meta',
         'encrypted_keys': 'keys',
         'encrypted_preferences': 'prefs',
-        'database_path': '/path/to/db',
+        'encrypted_database': 'db',
         'salt': List.filled(32, 0),
-        'checksum': 'checksum',
+        'hmac': 'hmac',
       };
 
       final bundle = ExportBundle.fromJson(json);
