@@ -1,4 +1,3 @@
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/database/database_provider.dart';
 import 'package:pak_connect/data/repositories/archive_repository.dart';
@@ -45,79 +44,84 @@ import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 
-/// Registers concrete data-layer implementations into [GetIt].
+/// Registers concrete data-layer implementations into the composition registry.
 ///
 /// Core DI setup should call this hook instead of importing concrete data types.
-Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
+Future<void> registerDataLayerServices(
+  IServiceRegistry services,
+  Logger logger,
+) async {
   BLEHandshakeService.configureCoordinatorFactoryResolver(
-    () => getIt.get<IHandshakeCoordinatorFactory>(),
+    () => services.resolve<IHandshakeCoordinatorFactory>(),
   );
   BLEServiceFacade.configureHandshakeServiceRegistrar((handshakeService) {
-    if (!getIt.isRegistered<IBLEHandshakeService>()) {
-      getIt.registerSingleton<IBLEHandshakeService>(handshakeService);
+    if (!services.isRegistered<IBLEHandshakeService>()) {
+      services.registerSingleton<IBLEHandshakeService>(handshakeService);
     }
   });
   BLEMessageHandlerFacade.configureDependencyResolvers(
     handshakeServiceResolver: () {
-      if (getIt.isRegistered<IBLEHandshakeService>()) {
-        return getIt.get<IBLEHandshakeService>();
+      if (services.isRegistered<IBLEHandshakeService>()) {
+        return services.resolve<IBLEHandshakeService>();
       }
       return null;
     },
     seenMessageStoreResolver: () {
-      if (getIt.isRegistered<ISeenMessageStore>()) {
-        return getIt.get<ISeenMessageStore>();
+      if (services.isRegistered<ISeenMessageStore>()) {
+        return services.resolve<ISeenMessageStore>();
       }
       return null;
     },
   );
   BLEMessageHandlerFacadeImpl.configureDependencyResolvers(
     legacyStateManagerResolver: () {
-      if (getIt.isRegistered<BLEStateManagerFacade>()) {
-        return getIt.get<BLEStateManagerFacade>().legacyStateManager;
+      if (services.isRegistered<BLEStateManagerFacade>()) {
+        return services.resolve<BLEStateManagerFacade>().legacyStateManager;
       }
-      if (getIt.isRegistered<IBLEStateManagerFacade>()) {
-        final facade = getIt.get<IBLEStateManagerFacade>();
+      if (services.isRegistered<IBLEStateManagerFacade>()) {
+        final facade = services.resolve<IBLEStateManagerFacade>();
         if (facade is BLEStateManagerFacade) {
           return facade.legacyStateManager;
         }
       }
-      if (getIt.isRegistered<BLEStateManager>()) {
-        return getIt.get<BLEStateManager>();
+      if (services.isRegistered<BLEStateManager>()) {
+        return services.resolve<BLEStateManager>();
       }
       return null;
     },
     sharedQueueProviderResolver: () {
-      if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
-        return getIt.get<ISharedMessageQueueProvider>();
+      if (services.isRegistered<ISharedMessageQueueProvider>()) {
+        return services.resolve<ISharedMessageQueueProvider>();
       }
       return null;
     },
   );
   ProtocolMessageHandler.configureIdentityManagerResolver(() {
-    if (getIt.isRegistered<IIdentityManager>()) {
-      return getIt.get<IIdentityManager>();
+    if (services.isRegistered<IIdentityManager>()) {
+      return services.resolve<IIdentityManager>();
     }
     return null;
   });
   RelayCoordinator.configureDependencyResolvers(
     sharedQueueProviderResolver: () {
-      if (getIt.isRegistered<ISharedMessageQueueProvider>()) {
-        return getIt.get<ISharedMessageQueueProvider>();
+      if (services.isRegistered<ISharedMessageQueueProvider>()) {
+        return services.resolve<ISharedMessageQueueProvider>();
       }
       return null;
     },
-    relayEngineFactoryResolver: () => getIt.get<IMeshRelayEngineFactory>(),
+    relayEngineFactoryResolver: () =>
+        services.resolve<IMeshRelayEngineFactory>(),
   );
   MeshRelayHandler.configureRelayEngineFactoryResolver(
-    () => getIt.get<IMeshRelayEngineFactory>(),
+    () => services.resolve<IMeshRelayEngineFactory>(),
   );
   EphemeralContactCleaner.configureQueueRepositoryResolver(() {
-    if (getIt.isRegistered<IMessageQueueRepository>()) {
-      return getIt.get<IMessageQueueRepository>();
+    if (services.isRegistered<IMessageQueueRepository>()) {
+      return services.resolve<IMessageQueueRepository>();
     }
     return null;
   });
@@ -125,67 +129,71 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   // ===========================
   // REPOSITORIES
   // ===========================
-  if (!getIt.isRegistered<ContactRepository>()) {
-    getIt.registerSingleton<ContactRepository>(ContactRepository());
+  if (!services.isRegistered<ContactRepository>()) {
+    services.registerSingleton<ContactRepository>(ContactRepository());
     logger.fine('✅ ContactRepository registered');
   } else {
     logger.fine('ℹ️ ContactRepository already registered');
   }
 
-  if (!getIt.isRegistered<IContactRepository>()) {
-    getIt.registerSingleton<IContactRepository>(getIt.get<ContactRepository>());
+  if (!services.isRegistered<IContactRepository>()) {
+    services.registerSingleton<IContactRepository>(
+      services.resolve<ContactRepository>(),
+    );
     logger.fine('✅ IContactRepository registered (data registrar)');
   }
 
-  if (!getIt.isRegistered<MessageRepository>()) {
-    getIt.registerSingleton<MessageRepository>(MessageRepository());
+  if (!services.isRegistered<MessageRepository>()) {
+    services.registerSingleton<MessageRepository>(MessageRepository());
     logger.fine('✅ MessageRepository registered');
   } else {
     logger.fine('ℹ️ MessageRepository already registered');
   }
 
-  if (!getIt.isRegistered<IMessageRepository>()) {
-    getIt.registerSingleton<IMessageRepository>(getIt.get<MessageRepository>());
+  if (!services.isRegistered<IMessageRepository>()) {
+    services.registerSingleton<IMessageRepository>(
+      services.resolve<MessageRepository>(),
+    );
     logger.fine('✅ IMessageRepository registered (data registrar)');
   }
 
-  if (!getIt.isRegistered<ArchiveRepository>()) {
-    getIt.registerSingleton<ArchiveRepository>(ArchiveRepository());
+  if (!services.isRegistered<ArchiveRepository>()) {
+    services.registerSingleton<ArchiveRepository>(ArchiveRepository());
     logger.fine('✅ ArchiveRepository registered');
   } else {
     logger.fine('ℹ️ ArchiveRepository already registered');
   }
 
-  if (!getIt.isRegistered<ChatsRepository>()) {
-    getIt.registerSingleton<ChatsRepository>(ChatsRepository());
+  if (!services.isRegistered<ChatsRepository>()) {
+    services.registerSingleton<ChatsRepository>(ChatsRepository());
     logger.fine('✅ ChatsRepository registered');
   } else {
     logger.fine('ℹ️ ChatsRepository already registered');
   }
 
-  if (!getIt.isRegistered<PreferencesRepository>()) {
-    getIt.registerSingleton<PreferencesRepository>(PreferencesRepository());
+  if (!services.isRegistered<PreferencesRepository>()) {
+    services.registerSingleton<PreferencesRepository>(PreferencesRepository());
     logger.fine('✅ PreferencesRepository registered');
   } else {
     logger.fine('ℹ️ PreferencesRepository already registered');
   }
 
-  if (!getIt.isRegistered<GroupRepository>()) {
-    getIt.registerSingleton<GroupRepository>(GroupRepository());
+  if (!services.isRegistered<GroupRepository>()) {
+    services.registerSingleton<GroupRepository>(GroupRepository());
     logger.fine('✅ GroupRepository registered');
   } else {
     logger.fine('ℹ️ GroupRepository already registered');
   }
 
-  if (!getIt.isRegistered<IntroHintRepository>()) {
-    getIt.registerSingleton<IntroHintRepository>(IntroHintRepository());
+  if (!services.isRegistered<IntroHintRepository>()) {
+    services.registerSingleton<IntroHintRepository>(IntroHintRepository());
     logger.fine('✅ IntroHintRepository registered');
   } else {
     logger.fine('ℹ️ IntroHintRepository already registered');
   }
 
-  if (!getIt.isRegistered<MeshRoutingService>()) {
-    getIt.registerSingleton<MeshRoutingService>(MeshRoutingService());
+  if (!services.isRegistered<MeshRoutingService>()) {
+    services.registerSingleton<MeshRoutingService>(MeshRoutingService());
     logger.fine('✅ MeshRoutingService registered');
   } else {
     logger.fine('ℹ️ MeshRoutingService already registered');
@@ -194,86 +202,96 @@ Future<void> registerDataLayerServices(GetIt getIt, Logger logger) async {
   // ===========================
   // INTERFACE BINDINGS
   // ===========================
-  if (!getIt.isRegistered<IMeshRoutingService>()) {
-    getIt.registerSingleton<IMeshRoutingService>(getIt.get<MeshRoutingService>());
+  if (!services.isRegistered<IMeshRoutingService>()) {
+    services.registerSingleton<IMeshRoutingService>(
+      services.resolve<MeshRoutingService>(),
+    );
     logger.fine('✅ IMeshRoutingService registered');
   }
 
-  if (!getIt.isRegistered<IArchiveRepository>()) {
-    getIt.registerSingleton<IArchiveRepository>(getIt.get<ArchiveRepository>());
+  if (!services.isRegistered<IArchiveRepository>()) {
+    services.registerSingleton<IArchiveRepository>(
+      services.resolve<ArchiveRepository>(),
+    );
     logger.fine('✅ IArchiveRepository registered');
   }
 
-  if (!getIt.isRegistered<IChatsRepository>()) {
-    getIt.registerSingleton<IChatsRepository>(getIt.get<ChatsRepository>());
+  if (!services.isRegistered<IChatsRepository>()) {
+    services.registerSingleton<IChatsRepository>(
+      services.resolve<ChatsRepository>(),
+    );
     logger.fine('✅ IChatsRepository registered');
   }
 
-  if (!getIt.isRegistered<IPreferencesRepository>()) {
-    getIt.registerSingleton<IPreferencesRepository>(
-      getIt.get<PreferencesRepository>(),
+  if (!services.isRegistered<IPreferencesRepository>()) {
+    services.registerSingleton<IPreferencesRepository>(
+      services.resolve<PreferencesRepository>(),
     );
     logger.fine('✅ IPreferencesRepository registered');
   }
 
-  if (!getIt.isRegistered<IUserPreferences>()) {
-    getIt.registerSingleton<IUserPreferences>(UserPreferences());
+  if (!services.isRegistered<IUserPreferences>()) {
+    services.registerSingleton<IUserPreferences>(UserPreferences());
     logger.fine('✅ IUserPreferences registered');
   }
 
-  if (!getIt.isRegistered<IGroupRepository>()) {
-    getIt.registerSingleton<IGroupRepository>(getIt.get<GroupRepository>());
+  if (!services.isRegistered<IGroupRepository>()) {
+    services.registerSingleton<IGroupRepository>(
+      services.resolve<GroupRepository>(),
+    );
     logger.fine('✅ IGroupRepository registered');
   }
 
-  if (!getIt.isRegistered<IIntroHintRepository>()) {
-    getIt.registerSingleton<IIntroHintRepository>(getIt.get<IntroHintRepository>());
+  if (!services.isRegistered<IIntroHintRepository>()) {
+    services.registerSingleton<IIntroHintRepository>(
+      services.resolve<IntroHintRepository>(),
+    );
     logger.fine('✅ IIntroHintRepository registered');
   }
 
-  if (!getIt.isRegistered<IExportService>()) {
-    getIt.registerLazySingleton<IExportService>(
+  if (!services.isRegistered<IExportService>()) {
+    services.registerLazySingleton<IExportService>(
       () => const ExportServiceAdapter(),
     );
     logger.fine('✅ IExportService registered');
   }
 
-  if (!getIt.isRegistered<IImportService>()) {
-    getIt.registerLazySingleton<IImportService>(
+  if (!services.isRegistered<IImportService>()) {
+    services.registerLazySingleton<IImportService>(
       () => const ImportServiceAdapter(),
     );
     logger.fine('✅ IImportService registered');
   }
 
-  if (!getIt.isRegistered<ISeenMessageStore>()) {
-    getIt.registerSingleton<ISeenMessageStore>(SeenMessageStore());
+  if (!services.isRegistered<ISeenMessageStore>()) {
+    services.registerSingleton<ISeenMessageStore>(SeenMessageStore());
     logger.fine('✅ ISeenMessageStore registered');
   }
 
-  if (!getIt.isRegistered<IDatabaseProvider>()) {
-    getIt.registerSingleton<IDatabaseProvider>(DatabaseProvider());
+  if (!services.isRegistered<IDatabaseProvider>()) {
+    services.registerSingleton<IDatabaseProvider>(DatabaseProvider());
     logger.fine('✅ IDatabaseProvider registered');
   }
 
-  if (!getIt.isRegistered<ISharedMessageQueueProvider>()) {
+  if (!services.isRegistered<ISharedMessageQueueProvider>()) {
     throw StateError(
       'ISharedMessageQueueProvider must be registered before data services.',
     );
   }
 
-  if (!getIt.isRegistered<IBLEMessageHandlerFacade>()) {
-    getIt.registerLazySingleton<IBLEMessageHandlerFacade>(
+  if (!services.isRegistered<IBLEMessageHandlerFacade>()) {
+    services.registerLazySingleton<IBLEMessageHandlerFacade>(
       () => BLEMessageHandlerFacadeImpl(
         BLEMessageHandler(),
-        getIt.get<ISeenMessageStore>(),
-        sharedQueueProvider: getIt.get<ISharedMessageQueueProvider>(),
+        services.resolve<ISeenMessageStore>(),
+        sharedQueueProvider: services.resolve<ISharedMessageQueueProvider>(),
       ),
     );
     logger.fine('✅ IBLEMessageHandlerFacade registered');
   }
 
-  if (!getIt.isRegistered<IBLEServiceFacadeFactory>()) {
-    getIt.registerLazySingleton<IBLEServiceFacadeFactory>(
+  if (!services.isRegistered<IBLEServiceFacadeFactory>()) {
+    services.registerLazySingleton<IBLEServiceFacadeFactory>(
       () => const DataBleServiceFacadeFactory(),
     );
     logger.fine('✅ IBLEServiceFacadeFactory registered');

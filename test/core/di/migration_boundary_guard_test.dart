@@ -119,6 +119,45 @@ void main() {
       );
     });
 
+    test('runtime locator usage is centralized to service_locator.dart', () {
+      final allowedFiles = <String>{
+        path.normalize('lib/core/di/service_locator.dart'),
+      };
+      final violations = <String>[];
+
+      for (final file in dartFilesUnder('lib')) {
+        final relativePath = relativePathFor(file);
+        final lines = file.readAsLinesSync();
+
+        for (var i = 0; i < lines.length; i++) {
+          final trimmed = lines[i].trim();
+          if (trimmed.startsWith('//') || trimmed.startsWith('///')) {
+            continue;
+          }
+
+          final usesRuntimeLocator =
+              trimmed.contains("package:get_it/get_it.dart") ||
+              trimmed.contains('GetIt.') ||
+              trimmed.contains('getIt.');
+          if (!usesRuntimeLocator) {
+            continue;
+          }
+          if (allowedFiles.contains(relativePath)) {
+            continue;
+          }
+          violations.add('$relativePath:${i + 1} -> $trimmed');
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason: violations.isEmpty
+            ? 'Runtime getIt usage is boxed into the service-locator boundary.'
+            : 'Unexpected runtime getIt usage found:\n${violations.join('\n')}',
+      );
+    });
+
     test(
       'presentation imports service_locator only through di_providers.dart',
       () {

@@ -12,6 +12,7 @@ import '../../domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import '../../domain/services/mesh/mesh_relay_coordinator.dart';
 import '../../domain/interfaces/i_handshake_coordinator_factory.dart';
 import '../../domain/interfaces/i_mesh_relay_engine_factory.dart';
+import '../../domain/interfaces/i_service_registry.dart';
 import '../../domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -19,13 +20,23 @@ import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_home_screen_facade_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_chat_connection_manager_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_chat_list_coordinator_factory.dart';
+import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_export_service.dart';
+import 'package:pak_connect/domain/interfaces/i_group_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_import_service.dart';
+import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import '../bluetooth/handshake_coordinator_factory.dart';
 import '../bluetooth/handshake_coordinator.dart';
 import '../bluetooth/smart_handshake_manager.dart';
@@ -35,6 +46,7 @@ import '../services/app_core_shared_message_queue_provider.dart';
 import '../services/home_screen_facade_factory.dart';
 import '../services/chat_connection_manager_factory.dart';
 import '../services/chat_list_coordinator_factory.dart';
+import 'app_services.dart';
 import 'repository_provider_impl.dart';
 
 /// GetIt service locator instance
@@ -45,7 +57,56 @@ const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
 
-typedef DataLayerRegistrar = Future<void> Function(GetIt getIt, Logger logger);
+class _GetItServiceRegistry implements IServiceRegistry {
+  const _GetItServiceRegistry(this._getIt);
+
+  final GetIt _getIt;
+
+  @override
+  bool isRegistered<T extends Object>() => _getIt.isRegistered<T>();
+
+  @override
+  T resolve<T extends Object>({String? dependencyName}) {
+    if (_getIt.isRegistered<T>()) {
+      return _getIt.get<T>();
+    }
+
+    final label = dependencyName ?? T.toString();
+    throw StateError('$label is not registered in service locator');
+  }
+
+  @override
+  T? maybeResolve<T extends Object>() {
+    if (!_getIt.isRegistered<T>()) {
+      return null;
+    }
+    return _getIt.get<T>();
+  }
+
+  @override
+  void registerSingleton<T extends Object>(T instance) {
+    _getIt.registerSingleton<T>(instance);
+  }
+
+  @override
+  void registerLazySingleton<T extends Object>(T Function() factory) {
+    _getIt.registerLazySingleton<T>(factory);
+  }
+
+  @override
+  void unregister<T extends Object>() {
+    if (_getIt.isRegistered<T>()) {
+      _getIt.unregister<T>();
+    }
+  }
+}
+
+final IServiceRegistry _registry = _GetItServiceRegistry(getIt);
+
+typedef DataLayerRegistrar = Future<void> Function(
+  IServiceRegistry services,
+  Logger logger,
+);
 
 DataLayerRegistrar? _dataLayerRegistrar;
 
@@ -109,7 +170,7 @@ Future<void> setupServiceLocator() async {
       );
     }
 
-    await registrar(getIt, _logger);
+    await registrar(_registry, _logger);
 
     if (!getIt.isRegistered<IContactRepository>() ||
         !getIt.isRegistered<IMessageRepository>()) {
@@ -198,6 +259,47 @@ Future<void> setupServiceLocator() async {
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);
     rethrow;
+  }
+}
+
+AppBootstrapServices resolveAppBootstrapServices() {
+  return AppBootstrapServices(
+    contactRepository: resolveRegistered<IContactRepository>(),
+    messageRepository: resolveRegistered<IMessageRepository>(),
+    archiveRepository: resolveRegistered<IArchiveRepository>(),
+    chatsRepository: resolveRegistered<IChatsRepository>(),
+    userPreferences: resolveRegistered<IUserPreferences>(),
+    preferencesRepository: resolveRegistered<IPreferencesRepository>(),
+    repositoryProvider: resolveRegistered<IRepositoryProvider>(),
+    sharedMessageQueueProvider: resolveRegistered<ISharedMessageQueueProvider>(),
+    databaseProvider: resolveRegistered<IDatabaseProvider>(),
+    seenMessageStore: resolveRegistered<ISeenMessageStore>(),
+    bleServiceFacadeFactory: resolveRegistered<IBLEServiceFacadeFactory>(),
+    meshRelayEngineFactory: resolveRegistered<IMeshRelayEngineFactory>(),
+    bleServiceFacade: maybeResolveRegistered<IBLEServiceFacade>(),
+    groupRepository: maybeResolveRegistered<IGroupRepository>(),
+    introHintRepository: maybeResolveRegistered<IIntroHintRepository>(),
+    exportService: maybeResolveRegistered<IExportService>(),
+    importService: maybeResolveRegistered<IImportService>(),
+    homeScreenFacadeFactory:
+        maybeResolveRegistered<IHomeScreenFacadeFactory>(),
+    chatConnectionManagerFactory:
+        maybeResolveRegistered<IChatConnectionManagerFactory>(),
+    chatListCoordinatorFactory:
+        maybeResolveRegistered<IChatListCoordinatorFactory>(),
+  );
+}
+
+void publishAppServices(AppServices services) {
+  if (getIt.isRegistered<AppServices>()) {
+    getIt.unregister<AppServices>();
+  }
+  getIt.registerSingleton<AppServices>(services);
+}
+
+void clearPublishedAppServices() {
+  if (getIt.isRegistered<AppServices>()) {
+    getIt.unregister<AppServices>();
   }
 }
 
@@ -298,17 +400,9 @@ bool isRegistered<T extends Object>() {
 }
 
 T resolveRegistered<T extends Object>({String? dependencyName}) {
-  if (getIt.isRegistered<T>()) {
-    return getIt.get<T>();
-  }
-
-  final label = dependencyName ?? T.toString();
-  throw StateError('$label is not registered in service locator');
+  return _registry.resolve<T>(dependencyName: dependencyName);
 }
 
 T? maybeResolveRegistered<T extends Object>() {
-  if (!getIt.isRegistered<T>()) {
-    return null;
-  }
-  return getIt.get<T>();
+  return _registry.maybeResolve<T>();
 }

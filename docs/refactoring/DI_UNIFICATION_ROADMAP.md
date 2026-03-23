@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-03-23 (Pass 7 complete, boundary checkpoint refreshed)
+**Last Updated**: 2026-03-24 (composition-root checkpoint hardened)
 
 ---
 
@@ -248,6 +248,20 @@ Pass 7 progress highlights:
   - no direct `get_it` imports or `GetIt`/`getIt` usage in presentation code
   - no direct `service_locator.dart` import in presentation outside
     `di_providers.dart`
+
+2026-03-24 composition-root checkpoint:
+
+- `AppCore` now resolves a typed `AppBootstrapServices` bundle from the
+  service-locator boundary instead of issuing ad-hoc `getIt.get(...)` calls
+  throughout startup.
+- `AppCore` now publishes and clears the runtime `AppServices` snapshot through
+  dedicated `service_locator.dart` helpers, reducing direct container mutation
+  outside the DI boundary.
+- The data-layer registrar now depends on a `ServiceRegistry` abstraction
+  rather than raw `GetIt`, so checkpoint 6 can replace the container mechanics
+  without rewriting data registration again.
+- Guardrails now enforce that direct runtime `getIt` usage in `lib/**` is
+  quarantined to `lib/core/di/service_locator.dart`.
 
 ---
 
