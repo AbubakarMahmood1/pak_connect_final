@@ -120,8 +120,8 @@ class TestSetup {
     await resetDIServiceLocator();
     di_service_locator.configureDataLayerRegistrar(registerDataLayerServices);
     await di_service_locator.setupServiceLocator();
-    _configureDefaultDependenciesFromLocator(getIt);
-    _registerAppServicesSnapshot(getIt);
+    _configureDefaultDependenciesFromLocator(testServiceRegistry);
+    _registerAppServicesSnapshot(testServiceRegistry);
 
     if (configureDiWithMocks) {
       await configureTestDI(
@@ -164,7 +164,7 @@ class TestSetup {
     IDatabaseProvider? databaseProvider,
     bool resetGraph = false,
   }) async {
-    final locator = getIt;
+    final locator = testServiceRegistry;
 
     // Detect if no overrides were provided so we can optionally reset to a clean graph
     final noOverridesProvided =
@@ -176,7 +176,8 @@ class TestSetup {
         archiveRepository == null &&
         databaseProvider == null;
 
-    // Reset GetIt if explicitly requested or when no overrides are provided to start from a clean graph
+    // Reset the test service registry if explicitly requested or when no
+    // overrides are provided to start from a clean graph.
     if (resetGraph || noOverridesProvided) {
       await resetDIServiceLocator();
       di_service_locator.configureDataLayerRegistrar(registerDataLayerServices);
@@ -332,7 +333,7 @@ class TestSetup {
     resetSharedPreferences();
   }
 
-  static T getService<T extends Object>() => getIt<T>();
+  static T getService<T extends Object>() => testServiceRegistry<T>();
 
   static String readProjectFile(String relativePath) {
     final file = File(relativePath);
@@ -342,7 +343,9 @@ class TestSetup {
     return file.readAsStringSync();
   }
 
-  static void _configureDefaultDependenciesFromLocator(GetIt locator) {
+  static void _configureDefaultDependenciesFromLocator(
+    TestServiceRegistry locator,
+  ) {
     if (locator.isRegistered<IPreferencesRepository>()) {
       final preferencesRepository = locator<IPreferencesRepository>();
       MessageRouter.configureDependencyResolvers(
@@ -421,7 +424,7 @@ class TestSetup {
   }
 
   static void _registerAppServicesSnapshot(
-    GetIt locator, {
+    TestServiceRegistry locator, {
     IConnectionService? preferredConnectionService,
     IMeshNetworkingService? preferredMeshNetworkingService,
     ISecurityService? preferredSecurityService,
@@ -539,7 +542,7 @@ class TestSetup {
   }
 
   static MeshNetworkHealthMonitor _resolveMeshHealthMonitor({
-    required GetIt locator,
+    required TestServiceRegistry locator,
     required IMeshNetworkingService meshNetworkingService,
   }) {
     if (locator.isRegistered<MeshNetworkHealthMonitor>()) {

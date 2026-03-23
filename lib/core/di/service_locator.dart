@@ -62,7 +62,7 @@ class _ServiceRegistration {
   }
 }
 
-/// Minimal internal service registry used during DI cleanup.
+/// Minimal internal service registry used by the app bootstrap layer.
 ///
 /// The surface mirrors the subset of locator behavior PakConnect still relies on:
 /// singleton registration, lazy singleton registration, lookup, and reset.
@@ -123,7 +123,7 @@ class ServiceRegistry implements IServiceRegistry {
 /// Shared service registry instance.
 final getIt = ServiceRegistry.instance;
 
-/// Feature flag to enable/disable DI (for gradual migration)
+/// Bootstrap feature flag for the shared service registry.
 const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
@@ -155,8 +155,8 @@ void configureDataLayerRegistrar(DataLayerRegistrar registrar) {
 /// - Lazy Singletons: For services that may not be immediately needed
 /// - Factories: For services that should be recreated on each request
 ///
-/// **Phase 1 Part C**: Services are registered as singletons but initialized by AppCore
-/// in correct dependency order (not at registration time).
+/// Services are registered here, then initialized by `AppCore` in dependency
+/// order rather than during registration.
 Future<void> setupServiceLocator() async {
   _logger.info('🎯 Setting up service locator...');
 
@@ -270,9 +270,8 @@ Future<void> setupServiceLocator() async {
     // ===========================
     // CORE SERVICES (initialized by AppCore, not here)
     // ===========================
-    // SecurityManager: Registered as singleton instance (lazy init by AppCore)
-    // Note: SecurityManager is initialized in AppCore._initializeCoreServices()
-    // We keep compatibility with the legacy static singleton accessor.
+    // SecurityManager is initialized in AppCore._initializeCoreServices().
+    // The singleton accessor remains the canonical entry point.
     _logger.fine('🔐 SecurityManager will be initialized by AppCore');
 
     // BLEService: Will be registered by AppCore after initialization
@@ -282,7 +281,7 @@ Future<void> setupServiceLocator() async {
     _logger.fine('🌐 MeshNetworkingService will be registered by AppCore');
 
     _logger.info(
-      '✅ Service locator setup complete (includes Phase 3 abstractions)',
+      '✅ Service registry setup complete',
     );
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);

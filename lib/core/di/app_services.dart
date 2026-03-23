@@ -29,10 +29,10 @@ import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dar
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 
-/// Typed bootstrap dependency bundle resolved from the legacy runtime locator.
+/// Typed bootstrap dependency bundle resolved from the shared service registry.
 ///
-/// `AppCore` uses this during startup so the remaining locator reads stay
-/// centralized and mechanically replaceable ahead of final DI cleanup.
+/// `AppCore` uses this during startup so registry reads stay centralized and
+/// explicit.
 class AppBootstrapServices {
   const AppBootstrapServices({
     required this.contactRepository,
@@ -152,8 +152,8 @@ class AppRuntimeBindings {
 
 /// Typed composition-root snapshot exposed by [AppCore].
 ///
-/// Pass 4 scaffold: presentation/domain adapters can gradually read from this
-/// object instead of ad-hoc service locator calls.
+/// Presentation and domain adapters read from this object instead of ad-hoc
+/// registry lookups.
 class AppServices {
   const AppServices({
     required this.contactRepository,
@@ -237,7 +237,7 @@ class AppServices {
 }
 
 /// Explicit runtime composition registry used by `AppCore` and the provider
-/// bridge during the DI retirement migration.
+/// bridge.
 class AppRuntimeServicesRegistry {
   AppRuntimeServicesRegistry._();
 

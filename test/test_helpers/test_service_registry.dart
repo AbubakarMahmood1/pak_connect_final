@@ -1,5 +1,9 @@
 import 'package:pak_connect/core/di/service_locator.dart' as di_service_locator;
 
-typedef GetIt = di_service_locator.ServiceRegistry;
+typedef TestServiceRegistry = di_service_locator.ServiceRegistry;
 
-final GetIt getIt = di_service_locator.getIt;
+final TestServiceRegistry testServiceRegistry = di_service_locator.getIt;
+
+typedef GetIt = TestServiceRegistry;
+
+final GetIt getIt = testServiceRegistry;

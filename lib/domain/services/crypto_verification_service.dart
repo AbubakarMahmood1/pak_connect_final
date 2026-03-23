@@ -8,9 +8,9 @@ import 'signing_crypto_service.dart';
 
 /// Diagnostic-only crypto self-test helpers.
 ///
-/// This is intentionally separate from [SimpleCrypto] so the transitional
-/// facade does not keep accumulating long-tail responsibilities that belong to
-/// dedicated services.
+/// This is intentionally separate from the compatibility facade so the active
+/// crypto helpers do not keep accumulating long-tail responsibilities that
+/// belong to dedicated services.
 class CryptoVerificationService {
   static final _logger = Logger('CryptoVerificationService');
 
