@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
-import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
+import 'package:pak_connect/domain/services/pairing_crypto_service.dart';
 import 'package:pak_connect/domain/services/signing_crypto_service.dart';
 import '../../data/repositories/contact_repository.dart';
 import '../../domain/models/security_level.dart';
@@ -30,6 +30,7 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   final IIdentityManager _identityManager;
   final IPairingService _pairingService;
   final ISessionService _sessionService;
+  late final PairingCryptoService _pairingCrypto;
 
   // Repository dependencies
   final ContactRepository _contactRepository = ContactRepository();
@@ -84,7 +85,12 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
     required ISessionService sessionService,
   }) : _identityManager = identityManager,
        _pairingService = pairingService,
-       _sessionService = sessionService;
+       _sessionService = sessionService {
+    _pairingCrypto = PairingCryptoService(
+      logger: _logger,
+      contactRepository: _contactRepository,
+    );
+  }
 
   // ============================================================================
   // PAIRING STATE MACHINE (Orchestrated Transitions)
@@ -393,13 +399,10 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
       await _contactRepository.markContactVerified(publicKey);
 
       // Compute ECDH shared secret
-      final sharedSecret = SigningCryptoService.computeSharedSecret(publicKey);
+      final sharedSecret = await _pairingCrypto.computeAndCacheSharedSecret(
+        publicKey,
+      );
       if (sharedSecret != null) {
-        await _contactRepository.cacheSharedSecret(publicKey, sharedSecret);
-        await ConversationCryptoService.restoreConversationKey(
-          publicKey,
-          sharedSecret,
-        );
         _logger.info('📱 FINALIZE: ECDH secret computed and cached');
       }
 

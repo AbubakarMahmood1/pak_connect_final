@@ -4,7 +4,7 @@ import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
-import 'package:pak_connect/domain/services/conversation_crypto_service.dart';
+import 'package:pak_connect/domain/services/pairing_crypto_service.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -30,19 +30,25 @@ class PairingLifecycleService {
     triggerChatMigration,
     IIdentityManager? identityManager,
     ISecurityService? securityService,
+    PairingCryptoService? pairingCryptoService,
   }) : _logger = logger,
        _contactRepository = contactRepository,
        _identityState = identityState,
-       _conversationKeys = conversationKeys,
        _getMyPersistentId = myPersistentIdProvider,
        _triggerChatMigration = triggerChatMigration,
        _identityManager = identityManager,
-       _securityService = securityService;
+       _securityService = securityService,
+       _pairingCrypto =
+           pairingCryptoService ??
+           PairingCryptoService(
+             logger: logger,
+             contactRepository: contactRepository,
+             runtimeConversationSecrets: conversationKeys,
+           );
 
   final Logger _logger;
   final ContactRepository _contactRepository;
   final IdentitySessionState _identityState;
-  final Map<String, String> _conversationKeys;
   final Future<String> Function() _getMyPersistentId;
   final Future<void> Function({
     required String ephemeralId,
@@ -52,6 +58,7 @@ class PairingLifecycleService {
   _triggerChatMigration;
   final IIdentityManager? _identityManager;
   final ISecurityService? _securityService;
+  final PairingCryptoService _pairingCrypto;
 
   ISecurityService get _resolvedSecurityService =>
       _securityService ?? SecurityServiceLocator.resolveService();
@@ -119,35 +126,11 @@ class PairingLifecycleService {
       return;
     }
 
-    _conversationKeys[contactUserId.value] = sharedSecret;
-    if (alternateUserId != null &&
-        alternateUserId.value != contactUserId.value) {
-      _conversationKeys[alternateUserId.value] = sharedSecret;
-    }
-
-    await _contactRepository.cacheSharedSecret(
-      contactUserId.value,
-      sharedSecret,
+    await _pairingCrypto.cacheSharedSecret(
+      contactId: contactUserId.value,
+      alternateSessionId: alternateUserId?.value,
+      sharedSecret: sharedSecret,
     );
-    if (alternateUserId != null &&
-        alternateUserId.value != contactUserId.value) {
-      await _contactRepository.cacheSharedSecret(
-        alternateUserId.value,
-        sharedSecret,
-      );
-    }
-
-    ConversationCryptoService.initializeConversation(
-      contactUserId.value,
-      sharedSecret,
-    );
-    if (alternateUserId != null &&
-        alternateUserId.value != contactUserId.value) {
-      ConversationCryptoService.initializeConversation(
-        alternateUserId.value,
-        sharedSecret,
-      );
-    }
   }
 
   Future<void> upgradeContactToMediumSecurity({

@@ -29,7 +29,9 @@ void main() {
     test('SimpleCrypto direct runtime usage is quarantined', () {
       final allowedFiles = <String>{
         path.normalize('lib/domain/services/simple_crypto.dart'),
-        path.normalize('lib/domain/services/simple_crypto_verification_helper.dart'),
+        path.normalize(
+          'lib/domain/services/simple_crypto_verification_helper.dart',
+        ),
       };
 
       final violations = <String>[];
@@ -88,38 +90,90 @@ void main() {
       );
     });
 
-    test('presentation imports service_locator only through di_providers.dart', () {
-      final allowedFile = path.normalize(
-        'lib/presentation/providers/di_providers.dart',
-      );
-      final violations = <String>[];
+    test(
+      'presentation imports service_locator only through di_providers.dart',
+      () {
+        final allowedFile = path.normalize(
+          'lib/presentation/providers/di_providers.dart',
+        );
+        final violations = <String>[];
 
-      for (final file in dartFilesUnder('lib/presentation')) {
-        final relativePath = relativePathFor(file);
-        final lines = file.readAsLinesSync();
+        for (final file in dartFilesUnder('lib/presentation')) {
+          final relativePath = relativePathFor(file);
+          final lines = file.readAsLinesSync();
 
-        for (var i = 0; i < lines.length; i++) {
-          final trimmed = lines[i].trim();
-          final importsServiceLocator =
-              trimmed.startsWith('import ') &&
-              trimmed.contains('core/di/service_locator.dart');
-          if (!importsServiceLocator) {
-            continue;
+          for (var i = 0; i < lines.length; i++) {
+            final trimmed = lines[i].trim();
+            final importsServiceLocator =
+                trimmed.startsWith('import ') &&
+                trimmed.contains('core/di/service_locator.dart');
+            if (!importsServiceLocator) {
+              continue;
+            }
+            if (relativePath == allowedFile) {
+              continue;
+            }
+            violations.add('$relativePath:${i + 1} -> $trimmed');
           }
-          if (relativePath == allowedFile) {
-            continue;
-          }
-          violations.add('$relativePath:${i + 1} -> $trimmed');
         }
-      }
 
-      expect(
-        violations,
-        isEmpty,
-        reason: violations.isEmpty
-            ? 'Only di_providers.dart bridges presentation to the locator.'
-            : 'Unexpected presentation service-locator imports found:\n${violations.join('\n')}',
-      );
-    });
+        expect(
+          violations,
+          isEmpty,
+          reason: violations.isEmpty
+              ? 'Only di_providers.dart bridges presentation to the locator.'
+              : 'Unexpected presentation service-locator imports found:\n${violations.join('\n')}',
+        );
+      },
+    );
+
+    test(
+      'pairing lifecycle code does not reach into low-level crypto primitives directly',
+      () {
+        final pairingFiles = <String>{
+          path.normalize('lib/data/services/ble_state_coordinator.dart'),
+          path.normalize('lib/data/services/ble_state_manager.dart'),
+          path.normalize(
+            'lib/data/services/contact_status_sync_controller.dart',
+          ),
+          path.normalize('lib/data/services/pairing_failure_handler.dart'),
+          path.normalize('lib/data/services/pairing_flow_controller.dart'),
+          path.normalize('lib/data/services/pairing_lifecycle_service.dart'),
+          path.normalize(
+            'lib/presentation/controllers/chat_pairing_dialog_controller.dart',
+          ),
+        };
+
+        final violations = <String>[];
+
+        for (final file in dartFilesUnder('lib')) {
+          final relativePath = relativePathFor(file);
+          if (!pairingFiles.contains(relativePath)) {
+            continue;
+          }
+
+          final lines = file.readAsLinesSync();
+          for (var i = 0; i < lines.length; i++) {
+            final trimmed = lines[i].trim();
+            final reachesIntoLowLevelCrypto =
+                trimmed.contains('ConversationCryptoService.') ||
+                trimmed.contains('SigningCryptoService.computeSharedSecret') ||
+                trimmed.contains("conversation_crypto_service.dart");
+            if (!reachesIntoLowLevelCrypto) {
+              continue;
+            }
+            violations.add('$relativePath:${i + 1} -> $trimmed');
+          }
+        }
+
+        expect(
+          violations,
+          isEmpty,
+          reason: violations.isEmpty
+              ? 'Pairing/shared-secret lifecycle code stays behind PairingCryptoService.'
+              : 'Pairing lifecycle must not call low-level crypto primitives directly:\n${violations.join('\n')}',
+        );
+      },
+    );
   });
 }
