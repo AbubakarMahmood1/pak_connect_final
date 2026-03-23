@@ -12,12 +12,15 @@ This roadmap is based on current code paths, not generic advice:
 
 - Multi-method crypto selection still exists in runtime policy:
   - `lib/core/services/security_manager.dart`
-  - Active method set includes `noise`, `ecdh`, `pairing`, and legacy/global fallback paths.
+  - Active runtime method set is now `noise`, `ecdh`, and `pairing`.
+  - Legacy/global remains only as an explicit migration-only decrypt
+    compatibility lane.
 - Noise sessions are implemented and hardened (nonce locking, replay checks, rekey thresholds), but this is not a Double Ratchet:
   - `lib/core/security/noise/noise_session.dart`
   - `lib/core/security/noise/noise_session_manager.dart`
   - `lib/core/security/noise/noise_encryption_service.dart`
-- Outbound send is mostly fail-closed for legacy/global encrypt path, but decrypt compatibility paths still include legacy/global handling:
+- Outbound send is fail-closed for legacy/global encrypt path, and decrypt
+  compatibility paths keep legacy/global handling behind explicit policy:
   - `lib/core/services/security_manager.dart`
 - Message signing currently uses ECDSA P-256 (including ephemeral low-trust signing), not Ed25519:
   - `lib/domain/services/signing_manager.dart`
@@ -189,6 +192,9 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
 - Legacy/global decrypt remains supported only as an inbound compatibility lane
   and is policy-gated by
   `PAKCONNECT_ALLOW_LEGACY_COMPAT_DECRYPT` (default `true` for migration).
+- Normal runtime decrypt ordering now tries only active lanes first
+  (`ecdh`/`pairing`/`noise`) and attempts legacy compatibility only as an
+  explicit last-resort migration branch.
 - Repo guardrails now enforce that new runtime `lib/**` code does not add fresh
   direct `SimpleCrypto.` call sites outside the compatibility facade and its
   self-test helper.
@@ -244,7 +250,8 @@ This preserves:
 - No new outbound payload is produced with legacy/global mode.
 - Fallback logic only applies to old incoming messages.
 
-**Status**: In progress (`2026-02-12`).
+**Status**: Mostly completed; remaining work is compatibility quarantine and
+eventual deletion (`2026-03-23`).
 
 Implemented now:
 - strict policy gate exists for outbound v2 legacy mode emission.
@@ -253,6 +260,9 @@ Implemented now:
   reducing header/method mismatch risk.
 - outbound encryption now uses `ISecurityService.encryptMessageByType(...)`
   with the same resolved method used for metadata, removing dual-path drift.
+- runtime decrypt ordering no longer treats legacy/global as a normal
+  per-security-level method. Legacy/global is now only a policy-gated explicit
+  migration fallback.
 
 Remaining:
 - make strict mode default globally in controlled stages.

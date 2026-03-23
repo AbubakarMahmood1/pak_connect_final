@@ -435,8 +435,9 @@ class SecurityManager implements ISecurityService {
   ) async {
     final level = await getCurrentLevel(publicKey, repo);
 
-    // Try methods in order of security level
-    final methods = _getMethodsForLevel(level);
+    // Try active decrypt methods first. Legacy/global is an explicit
+    // migration-only compatibility lane, not a normal runtime method.
+    final methods = _getActiveDecryptMethodsForLevel(level);
 
     for (final method in methods) {
       try {
@@ -449,6 +450,22 @@ class SecurityManager implements ISecurityService {
       } catch (e) {
         _logger.warning('🔒 DECRYPT: ${method.name} ❌ → $e');
         continue;
+      }
+    }
+
+    if (_allowLegacyCompatibilityDecrypt) {
+      try {
+        _logger.info(
+          '🔒 DECRYPT: attempting legacy compatibility fallback for ${publicKey.shortId(8)}',
+        );
+        return await decryptMessageByType(
+          encryptedMessage,
+          publicKey,
+          repo,
+          EncryptionType.global,
+        );
+      } catch (e) {
+        _logger.warning('🔒 DECRYPT: legacy_compat ❌ → $e');
       }
     }
 
@@ -879,23 +896,20 @@ class SecurityManager implements ISecurityService {
     }
   }
 
-  static List<EncryptionType> _getMethodsForLevel(SecurityLevel level) {
+  static List<EncryptionType> _getActiveDecryptMethodsForLevel(
+    SecurityLevel level,
+  ) {
     switch (level) {
       case SecurityLevel.high:
         return [
           EncryptionType.ecdh,
           EncryptionType.pairing,
           EncryptionType.noise,
-          EncryptionType.global,
         ];
       case SecurityLevel.medium:
-        return [
-          EncryptionType.pairing,
-          EncryptionType.noise,
-          EncryptionType.global,
-        ];
+        return [EncryptionType.pairing, EncryptionType.noise];
       case SecurityLevel.low:
-        return [EncryptionType.noise, EncryptionType.global];
+        return [EncryptionType.noise];
     }
   }
 
