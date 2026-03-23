@@ -4,7 +4,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
@@ -157,10 +157,10 @@ Future<void> _settle() async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
     DeviceDeduplicationManager.clearAll();
     HintCacheManager.dispose();
@@ -173,7 +173,7 @@ void main() {
     DeviceDeduplicationManager.clearAll();
     HintCacheManager.dispose();
     HintCacheManager.clearContactRepository();
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
@@ -209,10 +209,10 @@ void main() {
   }
 
   void registerContactRepository(_FakeContactRepository repository) {
-    if (getIt.isRegistered<IContactRepository>()) {
-      getIt.unregister<IContactRepository>();
+    if (locator.isRegistered<IContactRepository>()) {
+      locator.unregister<IContactRepository>();
     }
-    getIt.registerSingleton<IContactRepository>(repository);
+    locator.registerSingleton<IContactRepository>(repository);
     HintCacheManager.configureContactRepository(contactRepository: repository);
   }
 

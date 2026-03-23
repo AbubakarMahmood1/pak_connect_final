@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
@@ -16,24 +16,24 @@ class _MockChatsRepository extends Mock implements IChatsRepository {}
 class _MockMessageRepository extends Mock implements IMessageRepository {}
 
 void main() {
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
   group('pinningServiceProvider', () {
     test('builds service from locator and supports star toggle', () async {
-      getIt.registerSingleton<IChatsRepository>(_MockChatsRepository());
-      getIt.registerSingleton<IMessageRepository>(_MockMessageRepository());
+      locator.registerSingleton<IChatsRepository>(_MockChatsRepository());
+      locator.registerSingleton<IMessageRepository>(_MockMessageRepository());
 
       final container = ProviderContainer();
       addTearDown(container.dispose);
@@ -49,8 +49,8 @@ void main() {
     test(
       'messageUpdatesProvider forwards updates from service stream',
       () async {
-        getIt.registerSingleton<IChatsRepository>(_MockChatsRepository());
-        getIt.registerSingleton<IMessageRepository>(_MockMessageRepository());
+        locator.registerSingleton<IChatsRepository>(_MockChatsRepository());
+        locator.registerSingleton<IMessageRepository>(_MockMessageRepository());
 
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -77,8 +77,8 @@ void main() {
     );
 
     test('disposes provider without throwing', () {
-      getIt.registerSingleton<IChatsRepository>(_MockChatsRepository());
-      getIt.registerSingleton<IMessageRepository>(_MockMessageRepository());
+      locator.registerSingleton<IChatsRepository>(_MockChatsRepository());
+      locator.registerSingleton<IMessageRepository>(_MockMessageRepository());
 
       final container = ProviderContainer();
       container.read(pinningServiceProvider);

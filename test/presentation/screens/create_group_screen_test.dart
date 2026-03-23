@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -39,18 +39,18 @@ void main() {
     late MockContactRepository contactRepository;
 
     setUp(() async {
-      await GetIt.instance.reset();
+      await getIt.reset();
       clearRuntimeAppServicesForTesting();
       resetMockitoState();
       contactRepository = MockContactRepository();
-      GetIt.instance.registerSingleton<IContactRepository>(contactRepository);
+      getIt.registerSingleton<IContactRepository>(contactRepository);
       when(
         contactRepository.getAllContacts(),
       ).thenAnswer((_) async => <String, Contact>{});
     });
 
     tearDown(() async {
-      await GetIt.instance.reset();
+      await getIt.reset();
       clearRuntimeAppServicesForTesting();
     });
 

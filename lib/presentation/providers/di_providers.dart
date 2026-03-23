@@ -25,7 +25,7 @@ AppServices? maybeResolveAppServices() {
 }
 
 /// Test-only hook used by presentation/widget tests to clear the runtime
-/// composition snapshot between isolated GetIt setups.
+/// composition snapshot between isolated registry setups.
 void clearRuntimeAppServicesForTesting() {
   AppRuntimeServicesRegistry.clear();
 }

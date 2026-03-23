@@ -152,16 +152,16 @@ void main() {
       });
     });
 
-    group('GetIt Integration', () {
-      test('getIt instance is accessible', () {
+    group('Service Registry Integration', () {
+      test('service registry instance is accessible', () {
         // Arrange & Act
         final instance = getIt;
 
         // Assert
-        expect(instance, isNotNull, reason: 'GetIt instance should exist');
+        expect(instance, isNotNull, reason: 'Service registry instance should exist');
       });
 
-      test('getIt is singleton', () {
+      test('service registry is singleton', () {
         // Arrange
         final instance1 = getIt;
         final instance2 = getIt;
@@ -170,7 +170,7 @@ void main() {
         expect(
           identical(instance1, instance2),
           isTrue,
-          reason: 'GetIt should return same instance',
+          reason: 'Service registry should return same instance',
         );
       });
     });
@@ -270,7 +270,7 @@ void main() {
       },
       );
 
-      test('publishAppServices publishes runtime snapshot outside GetIt', () async {
+      test('publishAppServices publishes runtime snapshot outside bootstrap registry', () async {
         await setupServiceLocator();
         final bootstrap = resolveAppBootstrapServices();
 

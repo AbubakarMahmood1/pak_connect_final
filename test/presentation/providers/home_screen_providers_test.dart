@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/entities/chat_list_item.dart';
 import 'package:pak_connect/domain/interfaces/i_chat_interaction_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
@@ -113,15 +113,15 @@ class _FakeHomeScreenFacadeFactory implements IHomeScreenFacadeFactory {
 }
 
 void main() {
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
@@ -269,7 +269,7 @@ void main() {
         final connectionService = MockConnectionService();
         addTearDown(connectionService.dispose);
         addTearDown(fakeFacade.close);
-        getIt.registerSingleton<IHomeScreenFacadeFactory>(factory);
+        locator.registerSingleton<IHomeScreenFacadeFactory>(factory);
 
         late ProviderContainer container;
         late HomeScreenProviderArgs args;

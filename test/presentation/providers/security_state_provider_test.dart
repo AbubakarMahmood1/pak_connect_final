@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
@@ -110,17 +110,17 @@ Future<void> _primeBleRuntime(ProviderContainer container) async {
 }
 
 void main() {
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   setUp(() async {
     clearSecurityStateCache();
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     clearSecurityStateCache();
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
@@ -203,7 +203,7 @@ void main() {
       'repository mode computes needs-pairing with repo_ key trimming',
       () async {
         final repository = _FakeContactRepository();
-        getIt.registerSingleton<IContactRepository>(repository);
+        locator.registerSingleton<IContactRepository>(repository);
         final connectionService = _FakeConnectionService(
           sessionId: 'live-session',
           persistentKey: 'live-persistent',
@@ -249,7 +249,7 @@ void main() {
           )
           ..securityLevelById['session-verified'] = SecurityLevel.high
           ..securityLevelById['session-asymmetric'] = SecurityLevel.low;
-        getIt.registerSingleton<IContactRepository>(repository);
+        locator.registerSingleton<IContactRepository>(repository);
 
         final verifiedConnection = _FakeConnectionService(
           sessionId: 'session-verified',
@@ -320,7 +320,7 @@ void main() {
       () async {
         final repository = _FakeContactRepository()
           ..securityLevelById['session-unilateral'] = SecurityLevel.low;
-        getIt.registerSingleton<IContactRepository>(repository);
+        locator.registerSingleton<IContactRepository>(repository);
         final connectionService = _FakeConnectionService(
           sessionId: 'session-unilateral',
           persistentKey: 'session-unilateral',
@@ -362,7 +362,7 @@ void main() {
           trustStatus: TrustStatus.newContact,
           securityLevel: SecurityLevel.medium,
         );
-      getIt.registerSingleton<IContactRepository>(repository);
+      locator.registerSingleton<IContactRepository>(repository);
       final connectionService = _FakeConnectionService(
         sessionId: 'another-live-key',
         persistentKey: 'another-live-key',

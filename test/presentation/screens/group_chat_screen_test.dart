@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/models/contact_group.dart';
 import 'package:pak_connect/presentation/providers/group_providers.dart';
@@ -128,7 +128,7 @@ Future<void> _pumpGroupChatScreen(
 }
 
 void main() {
-  final locator = GetIt.instance;
+  final locator = getIt;
 
   setUp(() {
     if (locator.isRegistered<IUserPreferences>()) {

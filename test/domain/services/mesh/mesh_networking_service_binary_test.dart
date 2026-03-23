@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../../test_helpers/test_service_registry.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
@@ -40,14 +40,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     PathProviderPlatform.instance = _FakePathProviderPlatform();
     // Minimal repo provider registration for ChatManagementService singleton.
-    if (GetIt.instance.isRegistered<IRepositoryProvider>()) {
-      GetIt.instance.unregister<IRepositoryProvider>();
+    if (getIt.isRegistered<IRepositoryProvider>()) {
+      getIt.unregister<IRepositoryProvider>();
     }
-    if (GetIt.instance.isRegistered<_StubRepositoryProvider>()) {
-      GetIt.instance.unregister<_StubRepositoryProvider>();
+    if (getIt.isRegistered<_StubRepositoryProvider>()) {
+      getIt.unregister<_StubRepositoryProvider>();
     }
     final provider = _StubRepositoryProvider();
-    GetIt.instance
+    getIt
       ..registerSingleton<_StubRepositoryProvider>(provider)
       ..registerSingleton<IRepositoryProvider>(provider);
 
@@ -72,14 +72,14 @@ void main() {
   });
 
   setUp(() {
-    final repoProvider = GetIt.instance<_StubRepositoryProvider>();
+    final repoProvider = getIt<_StubRepositoryProvider>();
     (repoProvider.messageRepository as _InMemoryMessageRepository).reset();
   });
 
   group('MeshNetworkingService binary handling', () {
     test('propagates ttl/recipient through ReceivedBinaryEvent', () async {
       final ble = _FakeConnectionService();
-      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
+      final repositoryProvider = getIt<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
@@ -109,7 +109,7 @@ void main() {
 
     test('queues offline binary sends and retries when connected', () async {
       final ble = _FakeConnectionService(canSend: false, connected: false);
-      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
+      final repositoryProvider = getIt<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
@@ -135,7 +135,7 @@ void main() {
 
     test('stores outbound binary messages with transferId metadata', () async {
       final ble = _FakeConnectionService();
-      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
+      final repositoryProvider = getIt<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
@@ -150,7 +150,7 @@ void main() {
       );
 
       final repo =
-          GetIt.instance<_StubRepositoryProvider>().messageRepository
+          getIt<_StubRepositoryProvider>().messageRepository
               as _InMemoryMessageRepository;
       final stored =
           await repo.getMessageById(MessageId(transferId)) as EnhancedMessage?;
@@ -162,7 +162,7 @@ void main() {
 
     test('tracks initial sync peers when identity is revealed', () async {
       final ble = _FakeConnectionService();
-      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
+      final repositoryProvider = getIt<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),
@@ -183,7 +183,7 @@ void main() {
 
     test('schedules initial sync on direct announce', () async {
       final ble = _FakeConnectionService();
-      final repositoryProvider = GetIt.instance<IRepositoryProvider>();
+      final repositoryProvider = getIt<IRepositoryProvider>();
       final svc = MeshNetworkingService(
         bleService: ble,
         messageHandler: _NoopFacade(),

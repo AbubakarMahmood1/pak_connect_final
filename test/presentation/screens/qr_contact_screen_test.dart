@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/entities/ephemeral_discovery_hint.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
@@ -103,18 +103,18 @@ Future<void> _pumpQrScreen(
   required _FakeIntroHintRepository introHintRepository,
   QrScannerLauncher? scannerLauncher,
 }) async {
-  final getIt = GetIt.instance;
-  await getIt.reset();
+  final locator = getIt;
+  await locator.reset();
   clearRuntimeAppServicesForTesting();
-  getIt.registerSingleton<IUserPreferences>(userPreferences);
-  getIt.registerSingleton<IIntroHintRepository>(introHintRepository);
+  locator.registerSingleton<IUserPreferences>(userPreferences);
+  locator.registerSingleton<IIntroHintRepository>(introHintRepository);
 
   tester.view.physicalSize = const Size(1200, 2200);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
@@ -352,5 +352,3 @@ void main() {
     });
   });
 }
-
-

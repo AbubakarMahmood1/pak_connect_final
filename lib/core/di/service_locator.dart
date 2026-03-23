@@ -1,4 +1,3 @@
-import 'package:get_it/get_it.dart';
 import 'package:logging/logging.dart';
 import '../../domain/services/archive_management_service.dart';
 import '../../domain/services/archive_search_service.dart';
@@ -47,59 +46,89 @@ import '../services/chat_list_coordinator_factory.dart';
 import 'app_services.dart';
 import 'repository_provider_impl.dart';
 
-/// GetIt service locator instance
-final getIt = GetIt.instance;
+class _ServiceRegistration {
+  _ServiceRegistration.singleton(this._instance) : _factory = null;
+  _ServiceRegistration.lazy(this._factory);
+
+  Object? _instance;
+  final Object Function()? _factory;
+
+  Object resolve() {
+    final factory = _factory;
+    if (factory == null) {
+      return _instance!;
+    }
+    return _instance ??= factory();
+  }
+}
+
+/// Minimal internal service registry used during DI cleanup.
+///
+/// The surface mirrors the subset of locator behavior PakConnect still relies on:
+/// singleton registration, lazy singleton registration, lookup, and reset.
+class ServiceRegistry implements IServiceRegistry {
+  ServiceRegistry._();
+
+  static final ServiceRegistry instance = ServiceRegistry._();
+
+  final Map<Type, _ServiceRegistration> _registrations =
+      <Type, _ServiceRegistration>{};
+
+  @override
+  bool isRegistered<T extends Object>() => _registrations.containsKey(T);
+
+  @override
+  T resolve<T extends Object>({String? dependencyName}) {
+    final registration = _registrations[T];
+    if (registration == null) {
+      final label = dependencyName ?? T.toString();
+      throw StateError('$label is not registered in service locator');
+    }
+    return registration.resolve() as T;
+  }
+
+  @override
+  T? maybeResolve<T extends Object>() {
+    final registration = _registrations[T];
+    if (registration == null) {
+      return null;
+    }
+    return registration.resolve() as T;
+  }
+
+  T get<T extends Object>() => resolve<T>();
+
+  T call<T extends Object>() => resolve<T>();
+
+  @override
+  void registerSingleton<T extends Object>(T instance) {
+    _registrations[T] = _ServiceRegistration.singleton(instance);
+  }
+
+  @override
+  void registerLazySingleton<T extends Object>(T Function() factory) {
+    _registrations[T] = _ServiceRegistration.lazy(factory);
+  }
+
+  @override
+  void unregister<T extends Object>() {
+    _registrations.remove(T);
+  }
+
+  Future<void> reset() async {
+    _registrations.clear();
+  }
+}
+
+/// Shared service registry instance.
+final getIt = ServiceRegistry.instance;
 
 /// Feature flag to enable/disable DI (for gradual migration)
 const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
 
-class _GetItServiceRegistry implements IServiceRegistry {
-  const _GetItServiceRegistry(this._getIt);
-
-  final GetIt _getIt;
-
-  @override
-  bool isRegistered<T extends Object>() => _getIt.isRegistered<T>();
-
-  @override
-  T resolve<T extends Object>({String? dependencyName}) {
-    if (_getIt.isRegistered<T>()) {
-      return _getIt.get<T>();
-    }
-
-    final label = dependencyName ?? T.toString();
-    throw StateError('$label is not registered in service locator');
-  }
-
-  @override
-  T? maybeResolve<T extends Object>() {
-    if (!_getIt.isRegistered<T>()) {
-      return null;
-    }
-    return _getIt.get<T>();
-  }
-
-  @override
-  void registerSingleton<T extends Object>(T instance) {
-    _getIt.registerSingleton<T>(instance);
-  }
-
-  @override
-  void registerLazySingleton<T extends Object>(T Function() factory) {
-    _getIt.registerLazySingleton<T>(factory);
-  }
-
-  @override
-  void unregister<T extends Object>() {
-    if (_getIt.isRegistered<T>()) {
-      _getIt.unregister<T>();
-    }
-  }
-}
-
-final IServiceRegistry _registry = _GetItServiceRegistry(getIt);
+final IServiceRegistry _registry = getIt;
 
 typedef DataLayerRegistrar = Future<void> Function(
   IServiceRegistry services,
@@ -118,7 +147,8 @@ void configureDataLayerRegistrar(DataLayerRegistrar registrar) {
 
 /// Sets up the dependency injection container
 ///
-/// This function registers all services, repositories, and managers with GetIt.
+/// This function registers all services, repositories, and managers with the
+/// shared service registry.
 ///
 /// **Registration Strategy**:
 /// - Singletons: For stateful services that should have one instance
@@ -321,7 +351,7 @@ void registerInitializedServices({
     );
 
     _logger.info(
-      '✅ Initialized runtime services published outside GetIt',
+      '✅ Initialized runtime services published outside the bootstrap registry',
     );
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to publish initialized runtime services', e, stackTrace);

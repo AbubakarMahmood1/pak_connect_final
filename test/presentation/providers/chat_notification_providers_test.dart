@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/pinning_service.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -57,15 +57,15 @@ class _FakePinningService extends Fake implements PinningService {
 }
 
 void main() {
-  final getIt = GetIt.instance;
+  final locator = getIt;
 
   setUp(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
-    await getIt.reset();
+    await locator.reset();
     clearRuntimeAppServicesForTesting();
   });
 
@@ -75,7 +75,7 @@ void main() {
       () async {
         final service = _FakeChatManagementService();
         addTearDown(service.close);
-        getIt.registerSingleton<ChatManagementService>(service);
+        locator.registerSingleton<ChatManagementService>(service);
 
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -93,7 +93,7 @@ void main() {
       () async {
         final service = _FakeChatManagementService(throwOnInitialize: true);
         addTearDown(service.close);
-        getIt.registerSingleton<ChatManagementService>(service);
+        locator.registerSingleton<ChatManagementService>(service);
 
         final container = ProviderContainer();
         addTearDown(container.dispose);

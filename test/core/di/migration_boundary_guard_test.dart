@@ -89,7 +89,7 @@ void main() {
       );
     });
 
-    test('presentation code does not import get_it or use GetIt directly', () {
+    test('presentation code does not import get_it or use locator globals directly', () {
       final violations = <String>[];
 
       for (final file in dartFilesUnder('lib/presentation')) {
@@ -115,7 +115,7 @@ void main() {
         isEmpty,
         reason: violations.isEmpty
             ? 'Presentation code stays behind AppServices/DI helper boundaries.'
-            : 'Presentation must not depend on get_it directly:\n${violations.join('\n')}',
+            : 'Presentation must not depend on locator globals directly:\n${violations.join('\n')}',
       );
     });
 
@@ -153,12 +153,12 @@ void main() {
         violations,
         isEmpty,
         reason: violations.isEmpty
-            ? 'Runtime getIt usage is boxed into the service-locator boundary.'
-            : 'Unexpected runtime getIt usage found:\n${violations.join('\n')}',
+            ? 'Runtime locator usage is boxed into the service-locator boundary.'
+            : 'Unexpected runtime locator usage found:\n${violations.join('\n')}',
       );
     });
 
-    test('service_locator does not publish runtime services into GetIt', () {
+    test('service_locator does not publish runtime services into the bootstrap registry', () {
       final file = File(
         path.join(projectRoot.path, 'lib', 'core', 'di', 'service_locator.dart'),
       );
@@ -193,8 +193,19 @@ void main() {
         violations,
         isEmpty,
         reason: violations.isEmpty
-            ? 'Runtime services are published through AppRuntimeServicesRegistry, not GetIt.'
-            : 'service_locator.dart still registers runtime services in GetIt:\n${violations.join('\n')}',
+            ? 'Runtime services are published through AppRuntimeServicesRegistry, not the bootstrap registry.'
+            : 'service_locator.dart still registers runtime services in the bootstrap registry:\n${violations.join('\n')}',
+      );
+    });
+
+    test('repo no longer depends on package:get_it', () {
+      final pubspec = File(path.join(projectRoot.path, 'pubspec.yaml'));
+      final content = pubspec.readAsStringSync();
+
+      expect(
+        content.contains(RegExp(r'^\s*get_it\s*:', multiLine: true)),
+        isFalse,
+        reason: 'pubspec.yaml should not declare get_it after checkpoint 7.',
       );
     });
 

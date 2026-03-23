@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:get_it/get_it.dart';
+import '../../test_helpers/test_service_registry.dart';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     show BluetoothLowEnergyState;
@@ -386,7 +386,7 @@ SecurityState _unknownSecurityState() => const SecurityState(
 );
 
 // ============================================================================
-// GetIt REGISTRATION HELPERS
+// Registry helpers
 // ============================================================================
 
 void _registerService<T extends Object>(GetIt locator, T instance) {
@@ -396,7 +396,7 @@ void _registerService<T extends Object>(GetIt locator, T instance) {
   locator.registerSingleton<T>(instance);
 }
 
-void _cleanupGetIt(GetIt locator) {
+void _cleanupRegistry(GetIt locator) {
   if (locator.isRegistered<IMessageRepository>()) {
     locator.unregister<IMessageRepository>();
   }
@@ -428,7 +428,7 @@ Future<void> _pumpChatScreen(
   _FakeMeshNetworkingService? meshServiceOverride,
   _FakeConnectionService? connectionServiceOverride,
 }) async {
-  final locator = GetIt.instance;
+  final locator = getIt;
   final msgRepo = _FakeMessageRepository();
   final contactRepo = _FakeContactRepository();
   final chatsRepo = _FakeChatsRepository();
@@ -494,12 +494,12 @@ Future<void> _pumpChatScreen(
 // ============================================================================
 
 void main() {
-  final locator = GetIt.instance;
+  final locator = getIt;
 
   setUp(() {});
 
   tearDown(() {
-    _cleanupGetIt(locator);
+    _cleanupRegistry(locator);
   });
 
   // --------------------------------------------------------------------------
@@ -1315,10 +1315,10 @@ void main() {
   });
 
   // --------------------------------------------------------------------------
-  // GROUP 23: ISecurityService registered in GetIt (lines 275-277)
+  // GROUP 23: ISecurityService registered in the shared registry (lines 275-277)
   // --------------------------------------------------------------------------
   group('ChatScreen – ISecurityService registration', () {
-    testWidgets('resolves ISecurityService via GetIt without crash', (
+    testWidgets('resolves ISecurityService via registry without crash', (
       tester,
     ) async {
       final secService = _FakeSecurityService();

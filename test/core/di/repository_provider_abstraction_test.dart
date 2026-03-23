@@ -87,7 +87,7 @@ void main() {
 
     group('DI Registration and Injection', () {
       test('✅ IRepositoryProvider is registered in DI container', () {
-        // Assert - should be able to resolve from GetIt
+        // Assert - should be able to resolve from the shared registry
         final provider = TestSetup.getService<IRepositoryProvider>();
         expect(provider, isNotNull);
         expect(provider, isA<IRepositoryProvider>());
