@@ -25,7 +25,9 @@ import 'package:pak_connect/domain/services/archive_management_service.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/contact_management_service.dart';
+import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
+import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 
 /// Typed bootstrap dependency bundle resolved from the legacy runtime locator.
 ///
@@ -115,6 +117,38 @@ class AppBootstrapServices {
   }
 }
 
+/// Explicit in-memory runtime bindings published by `AppCore` as startup
+/// progresses.
+///
+/// This replaces the previous pattern of publishing initialized runtime
+/// services into GetIt before the full `AppServices` snapshot exists.
+class AppRuntimeBindings {
+  const AppRuntimeBindings({
+    required this.securityService,
+    required this.connectionService,
+    required this.meshNetworkingService,
+    this.meshRelayCoordinator,
+    this.meshQueueSyncCoordinator,
+    this.meshHealthMonitor,
+  });
+
+  final ISecurityService securityService;
+  final IConnectionService connectionService;
+  final IMeshNetworkingService meshNetworkingService;
+  final MeshRelayCoordinator? meshRelayCoordinator;
+  final MeshQueueSyncCoordinator? meshQueueSyncCoordinator;
+  final MeshNetworkHealthMonitor? meshHealthMonitor;
+
+  Iterable<Object?> get runtimeBindings sync* {
+    yield securityService;
+    yield connectionService;
+    yield meshNetworkingService;
+    yield meshRelayCoordinator;
+    yield meshQueueSyncCoordinator;
+    yield meshHealthMonitor;
+  }
+}
+
 /// Typed composition-root snapshot exposed by [AppCore].
 ///
 /// Pass 4 scaffold: presentation/domain adapters can gradually read from this
@@ -171,4 +205,89 @@ class AppServices {
   final IHomeScreenFacadeFactory? homeScreenFacadeFactory;
   final IChatConnectionManagerFactory? chatConnectionManagerFactory;
   final IChatListCoordinatorFactory? chatListCoordinatorFactory;
+
+  Iterable<Object?> get runtimeBindings sync* {
+    yield this;
+    yield contactRepository;
+    yield messageRepository;
+    yield archiveRepository;
+    yield chatsRepository;
+    yield userPreferences;
+    yield preferencesRepository;
+    yield repositoryProvider;
+    yield sharedMessageQueueProvider;
+    yield connectionService;
+    yield meshNetworkingService;
+    yield meshNetworkHealthMonitor;
+    yield securityService;
+    yield contactManagementService;
+    yield chatManagementService;
+    yield archiveManagementService;
+    yield archiveSearchService;
+    yield databaseProvider;
+    yield groupRepository;
+    yield introHintRepository;
+    yield exportService;
+    yield importService;
+    yield homeScreenFacadeFactory;
+    yield chatConnectionManagerFactory;
+    yield chatListCoordinatorFactory;
+  }
+}
+
+/// Explicit runtime composition registry used by `AppCore` and the provider
+/// bridge during the GetIt retirement migration.
+class AppRuntimeServicesRegistry {
+  AppRuntimeServicesRegistry._();
+
+  static AppRuntimeBindings? _bindings;
+  static AppServices? _services;
+
+  static AppServices get current {
+    final services = _services;
+    if (services == null) {
+      throw StateError('AppServices have not been published yet.');
+    }
+    return services;
+  }
+
+  static AppServices? maybeCurrent() => _services;
+
+  static void publishBindings(AppRuntimeBindings bindings) {
+    _bindings = bindings;
+  }
+
+  static void publish(AppServices services) {
+    _services = services;
+    _bindings = null;
+  }
+
+  static void clear() {
+    _bindings = null;
+    _services = null;
+  }
+
+  static bool has<T extends Object>() => maybeResolve<T>() != null;
+
+  static T? maybeResolve<T extends Object>() {
+    final services = _services;
+    if (services != null) {
+      for (final candidate in services.runtimeBindings) {
+        if (candidate is T) {
+          return candidate;
+        }
+      }
+    }
+
+    final bindings = _bindings;
+    if (bindings != null) {
+      for (final candidate in bindings.runtimeBindings) {
+        if (candidate is T) {
+          return candidate;
+        }
+      }
+    }
+
+    return null;
+  }
 }

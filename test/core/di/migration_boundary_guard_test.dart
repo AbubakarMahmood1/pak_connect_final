@@ -158,6 +158,46 @@ void main() {
       );
     });
 
+    test('service_locator does not publish runtime services into GetIt', () {
+      final file = File(
+        path.join(projectRoot.path, 'lib', 'core', 'di', 'service_locator.dart'),
+      );
+      final forbiddenSnippets = <String>{
+        'registerSingleton<AppServices>(',
+        'unregister<AppServices>(',
+        'registerSingleton<ISecurityService>(',
+        'registerSingleton<IMeshBleService>(',
+        'registerSingleton<IConnectionService>(',
+        'registerSingleton<IBLEServiceFacade>(',
+        'registerSingleton<MeshNetworkingService>(',
+        'registerSingleton<IMeshNetworkingService>(',
+        'registerSingleton<MeshRelayCoordinator>(',
+        'registerSingleton<MeshQueueSyncCoordinator>(',
+        'registerSingleton<MeshNetworkHealthMonitor>(',
+      };
+      final violations = <String>[];
+      final lines = file.readAsLinesSync();
+
+      for (var i = 0; i < lines.length; i++) {
+        final trimmed = lines[i].trim();
+        if (trimmed.startsWith('//') || trimmed.startsWith('///')) {
+          continue;
+        }
+
+        if (forbiddenSnippets.any(trimmed.contains)) {
+          violations.add('service_locator.dart:${i + 1} -> $trimmed');
+        }
+      }
+
+      expect(
+        violations,
+        isEmpty,
+        reason: violations.isEmpty
+            ? 'Runtime services are published through AppRuntimeServicesRegistry, not GetIt.'
+            : 'service_locator.dart still registers runtime services in GetIt:\n${violations.join('\n')}',
+      );
+    });
+
     test(
       'presentation imports service_locator only through di_providers.dart',
       () {

@@ -21,7 +21,13 @@ bool isRegisteredInServiceLocator<T extends Object>() {
 ///
 /// Returns `null` while app bootstrap is incomplete.
 AppServices? maybeResolveAppServices() {
-  return di_service_locator.maybeResolveRegistered<AppServices>();
+  return AppRuntimeServicesRegistry.maybeCurrent();
+}
+
+/// Test-only hook used by presentation/widget tests to clear the runtime
+/// composition snapshot between isolated GetIt setups.
+void clearRuntimeAppServicesForTesting() {
+  AppRuntimeServicesRegistry.clear();
 }
 
 /// Resolve dependencies from typed composition root first, then the service locator.

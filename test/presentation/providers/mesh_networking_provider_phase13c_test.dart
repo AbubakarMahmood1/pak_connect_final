@@ -32,6 +32,8 @@ import 'package:pak_connect/domain/routing/topology_manager.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart'
     show PendingBinaryTransfer, ReceivedBinaryEvent;
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/mesh_networking_provider.dart';
 import 'package:pak_connect/presentation/providers/runtime_providers.dart';
 
@@ -219,6 +221,14 @@ const _defaultQueueSyncStats = QueueSyncManagerStats(
 
 void main() {
   Logger.root.level = Level.OFF;
+
+  setUp(() {
+    clearRuntimeAppServicesForTesting();
+  });
+
+  tearDown(() {
+    clearRuntimeAppServicesForTesting();
+  });
 
   // ---------------------------------------------------------------------------
   // MeshRuntimeNotifier + meshRuntimeProvider (lines 76-132)

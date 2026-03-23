@@ -270,7 +270,7 @@ void main() {
       },
       );
 
-      test('publishAppServices registers and clears runtime snapshot', () async {
+      test('publishAppServices publishes runtime snapshot outside GetIt', () async {
         await setupServiceLocator();
         final bootstrap = resolveAppBootstrapServices();
 
@@ -307,9 +307,11 @@ void main() {
 
         publishAppServices(snapshot);
         expect(resolveRegistered<AppServices>(), same(snapshot));
+        expect(getIt.isRegistered<AppServices>(), isFalse);
 
         clearPublishedAppServices();
         expect(maybeResolveRegistered<AppServices>(), isNull);
+        expect(getIt.isRegistered<AppServices>(), isFalse);
       });
     });
 

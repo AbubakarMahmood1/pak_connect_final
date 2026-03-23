@@ -5,6 +5,8 @@ import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/pinning_service_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
@@ -20,10 +22,12 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   tearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   group('pinningServiceProvider', () {

@@ -437,9 +437,7 @@ class TestSetup {
         locator.isRegistered<ISharedMessageQueueProvider>();
 
     if (!hasRequiredCoreBindings) {
-      if (locator.isRegistered<AppServices>()) {
-        locator.unregister<AppServices>();
-      }
+      di_service_locator.clearPublishedAppServices();
       return;
     }
 
@@ -537,10 +535,7 @@ class TestSetup {
           : null,
     );
 
-    if (locator.isRegistered<AppServices>()) {
-      locator.unregister<AppServices>();
-    }
-    locator.registerSingleton<AppServices>(snapshot);
+    di_service_locator.publishAppServices(snapshot);
   }
 
   static MeshNetworkHealthMonitor _resolveMeshHealthMonitor({

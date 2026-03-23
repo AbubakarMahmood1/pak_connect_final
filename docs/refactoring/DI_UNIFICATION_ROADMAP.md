@@ -1,6 +1,6 @@
 # DI Unification Roadmap (0-100%)
 
-**Last Updated**: 2026-03-24 (composition-root checkpoint hardened)
+**Last Updated**: 2026-03-24 (explicit runtime composition checkpoint)
 
 ---
 
@@ -262,6 +262,22 @@ Pass 7 progress highlights:
   without rewriting data registration again.
 - Guardrails now enforce that direct runtime `getIt` usage in `lib/**` is
   quarantined to `lib/core/di/service_locator.dart`.
+
+2026-03-24 explicit runtime composition checkpoint:
+
+- `AppCore` no longer publishes the live `AppServices` runtime snapshot into
+  `GetIt`; it now uses `AppRuntimeServicesRegistry` as an explicit in-memory
+  composition holder.
+- Early startup runtime services (`ISecurityService`, `IConnectionService`,
+  mesh coordinators/health) are likewise published through explicit runtime
+  bindings instead of `registerSingleton(...)` calls.
+- `service_locator.dart` still owns bootstrap/data registration, but
+  `resolveRegistered(...)` and presentation DI helpers now consult the runtime
+  composition registry first, reducing `GetIt` to a bootstrap-only role for
+  the next checkpoint.
+- Test harness snapshot wiring now mirrors production by publishing
+  `AppServices` through the runtime registry instead of stuffing snapshots
+  into `GetIt`.
 
 ---
 

@@ -6,6 +6,8 @@ import 'package:mockito/mockito.dart';
 import 'package:pak_connect/domain/entities/contact.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/providers/group_providers.dart';
 import 'package:pak_connect/presentation/screens/create_group_screen.dart';
 
@@ -38,6 +40,7 @@ void main() {
 
     setUp(() async {
       await GetIt.instance.reset();
+      clearRuntimeAppServicesForTesting();
       resetMockitoState();
       contactRepository = MockContactRepository();
       GetIt.instance.registerSingleton<IContactRepository>(contactRepository);
@@ -48,6 +51,7 @@ void main() {
 
     tearDown(() async {
       await GetIt.instance.reset();
+      clearRuntimeAppServicesForTesting();
     });
 
     testWidgets(

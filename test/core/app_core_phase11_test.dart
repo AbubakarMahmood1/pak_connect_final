@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/app_core.dart';
+import 'package:pak_connect/core/di/app_services.dart';
 import 'package:pak_connect/core/di/service_locator.dart'
     show configureDataLayerRegistrar;
 import 'package:pak_connect/data/di/data_layer_service_registrar.dart';
 import 'package:pak_connect/domain/entities/queue_statistics.dart';
+import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/services/adaptive_power_manager.dart';
 import 'package:pak_connect/domain/services/performance_monitor.dart';
 
@@ -260,14 +264,21 @@ void main() {
       // is emitted BEFORE clearing, so we get exactly one more call.
     });
 
-    test('dispose unregisters AppServices from getIt', () async {
+    test('dispose clears published runtime composition bindings', () async {
       AppCore.initializationOverride = () async {};
       final appCore = AppCore.instance;
       await appCore.initialize();
 
+      AppRuntimeServicesRegistry.publishBindings(
+        AppRuntimeBindings(
+          securityService: _FakeSecurityService(),
+          connectionService: _FakeConnectionService(),
+          meshNetworkingService: _FakeMeshNetworkingService(),
+        ),
+      );
+      expect(AppRuntimeServicesRegistry.has<ISecurityService>(), isTrue);
       appCore.dispose();
-      // After dispose, AppServices should not be registered
-      // (dispose calls getIt.unregister<AppServices>())
+      expect(AppRuntimeServicesRegistry.has<ISecurityService>(), isFalse);
     });
   });
 
@@ -420,3 +431,10 @@ void main() {
     });
   });
 }
+
+class _FakeConnectionService extends Fake implements IConnectionService {}
+
+class _FakeMeshNetworkingService extends Fake
+    implements IMeshNetworkingService {}
+
+class _FakeSecurityService extends Fake implements ISecurityService {}

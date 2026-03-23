@@ -6,6 +6,8 @@ import 'package:get_it/get_it.dart';
 import 'package:pak_connect/domain/entities/ephemeral_discovery_hint.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/screens/qr_contact_screen.dart';
 import 'package:qr_barcode_dialog_scanner/qr_barcode_dialog_scanner.dart';
 
@@ -103,6 +105,7 @@ Future<void> _pumpQrScreen(
 }) async {
   final getIt = GetIt.instance;
   await getIt.reset();
+  clearRuntimeAppServicesForTesting();
   getIt.registerSingleton<IUserPreferences>(userPreferences);
   getIt.registerSingleton<IIntroHintRepository>(introHintRepository);
 
@@ -112,6 +115,7 @@ Future<void> _pumpQrScreen(
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(() async {
     await getIt.reset();
+    clearRuntimeAppServicesForTesting();
   });
 
   await tester.pumpWidget(
