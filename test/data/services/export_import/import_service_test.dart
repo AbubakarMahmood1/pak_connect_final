@@ -7,7 +7,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' hide equals;
 import 'package:pak_connect/data/database/database_helper.dart';
-import 'package:pak_connect/data/repositories/preferences_repository.dart';
 import 'package:pak_connect/data/services/export_import/encryption_utils.dart';
 import 'package:pak_connect/data/services/export_import/export_bundle.dart';
 import 'package:pak_connect/data/services/export_import/import_service.dart';
@@ -40,8 +39,8 @@ void main() {
     });
   }
 
-  /// Create a **v1** legacy bundle (unkeyed SHA-256 checksum, external DB path).
-  Future<String> writeV1BundleFile({
+  /// Create an unsupported legacy **v1** bundle for rejection tests.
+  Future<String> writeLegacyV1BundleFile({
     required String passphrase,
     required String databasePath,
     ExportType exportType = ExportType.contactsOnly,
@@ -99,25 +98,25 @@ void main() {
           databasePath,
         ]);
 
-    final bundle = ExportBundle(
-      version: version,
-      timestamp: DateTime.now(),
-      deviceId: 'source-device-id',
-      username: 'Source User',
-      exportType: exportType,
-      encryptedMetadata: encryptedMetadata,
-      encryptedKeys: encryptedKeys,
-      encryptedPreferences: encryptedPreferences,
-      databasePath: databasePath,
-      salt: salt,
-      checksum: checksum,
-    );
+    final bundle = {
+      'version': version,
+      'timestamp': DateTime.now().toIso8601String(),
+      'device_id': 'source-device-id',
+      'username': 'Source User',
+      'export_type': exportType.name,
+      'encrypted_metadata': encryptedMetadata,
+      'encrypted_keys': encryptedKeys,
+      'encrypted_preferences': encryptedPreferences,
+      'database_path': databasePath,
+      'salt': salt.toList(),
+      'checksum': checksum,
+    };
 
     final bundlePath = join(
       artifactDir.path,
       'bundle_${DateTime.now().microsecondsSinceEpoch}.pakconnect',
     );
-    await File(bundlePath).writeAsString(jsonEncode(bundle.toJson()));
+    await File(bundlePath).writeAsString(jsonEncode(bundle));
     return bundlePath;
   }
 
@@ -257,9 +256,7 @@ void main() {
     await DatabaseHelper.close();
   });
 
-  // ── Existing v1 validation tests (backward compat) ──
-
-  group('ImportService.validateBundle (v1 legacy)', () {
+  group('ImportService.validateBundle', () {
     test('returns invalid result when bundle file does not exist', () async {
       final result = await ImportService.validateBundle(
         bundlePath: join(artifactDir.path, 'missing.pakconnect'),
@@ -270,8 +267,8 @@ void main() {
       expect(result['error'], contains('not found'));
     });
 
-    test('returns invalid result for wrong passphrase', () async {
-      final bundlePath = await writeV1BundleFile(
+    test('rejects unsupported legacy v1 bundles before decryption', () async {
+      final bundlePath = await writeLegacyV1BundleFile(
         passphrase: 'CorrectPassphrase123!',
         databasePath: join(artifactDir.path, 'db.db'),
       );
@@ -282,32 +279,11 @@ void main() {
       );
 
       expect(result['valid'], isFalse);
-      expect(result['error'], contains('Invalid passphrase'));
-    });
-
-    test('returns invalid result when checksum does not match', () async {
-      final bundlePath = await writeV1BundleFile(
-        passphrase: 'StrongPassphrase123!',
-        databasePath: join(artifactDir.path, 'db.db'),
-        checksumOverride: 'bad-checksum',
-      );
-
-      final result = await ImportService.validateBundle(
-        bundlePath: bundlePath,
-        userPassphrase: 'StrongPassphrase123!',
-      );
-
-      expect(result['valid'], isFalse);
-      expect(
-        result['error'],
-        contains('Integrity check failed'),
-      );
+      expect(result['error'], contains('Incompatible version'));
     });
   });
 
-  // ── v1 import tests (backward compat) ──
-
-  group('ImportService.importBundle (v1 legacy)', () {
+  group('ImportService.importBundle', () {
     test('fails when bundle file is missing', () async {
       final result = await ImportService.importBundle(
         bundlePath: join(artifactDir.path, 'missing_import.pakconnect'),
@@ -319,7 +295,7 @@ void main() {
     });
 
     test('fails when bundle version is incompatible', () async {
-      final bundlePath = await writeV1BundleFile(
+      final bundlePath = await writeLegacyV1BundleFile(
         passphrase: 'StrongPassphrase123!',
         databasePath: join(artifactDir.path, 'db.db'),
         version: '99.0.0',
@@ -334,13 +310,25 @@ void main() {
       expect(result.errorMessage, contains('Incompatible bundle version'));
     });
 
-    test('fails when required keys are missing in bundle payload', () async {
-      final placeholderDb = File(join(artifactDir.path, 'placeholder.db'));
-      await placeholderDb.writeAsString('placeholder');
-
-      final bundlePath = await writeV1BundleFile(
+    test('rejects unsupported legacy v1 bundle imports', () async {
+      final bundlePath = await writeLegacyV1BundleFile(
         passphrase: 'StrongPassphrase123!',
-        databasePath: placeholderDb.path,
+        databasePath: join(artifactDir.path, 'db.db'),
+      );
+
+      final result = await ImportService.importBundle(
+        bundlePath: bundlePath,
+        userPassphrase: 'StrongPassphrase123!',
+      );
+
+      expect(result.success, isFalse);
+      expect(result.errorMessage, contains('Incompatible bundle version'));
+    });
+
+    test('fails when required keys are missing in bundle payload', () async {
+      final bundlePath = await writeV2BundleFile(
+        passphrase: 'StrongPassphrase123!',
+        databaseBytes: Uint8List.fromList(utf8.encode('db-placeholder')),
         keys: {
           'database_encryption_key': 'db-key-only',
           'ecdh_public_key': 'missing-private-key',
@@ -356,129 +344,6 @@ void main() {
       expect(result.success, isFalse);
       expect(result.errorMessage, contains('Missing required keys'));
     });
-
-    test('fails when referenced database file is absent', () async {
-      final bundlePath = await writeV1BundleFile(
-        passphrase: 'StrongPassphrase123!',
-        databasePath: join(artifactDir.path, 'missing_database.db'),
-      );
-
-      final result = await ImportService.importBundle(
-        bundlePath: bundlePath,
-        userPassphrase: 'StrongPassphrase123!',
-        clearExistingData: false,
-      );
-
-      expect(result.success, isFalse);
-      expect(result.errorMessage, contains('Database file not found'));
-    });
-
-    test(
-      'v1: restores contacts, secure keys, shared preferences, and typed app preferences',
-      () async {
-        await insertContact(
-          publicKey: 'import-contact-key',
-          displayName: 'Import Contact',
-        );
-
-        final selectiveBackup =
-            await SelectiveBackupService.createSelectiveBackup(
-              exportType: ExportType.contactsOnly,
-              customBackupDir: artifactDir.path,
-            );
-        expect(selectiveBackup.success, isTrue);
-        expect(selectiveBackup.backupPath, isNotNull);
-
-        final bundlePath = await writeV1BundleFile(
-          passphrase: 'StrongPassphrase123!',
-          databasePath: selectiveBackup.backupPath!,
-          preferences: {
-            'app_preferences': {
-              'pref_string': 'value',
-              'pref_bool': true,
-              'pref_int': 7,
-              'pref_double': 2.5,
-            },
-            'username': 'Restored User',
-            'device_id': 'restored-device-id',
-            'theme_mode': 'light',
-          },
-        );
-
-        final db = await DatabaseHelper.database;
-        await db.delete('contacts');
-        await db.execute(
-          'CREATE TABLE IF NOT EXISTS messages_fts (dummy TEXT)',
-        );
-        await db.execute(
-          'CREATE TABLE IF NOT EXISTS archived_messages_fts (dummy TEXT)',
-        );
-
-        const storage = FlutterSecureStorage();
-        await storage.write(key: 'db_encryption_key_v1', value: 'old-db-key');
-        await storage.write(key: 'ecdh_public_key_v2', value: 'old-public-key');
-        await storage.write(
-          key: 'ecdh_private_key_v2',
-          value: 'old-private-key',
-        );
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('user_display_name', 'Old User');
-        await prefs.setString('my_persistent_device_id', 'old-device-id');
-        await prefs.setString('theme_mode', 'dark');
-
-        final result = await ImportService.importBundle(
-          bundlePath: bundlePath,
-          userPassphrase: 'StrongPassphrase123!',
-          clearExistingData: true,
-        );
-
-        expect(result.success, isTrue);
-        expect(result.recordsRestored, equals(1));
-        expect(result.originalDeviceId, equals('source-device-id'));
-        expect(result.originalUsername, equals('Source User'));
-
-        final restoredDb = await DatabaseHelper.database;
-        final restoredContacts = await restoredDb.query('contacts');
-        expect(restoredContacts.length, equals(1));
-        expect(
-          restoredContacts.first['public_key'],
-          equals('import-contact-key'),
-        );
-
-        expect(
-          await storage.read(key: 'db_encryption_key_v1'),
-          equals('db-key-from-bundle'),
-        );
-        expect(
-          await storage.read(key: 'ecdh_public_key_v2'),
-          equals('bundle-public-key'),
-        );
-        expect(
-          await storage.read(key: 'ecdh_private_key_v2'),
-          equals('bundle-private-key'),
-        );
-
-        expect(prefs.getString('user_display_name'), equals('Restored User'));
-        expect(
-          prefs.getString('my_persistent_device_id'),
-          equals('restored-device-id'),
-        );
-        expect(prefs.getString('theme_mode'), equals('light'));
-
-        final repo = PreferencesRepository();
-        expect(
-          await repo.getString('pref_string', defaultValue: ''),
-          equals('value'),
-        );
-        expect(await repo.getBool('pref_bool', defaultValue: false), isTrue);
-        expect(await repo.getInt('pref_int', defaultValue: 0), equals(7));
-        expect(
-          await repo.getDouble('pref_double', defaultValue: 0.0),
-          closeTo(2.5, 0.001),
-        );
-      },
-    );
   });
 
   // ── v2 self-contained bundle tests ──
@@ -705,7 +570,7 @@ void main() {
 
   group('Import ordering safety', () {
     test(
-      'v1: missing DB file does NOT clear existing data when clearExistingData=true',
+      'legacy v1 rejection does not clear existing data when clearExistingData=true',
       () async {
         // Set up existing data that should be preserved on failure
         const storage = FlutterSecureStorage();
@@ -730,8 +595,7 @@ void main() {
           displayName: 'Existing Contact',
         );
 
-        // Create a v1 bundle pointing to a non-existent DB
-        final bundlePath = await writeV1BundleFile(
+        final bundlePath = await writeLegacyV1BundleFile(
           passphrase: 'StrongPassphrase123!',
           databasePath: join(artifactDir.path, 'DOES_NOT_EXIST.db'),
         );
@@ -742,20 +606,20 @@ void main() {
           clearExistingData: true,
         );
 
-        // Import should fail
         expect(result.success, isFalse);
-        expect(result.errorMessage, contains('Database file not found'));
+        expect(result.errorMessage, contains('Incompatible bundle version'));
 
-        // Existing data should be PRESERVED (not wiped)
         expect(
           await storage.read(key: 'db_encryption_key_v1'),
           equals('precious-existing-key'),
-          reason: 'Secure storage should not be cleared before DB is verified',
+          reason:
+              'Secure storage should not be cleared before legacy bundle rejection',
         );
         expect(
           prefs.getString('user_display_name'),
           equals('Original User'),
-          reason: 'SharedPreferences should not be cleared before DB is verified',
+          reason:
+              'SharedPreferences should not be cleared before legacy bundle rejection',
         );
       },
     );
@@ -782,7 +646,6 @@ void main() {
       );
 
       expect(bundle.isSelfContained, isTrue);
-      expect(bundle.isLegacy, isFalse);
 
       final json = bundle.toJson();
       expect(json.containsKey('encrypted_database'), isTrue);
@@ -795,35 +658,6 @@ void main() {
       expect(restored.hmac, equals('hmac-value'));
       expect(restored.isSelfContained, isTrue);
       expect(restored.version, equals('2.0.0'));
-    });
-
-    test('v1 toJson/fromJson round-trip preserves databasePath and checksum',
-        () {
-      final salt = Uint8List.fromList(List.generate(32, (i) => i));
-      final bundle = ExportBundle(
-        version: '1.0.0',
-        timestamp: DateTime(2026, 1, 1),
-        deviceId: 'dev',
-        username: 'user',
-        encryptedMetadata: 'enc-meta',
-        encryptedKeys: 'enc-keys',
-        encryptedPreferences: 'enc-prefs',
-        databasePath: '/some/path/db.sqlite',
-        salt: salt,
-        checksum: 'sha256-hash',
-      );
-
-      expect(bundle.isSelfContained, isFalse);
-      expect(bundle.isLegacy, isTrue);
-
-      final json = bundle.toJson();
-      expect(json.containsKey('database_path'), isTrue);
-      expect(json.containsKey('checksum'), isTrue);
-
-      final restored = ExportBundle.fromJson(json);
-      expect(restored.databasePath, equals('/some/path/db.sqlite'));
-      expect(restored.checksum, equals('sha256-hash'));
-      expect(restored.isLegacy, isTrue);
     });
   });
 

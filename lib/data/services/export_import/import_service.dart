@@ -1,6 +1,6 @@
-// Import service for restoring encrypted data bundles
-// Restores .pakconnect files with all user data and encryption keys.
-// Supports v2.0.0 (self-contained, HMAC) and v1.0.0 (legacy path-based).
+// Import service for restoring encrypted data bundles.
+// Restores self-contained v2+ .pakconnect files with all user data and
+// encryption keys.
 
 import 'dart:convert';
 import 'dart:io';
@@ -31,8 +31,7 @@ class ImportService {
 
   /// Import and restore from encrypted bundle.
   ///
-  /// v2.0.0 bundles are self-contained (database embedded, HMAC-verified).
-  /// v1.0.0 bundles reference an external DB path (legacy, still supported).
+  /// Supported bundles are self-contained (database embedded, HMAC-verified).
   ///
   /// WARNING: This will REPLACE all existing data!
   static Future<ImportResult> importBundle({
@@ -76,11 +75,10 @@ class ImportService {
       if (!_isCompatibleVersion(bundle.version)) {
         return ImportResult.failure(
           'Incompatible bundle version: ${bundle.version}. '
-          'Expected: 1.0.0 or 2.0.0',
+          'Expected: 2.0.0 or 2.1.0',
         );
       }
 
-      // Reject v2+ bundles that were stripped to look like legacy v1
       if (_requiresSelfContainedBundle(bundle) && !bundle.isSelfContained) {
         return ImportResult.failure(
           'Invalid bundle structure for version ${bundle.version}: '
@@ -167,30 +165,24 @@ class ImportService {
       // ── 7. PREFLIGHT: Resolve database file BEFORE any destructive ops ──
       String dbRestorePath;
 
-      if (bundle.isSelfContained) {
-        // v2: decrypt embedded database to a temp file
-        _logger.info('Extracting embedded database...');
-        final dbBase64 = EncryptionUtils.decrypt(
-          bundle.encryptedDatabase!,
-          decryptionKey,
+      _logger.info('Extracting embedded database...');
+      final dbBase64 = EncryptionUtils.decrypt(
+        bundle.encryptedDatabase!,
+        decryptionKey,
+      );
+
+      if (dbBase64 == null) {
+        return ImportResult.failure(
+          'Failed to decrypt embedded database.',
         );
-
-        if (dbBase64 == null) {
-          return ImportResult.failure(
-            'Failed to decrypt embedded database.',
-          );
-        }
-
-        final dbBytes = base64Decode(dbBase64);
-        final mainDbPath = await DatabaseHelper.getDatabasePath();
-        dbRestorePath = '${mainDbPath}_import_temp_${DateTime.now().millisecondsSinceEpoch}.db';
-        await File(dbRestorePath).writeAsBytes(dbBytes);
-        _logger.info('Embedded database extracted to temp file');
-      } else {
-        // v1 legacy: reference external path
-        _logger.warning('⚠️ Importing legacy v1.0.0 bundle (external DB path)');
-        dbRestorePath = bundle.databasePath;
       }
+
+      final dbBytes = base64Decode(dbBase64);
+      final mainDbPath = await DatabaseHelper.getDatabasePath();
+      dbRestorePath =
+          '${mainDbPath}_import_temp_${DateTime.now().millisecondsSinceEpoch}.db';
+      await File(dbRestorePath).writeAsBytes(dbBytes);
+      _logger.info('Embedded database extracted to temp file');
 
       // Verify the DB file actually exists BEFORE clearing anything
       final dbFile = File(dbRestorePath);
@@ -239,7 +231,7 @@ class ImportService {
       if (bundle.exportType == ExportType.full) {
         final restoreResult = await DatabaseBackupService.restoreBackup(
           backupPath: dbRestorePath,
-          validateChecksum: !bundle.isSelfContained, // v2 already HMAC-verified
+          validateChecksum: false, // bundle integrity already HMAC-verified
         );
 
         if (!restoreResult.success) {
@@ -379,33 +371,19 @@ class ImportService {
 
   // ──────────────────────── Private helpers ────────────────────────
 
-  /// Verify bundle integrity using the appropriate mechanism.
+  /// Verify bundle integrity using keyed HMAC validation.
   static bool _verifyIntegrity(ExportBundle bundle, Uint8List key) {
-    if (_requiresSelfContainedBundle(bundle)) {
-      // v2+: HMAC-SHA256 keyed verification is mandatory
-      if (!bundle.isSelfContained || bundle.hmac == null) {
-        return false;
-      }
-      return EncryptionUtils.verifyHmac([
-        bundle.encryptedMetadata,
-        bundle.encryptedKeys,
-        bundle.encryptedPreferences,
-        bundle.encryptedDatabase!,
-        bundle.exportType.name,
-        bundle.baseTimestamp?.toIso8601String() ?? '',
-      ], key, bundle.hmac!);
-    } else if (bundle.version == '1.0.0' && bundle.checksum != null) {
-      // v1 legacy only: unkeyed SHA-256 (backward compat)
-      final calculated = EncryptionUtils.calculateChecksum([
-        bundle.encryptedMetadata,
-        bundle.encryptedKeys,
-        bundle.encryptedPreferences,
-        bundle.databasePath,
-      ]);
-      return calculated == bundle.checksum;
+    if (!bundle.isSelfContained || bundle.hmac == null) {
+      return false;
     }
-    // No integrity field at all — reject
-    return false;
+    return EncryptionUtils.verifyHmac([
+      bundle.encryptedMetadata,
+      bundle.encryptedKeys,
+      bundle.encryptedPreferences,
+      bundle.encryptedDatabase!,
+      bundle.exportType.name,
+      bundle.baseTimestamp?.toIso8601String() ?? '',
+    ], key, bundle.hmac!);
   }
 
   /// Clear all existing data.
@@ -503,11 +481,10 @@ class ImportService {
 
   /// Check if bundle version is compatible.
   static bool _isCompatibleVersion(String version) {
-    return version == '1.0.0' || version == '2.0.0' || version == '2.1.0';
+    return version == '2.0.0' || version == '2.1.0';
   }
 
-  /// v2+ bundles MUST be self-contained with HMAC — legacy checksum is not
-  /// acceptable for these versions.
+  /// Supported bundles must be self-contained with HMAC.
   static bool _requiresSelfContainedBundle(ExportBundle bundle) {
     return bundle.version == '2.0.0' || bundle.version == '2.1.0';
   }
