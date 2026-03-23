@@ -15,7 +15,7 @@ class SimpleCrypto {
     _logger.log(level, message);
   }
 
-  /// Initializes the legacy compatibility decryptor only.
+  /// Initializes the migration-only legacy compatibility decryptor.
   static void initialize() {
     LegacyPayloadCompatService.initialize();
   }
@@ -26,10 +26,12 @@ class SimpleCrypto {
   static void resetDeprecatedWrapperUsageCounts() =>
       LegacyPayloadCompatService.resetDeprecatedWrapperUsageCounts();
 
+  /// Compatibility helper for legacy test fixtures and migration reads only.
   static String encodeLegacyPlaintext(String plaintext) {
     return LegacyPayloadCompatService.encodeLegacyPlaintext(plaintext);
   }
 
+  /// Compatibility helper for legacy inbound payload migration only.
   static String decryptLegacyCompatible(String encryptedBase64) {
     return LegacyPayloadCompatService.decryptLegacyCompatible(encryptedBase64);
   }

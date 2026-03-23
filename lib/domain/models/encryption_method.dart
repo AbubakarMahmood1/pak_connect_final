@@ -1,6 +1,9 @@
 import 'package:meta/meta.dart';
 
 /// Encryption method used for a particular message.
+///
+/// `global` remains only as an explicit legacy-compatibility decrypt marker.
+/// It must not be selected for new outbound messages.
 @immutable
 class EncryptionMethod {
   final EncryptionType type;
@@ -17,6 +20,7 @@ class EncryptionMethod {
   factory EncryptionMethod.pairing(String publicKey) =>
       EncryptionMethod._(EncryptionType.pairing, publicKey);
 
+  /// Compatibility-only marker for legacy/global inbound decrypt handling.
   factory EncryptionMethod.global() =>
       const EncryptionMethod._(EncryptionType.global);
 
@@ -24,4 +28,11 @@ class EncryptionMethod {
   String toString() => 'EncryptionMethod(${type.name}, key: $publicKey)';
 }
 
-enum EncryptionType { ecdh, noise, pairing, global }
+enum EncryptionType {
+  ecdh,
+  noise,
+  pairing,
+
+  /// Compatibility-only legacy/global decrypt lane.
+  global,
+}

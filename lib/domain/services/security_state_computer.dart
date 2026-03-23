@@ -247,13 +247,13 @@ class SecurityStateComputer {
   static String getEncryptionDescription(SecurityState state) {
     switch (state.status) {
       case SecurityStatus.verifiedContact:
-        return 'ECDH + Signature Verification';
+        return 'Verified ECDH + Signature Verification';
       case SecurityStatus.paired:
-        return 'Paired + Global Encryption';
+        return 'Pairing Encryption + Noise Fallback';
       case SecurityStatus.asymmetricContact:
-        return 'Pairing Key + Global Encryption';
+        return 'Limited-Trust Pairing + Noise Fallback';
       case SecurityStatus.needsPairing:
-        return 'Global Encryption Only';
+        return 'Noise Session Only';
       default:
         return 'No Encryption';
     }

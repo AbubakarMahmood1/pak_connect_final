@@ -7,6 +7,7 @@ import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/models/security_state.dart';
+import 'package:pak_connect/domain/services/security_state_computer.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/security_state_provider.dart';
 
@@ -142,9 +143,51 @@ void main() {
       );
       expect(
         container.read(encryptionDescriptionProvider(key)),
-        'Paired + Global Encryption',
+        'Pairing Encryption + Noise Fallback',
       );
     });
+
+    test(
+      'encryption descriptions no longer advertise global as a normal lane',
+      () {
+        expect(
+          SecurityStateComputer.getEncryptionDescription(
+            SecurityState.verifiedContact(
+              otherUserName: 'Verified',
+              otherPublicKey: 'verified-key',
+            ),
+          ),
+          'Verified ECDH + Signature Verification',
+        );
+        expect(
+          SecurityStateComputer.getEncryptionDescription(
+            SecurityState.paired(
+              otherUserName: 'Paired',
+              otherPublicKey: 'paired-key',
+            ),
+          ),
+          'Pairing Encryption + Noise Fallback',
+        );
+        expect(
+          SecurityStateComputer.getEncryptionDescription(
+            SecurityState.asymmetricContact(
+              otherUserName: 'Asymmetric',
+              otherPublicKey: 'asymmetric-key',
+            ),
+          ),
+          'Limited-Trust Pairing + Noise Fallback',
+        );
+        expect(
+          SecurityStateComputer.getEncryptionDescription(
+            SecurityState.needsPairing(
+              otherUserName: 'Needs Pairing',
+              otherPublicKey: 'needs-pairing-key',
+            ),
+          ),
+          'Noise Session Only',
+        );
+      },
+    );
 
     test('cache utility functions are safe to call repeatedly', () {
       expect(clearSecurityStateCache, returnsNormally);
