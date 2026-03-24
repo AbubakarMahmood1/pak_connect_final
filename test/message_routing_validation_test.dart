@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
@@ -110,21 +107,19 @@ void main() {
         await _configureNodeIdentity(messageHandler, abubakarNodeId);
 
         // Create message intended for Arshad (not Abubakar)
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Message for Arshad only',
             'intendedRecipient': arshadNodeId, // NOT for Abubakar
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+        );
 
         // Process the message - should be blocked
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(message),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
@@ -138,21 +133,19 @@ void main() {
         await _configureNodeIdentity(messageHandler, arshadNodeId);
 
         // Create message intended for Arshad
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Message for Arshad',
             'intendedRecipient': arshadNodeId, // Correctly for Arshad
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+        );
 
         // Process the message - should be allowed
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(message),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
@@ -166,22 +159,20 @@ void main() {
         await _configureNodeIdentity(messageHandler, aliNodeId);
 
         // Create message where sender == current user
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'My own message',
             'encrypted': false,
             // No intendedRecipient (direct P2P message)
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+        );
 
         // Process message where sender == current user
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(message),
           senderPublicKey: aliNodeId, // Same as current node
           contactRepository: contactRepository,
         );
@@ -256,23 +247,21 @@ void main() {
             'extremely_long_node_id_that_could_cause_substring_errors_123456789012345678901234567890123456789012345678901234567890';
         await _configureNodeIdentity(messageHandler, longNodeId);
 
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId':
                 'safety_test_message_with_very_long_id_123456789012345678901234567890',
             'content': 'Safety test message',
             'intendedRecipient': longNodeId,
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+        );
 
         // Should not throw RangeError during processing
         expect(() async {
           await messageHandler.processReceivedData(
-            Uint8List.fromList(utf8.encode(messageJson)),
+            protocolMessageToWireBytes(message),
             senderPublicKey: aliNodeId,
             contactRepository: contactRepository,
           );
@@ -304,7 +293,7 @@ void main() {
         await _configureNodeIdentity(messageHandler, arshadNodeId);
 
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(outgoingMessage),
+          protocolMessageToWireBytes(outgoingMessage),
           senderPublicKey: aliNodeId,
           contactRepository: contactRepository,
         );
@@ -330,7 +319,7 @@ void main() {
           await _configureNodeIdentity(messageHandler, abubakarNodeId);
 
           final result = await messageHandler.processReceivedData(
-            protocolMessageToJsonBytes(messageForArshad),
+            protocolMessageToWireBytes(messageForArshad),
             senderPublicKey: aliNodeId,
             contactRepository: contactRepository,
           );

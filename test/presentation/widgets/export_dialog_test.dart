@@ -94,7 +94,7 @@ Future<void> _enterMatchingPassphrases(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final locator = getIt;
+  final locator = serviceRegistry;
   late _FakeExportService exportService;
   late Directory tempDir;
   late File bundleFile;

@@ -73,7 +73,7 @@ void main() {
 
       // Process the message as if it came from Ali (same as current user)
       final result = await messageHandler.processReceivedData(
-        protocolMessageToJsonBytes(protocolMessage),
+        protocolMessageToWireBytes(protocolMessage),
         senderPublicKey: aliPublicKey, // Same as current user
         contactRepository: contactRepository,
       );
@@ -100,7 +100,7 @@ void main() {
 
         // Process the message as if it came from Arshad (different user)
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(protocolMessage),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: arshadPublicKey, // Different from current user
           contactRepository: contactRepository,
         );
@@ -132,7 +132,7 @@ void main() {
 
         // Process the message (should be blocked since not intended for Ali)
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(protocolMessage),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: 'some_other_user',
           contactRepository: contactRepository,
         );
@@ -164,7 +164,7 @@ void main() {
 
         // Process the message (should be allowed since intended for Ali)
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(protocolMessage),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: arshadPublicKey,
           contactRepository: contactRepository,
         );

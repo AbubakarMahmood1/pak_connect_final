@@ -275,11 +275,12 @@ void main() {
 
  relayEngine.clearStatistics();
 
- // Process 100 relay messages to get statistical sample
+ // Use a larger sample to reduce flakiness from random relay rolls.
+ const sampleSize = 400;
  int relayedOrDelivered = 0; // Counter for successful relay/delivery
  int probabilisticSkips = 0;
 
- for (int i = 0; i < 100; i++) {
+ for (int i = 0; i < sampleSize; i++) {
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_large_$i',
  originalContent: 'Test message $i',
  metadata: RelayMetadata.create(originalMessageContent: 'Test',
@@ -305,14 +306,17 @@ void main() {
  }
 
  final stats = relayEngine.getStatistics();
+ final skipRate = probabilisticSkips / sampleSize;
 
  // With 70% relay probability, we expect relays > skips (but not zero)
  expect(probabilisticSkips, greaterThan(0));
  expect(relayedOrDelivered, greaterThan(probabilisticSkips));
  expect(stats.totalProbabilisticSkip, equals(probabilisticSkips));
  expect(relayedOrDelivered + probabilisticSkips,
- equals(100),
+ equals(sampleSize),
 ); // All messages accounted for
+ expect(skipRate, greaterThan(0.15));
+ expect(skipRate, lessThan(0.45));
  expect(stats.currentRelayProbability, equals(0.7));
  },
 );
@@ -325,10 +329,11 @@ void main() {
 
  relayEngine.clearStatistics();
 
- // Process 100 relay messages
+ // Use a larger sample to reduce flakiness from random relay rolls.
+ const sampleSize = 400;
  int probabilisticSkips = 0;
 
- for (int i = 0; i < 100; i++) {
+ for (int i = 0; i < sampleSize; i++) {
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_massive_$i',
  originalContent: 'Test message $i',
  metadata: RelayMetadata.create(originalMessageContent: 'Test',
@@ -352,11 +357,14 @@ void main() {
  }
 
  final stats = relayEngine.getStatistics();
+ final skipRate = probabilisticSkips / sampleSize;
 
  // With 40% relay probability, we expect skips to dominate relays
  expect(probabilisticSkips, greaterThan(0));
- expect(probabilisticSkips, greaterThan(100 - probabilisticSkips));
+ expect(probabilisticSkips, greaterThan(sampleSize - probabilisticSkips));
  expect(stats.totalProbabilisticSkip, equals(probabilisticSkips));
+ expect(skipRate, greaterThan(0.5));
+ expect(skipRate, lessThan(0.75));
  expect(stats.currentRelayProbability, equals(0.4));
  });
  });

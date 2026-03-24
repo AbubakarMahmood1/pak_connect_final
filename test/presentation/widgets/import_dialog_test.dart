@@ -133,7 +133,7 @@ Future<void> _pumpImportDialog(WidgetTester tester) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final locator = getIt;
+  final locator = serviceRegistry;
   late _FakeImportService importService;
   late _FakeFilePicker filePicker;
   late Directory tempDir;

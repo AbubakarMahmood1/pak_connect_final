@@ -21,14 +21,7 @@ import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/contact_management_service.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 
-/// Tests for dependency injection setup
-///
-/// Phase 1: Tests basic DI infrastructure
-/// - Service locator initialization
-/// - Feature flag behavior
-/// - Reset functionality
-///
-/// Future phases will test actual service registration
+/// Tests for the internal service registry bootstrap boundary.
 void main() {
   group('ServiceLocator', () {
     final List<LogRecord> logRecords = [];
@@ -82,15 +75,9 @@ void main() {
       });
 
       test('setupServiceLocator respects useDi flag', () async {
-        // Arrange
-        // Note: In Phase 1, useDi = true by default
-        // This test documents expected behavior
-
-        // Act
         await setupServiceLocator();
 
-        // Assert
-        expect(useDi, isTrue, reason: 'DI should be enabled in Phase 1');
+        expect(useDi, isTrue, reason: 'DI should remain enabled.');
       });
     });
 
@@ -154,19 +141,19 @@ void main() {
 
     group('Service Registry Integration', () {
       test('service registry instance is accessible', () {
-        // Arrange & Act
-        final instance = getIt;
+        final instance = serviceRegistry;
 
-        // Assert
-        expect(instance, isNotNull, reason: 'Service registry instance should exist');
+        expect(
+          instance,
+          isNotNull,
+          reason: 'Service registry instance should exist',
+        );
       });
 
       test('service registry is singleton', () {
-        // Arrange
-        final instance1 = getIt;
-        final instance2 = getIt;
+        final instance1 = serviceRegistry;
+        final instance2 = serviceRegistry;
 
-        // Act & Assert
         expect(
           identical(instance1, instance2),
           isTrue,
@@ -179,12 +166,6 @@ void main() {
       test(
         'setupServiceLocator handles initialization errors gracefully',
         () async {
-          // Arrange
-          // This test ensures that if setup fails, it rethrows
-
-          // Act & Assert
-          // Currently setupServiceLocator has minimal logic
-          // If it fails, it should rethrow
           await expectLater(
             setupServiceLocator(),
             completes,
@@ -196,23 +177,17 @@ void main() {
 
     group('Documentation Validation', () {
       test('useDi constant is accessible', () {
-        // Arrange & Act
         final flag = useDi;
 
-        // Assert
         expect(flag, isNotNull);
         expect(flag, isA<bool>());
       });
 
       test('service_locator exports are accessible', () {
-        // Arrange & Act
-        // Verify all public APIs are exported
-
-        // Assert
         expect(setupServiceLocator, isNotNull);
         expect(resetServiceLocator, isNotNull);
         expect(isRegistered, isNotNull);
-        expect(getIt, isNotNull);
+        expect(serviceRegistry, isNotNull);
         expect(useDi, isNotNull);
         expect(resolveAppBootstrapServices, isNotNull);
         expect(publishAppServices, isNotNull);
@@ -224,157 +199,98 @@ void main() {
       test(
         'resolveAppBootstrapServices returns required bootstrap bundle',
         () async {
-        await setupServiceLocator();
+          await setupServiceLocator();
 
-        final bootstrap = resolveAppBootstrapServices();
+          final bootstrap = resolveAppBootstrapServices();
 
-        expect(
-          bootstrap.contactRepository,
-          same(resolveRegistered<IContactRepository>()),
-        );
-        expect(
-          bootstrap.messageRepository,
-          same(resolveRegistered<IMessageRepository>()),
-        );
-        expect(
-          bootstrap.archiveRepository,
-          same(resolveRegistered<IArchiveRepository>()),
-        );
-        expect(
-          bootstrap.chatsRepository,
-          same(resolveRegistered<IChatsRepository>()),
-        );
-        expect(
-          bootstrap.preferencesRepository,
-          same(resolveRegistered<IPreferencesRepository>()),
-        );
-        expect(
-          bootstrap.sharedMessageQueueProvider,
-          same(resolveRegistered<ISharedMessageQueueProvider>()),
-        );
-        expect(
-          bootstrap.seenMessageStore,
-          same(resolveRegistered<ISeenMessageStore>()),
-        );
-        expect(
-          bootstrap.bleServiceFacadeFactory,
-          same(resolveRegistered<IBLEServiceFacadeFactory>()),
-        );
-        expect(
-          bootstrap.meshRelayEngineFactory,
-          same(resolveRegistered<IMeshRelayEngineFactory>()),
-        );
-        expect(bootstrap.homeScreenFacadeFactory, isNotNull);
-        expect(bootstrap.chatConnectionManagerFactory, isNotNull);
-        expect(bootstrap.chatListCoordinatorFactory, isNotNull);
-      },
+          expect(
+            bootstrap.contactRepository,
+            same(resolveRegistered<IContactRepository>()),
+          );
+          expect(
+            bootstrap.messageRepository,
+            same(resolveRegistered<IMessageRepository>()),
+          );
+          expect(
+            bootstrap.archiveRepository,
+            same(resolveRegistered<IArchiveRepository>()),
+          );
+          expect(
+            bootstrap.chatsRepository,
+            same(resolveRegistered<IChatsRepository>()),
+          );
+          expect(
+            bootstrap.preferencesRepository,
+            same(resolveRegistered<IPreferencesRepository>()),
+          );
+          expect(
+            bootstrap.sharedMessageQueueProvider,
+            same(resolveRegistered<ISharedMessageQueueProvider>()),
+          );
+          expect(
+            bootstrap.seenMessageStore,
+            same(resolveRegistered<ISeenMessageStore>()),
+          );
+          expect(
+            bootstrap.bleServiceFacadeFactory,
+            same(resolveRegistered<IBLEServiceFacadeFactory>()),
+          );
+          expect(
+            bootstrap.meshRelayEngineFactory,
+            same(resolveRegistered<IMeshRelayEngineFactory>()),
+          );
+          expect(bootstrap.homeScreenFacadeFactory, isNotNull);
+          expect(bootstrap.chatConnectionManagerFactory, isNotNull);
+          expect(bootstrap.chatListCoordinatorFactory, isNotNull);
+        },
       );
 
-      test('publishAppServices publishes runtime snapshot outside bootstrap registry', () async {
-        await setupServiceLocator();
-        final bootstrap = resolveAppBootstrapServices();
+      test(
+        'publishAppServices publishes runtime snapshot outside bootstrap registry',
+        () async {
+          await setupServiceLocator();
+          final bootstrap = resolveAppBootstrapServices();
 
-        final archiveManagementService =
-            ArchiveManagementService.withDependencies(
-              archiveRepository: bootstrap.archiveRepository,
-            );
-        final archiveSearchService = ArchiveSearchService.withDependencies(
-          archiveRepository: bootstrap.archiveRepository,
-        );
-        final contactManagementService =
-            ContactManagementService.withDependencies(
-              contactRepository: bootstrap.contactRepository,
-              messageRepository: bootstrap.messageRepository,
-            );
-        final chatManagementService = ChatManagementService.withDependencies(
-          chatsRepository: bootstrap.chatsRepository,
-          messageRepository: bootstrap.messageRepository,
-          archiveRepository: bootstrap.archiveRepository,
-          archiveManagementService: archiveManagementService,
-          archiveSearchService: archiveSearchService,
-        );
+          final archiveManagementService =
+              ArchiveManagementService.withDependencies(
+                archiveRepository: bootstrap.archiveRepository,
+              );
+          final archiveSearchService = ArchiveSearchService.withDependencies(
+            archiveRepository: bootstrap.archiveRepository,
+          );
+          final contactManagementService =
+              ContactManagementService.withDependencies(
+                contactRepository: bootstrap.contactRepository,
+                messageRepository: bootstrap.messageRepository,
+              );
+          final chatManagementService = ChatManagementService.withDependencies(
+            chatsRepository: bootstrap.chatsRepository,
+            messageRepository: bootstrap.messageRepository,
+            archiveRepository: bootstrap.archiveRepository,
+            archiveManagementService: archiveManagementService,
+            archiveSearchService: archiveSearchService,
+          );
 
-        final snapshot = bootstrap.buildRuntimeSnapshot(
-          connectionService: _FakeConnectionService(),
-          meshNetworkingService: _FakeMeshNetworkingService(),
-          meshNetworkHealthMonitor: MeshNetworkHealthMonitor(),
-          securityService: _FakeSecurityService(),
-          contactManagementService: contactManagementService,
-          chatManagementService: chatManagementService,
-          archiveManagementService: archiveManagementService,
-          archiveSearchService: archiveSearchService,
-        );
+          final snapshot = bootstrap.buildRuntimeSnapshot(
+            connectionService: _FakeConnectionService(),
+            meshNetworkingService: _FakeMeshNetworkingService(),
+            meshNetworkHealthMonitor: MeshNetworkHealthMonitor(),
+            securityService: _FakeSecurityService(),
+            contactManagementService: contactManagementService,
+            chatManagementService: chatManagementService,
+            archiveManagementService: archiveManagementService,
+            archiveSearchService: archiveSearchService,
+          );
 
-        publishAppServices(snapshot);
-        expect(resolveRegistered<AppServices>(), same(snapshot));
-        expect(getIt.isRegistered<AppServices>(), isFalse);
+          publishAppServices(snapshot);
+          expect(resolveRegistered<AppServices>(), same(snapshot));
+          expect(serviceRegistry.isRegistered<AppServices>(), isFalse);
 
-        clearPublishedAppServices();
-        expect(maybeResolveRegistered<AppServices>(), isNull);
-        expect(getIt.isRegistered<AppServices>(), isFalse);
-      });
-    });
-
-    group('Phase 1 Baseline', () {
-      test('Phase 1: No services registered by default', () async {
-        // Arrange
-        await setupServiceLocator();
-
-        // Act & Assert
-        // Phase 1 has empty registration (interfaces created, not yet registered)
-        // This test documents the Phase 1 baseline
-
-        // Future phases will register services here
-        expect(
-          true,
-          isTrue,
-          reason: 'Phase 1: interfaces created, registration pending',
-        );
-      });
-
-      test('Phase 1: DI container initializes without errors', () async {
-        // Arrange & Act
-        final future = setupServiceLocator();
-
-        // Assert
-        await expectLater(
-          future,
-          completes,
-          reason: 'Phase 1 DI setup should complete successfully',
-        );
-      });
-    });
-
-    group('Future Service Registration', () {
-      test('TODO: Register IContactRepository (Phase 2)', () {
-        // Phase 2 will implement:
-        // getIt.registerSingleton<IContactRepository>(ContactRepositoryImpl());
-        // expect(isRegistered<IContactRepository>(), isTrue);
-      });
-
-      test('TODO: Register IMessageRepository (Phase 2)', () {
-        // Phase 2 will implement:
-        // getIt.registerSingleton<IMessageRepository>(MessageRepositoryImpl());
-        // expect(isRegistered<IMessageRepository>(), isTrue);
-      });
-
-      test('TODO: Register ISecurityService (Phase 2)', () {
-        // Phase 2 will implement:
-        // getIt.registerLazySingleton<ISecurityService>(() => SecurityServiceImpl());
-        // expect(isRegistered<ISecurityService>(), isTrue);
-      });
-
-      test('TODO: Register IBLEService (Phase 2)', () {
-        // Phase 2 will implement:
-        // getIt.registerLazySingleton<IBLEService>(() => BLEServiceImpl());
-        // expect(isRegistered<IBLEService>(), isTrue);
-      });
-
-      test('TODO: Register IMeshNetworkingService (Phase 2)', () {
-        // Phase 2 will implement:
-        // getIt.registerLazySingleton<IMeshNetworkingService>(() => MeshNetworkingServiceImpl());
-        // expect(isRegistered<IMeshNetworkingService>(), isTrue);
-      });
+          clearPublishedAppServices();
+          expect(maybeResolveRegistered<AppServices>(), isNull);
+          expect(serviceRegistry.isRegistered<AppServices>(), isFalse);
+        },
+      );
     });
   });
 }

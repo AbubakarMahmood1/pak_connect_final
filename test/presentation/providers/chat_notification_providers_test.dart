@@ -57,7 +57,7 @@ class _FakePinningService extends Fake implements PinningService {
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   setUp(() async {
     await locator.reset();

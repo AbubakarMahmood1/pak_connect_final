@@ -121,19 +121,17 @@ class ServiceRegistry implements IServiceRegistry {
 }
 
 /// Shared service registry instance.
-final getIt = ServiceRegistry.instance;
+final serviceRegistry = ServiceRegistry.instance;
 
 /// Bootstrap feature flag for the shared service registry.
 const bool useDi = true;
 
 final _logger = Logger('ServiceLocator');
 
-final IServiceRegistry _registry = getIt;
+final IServiceRegistry _registry = serviceRegistry;
 
-typedef DataLayerRegistrar = Future<void> Function(
-  IServiceRegistry services,
-  Logger logger,
-);
+typedef DataLayerRegistrar =
+    Future<void> Function(IServiceRegistry services, Logger logger);
 
 DataLayerRegistrar? _dataLayerRegistrar;
 
@@ -167,13 +165,13 @@ Future<void> setupServiceLocator() async {
 
   try {
     // If core-facing contracts are already registered, assume setup already ran.
-    if (getIt.isRegistered<IContactRepository>() &&
-        getIt.isRegistered<IMessageRepository>() &&
-        getIt.isRegistered<IRepositoryProvider>() &&
-        getIt.isRegistered<IBLEMessageHandlerFacade>() &&
-        getIt.isRegistered<IHandshakeCoordinatorFactory>() &&
-        getIt.isRegistered<IMeshRelayEngineFactory>() &&
-        getIt.isRegistered<IBLEServiceFacadeFactory>()) {
+    if (serviceRegistry.isRegistered<IContactRepository>() &&
+        serviceRegistry.isRegistered<IMessageRepository>() &&
+        serviceRegistry.isRegistered<IRepositoryProvider>() &&
+        serviceRegistry.isRegistered<IBLEMessageHandlerFacade>() &&
+        serviceRegistry.isRegistered<IHandshakeCoordinatorFactory>() &&
+        serviceRegistry.isRegistered<IMeshRelayEngineFactory>() &&
+        serviceRegistry.isRegistered<IBLEServiceFacadeFactory>()) {
       _logger.info(
         'ℹ️ Service locator already initialized — skipping re-registration',
       );
@@ -181,8 +179,8 @@ Future<void> setupServiceLocator() async {
     }
 
     // Register shared queue provider first (used by data-layer registrations).
-    if (!getIt.isRegistered<ISharedMessageQueueProvider>()) {
-      getIt.registerSingleton<ISharedMessageQueueProvider>(
+    if (!serviceRegistry.isRegistered<ISharedMessageQueueProvider>()) {
+      serviceRegistry.registerSingleton<ISharedMessageQueueProvider>(
         AppCoreSharedMessageQueueProvider(),
       );
       _logger.fine('✅ ISharedMessageQueueProvider registered');
@@ -200,8 +198,8 @@ Future<void> setupServiceLocator() async {
 
     await registrar(_registry, _logger);
 
-    if (!getIt.isRegistered<IContactRepository>() ||
-        !getIt.isRegistered<IMessageRepository>()) {
+    if (!serviceRegistry.isRegistered<IContactRepository>() ||
+        !serviceRegistry.isRegistered<IMessageRepository>()) {
       throw StateError(
         'Data layer registrar must register IContactRepository and IMessageRepository.',
       );
@@ -210,20 +208,20 @@ Future<void> setupServiceLocator() async {
     // ===========================
     // REPOSITORY PROVIDER (Core abstraction)
     // ===========================
-    if (!getIt.isRegistered<IRepositoryProvider>()) {
-      getIt.registerSingleton<IRepositoryProvider>(
+    if (!serviceRegistry.isRegistered<IRepositoryProvider>()) {
+      serviceRegistry.registerSingleton<IRepositoryProvider>(
         RepositoryProviderImpl(
-          contactRepository: getIt.get<IContactRepository>(),
-          messageRepository: getIt.get<IMessageRepository>(),
+          contactRepository: serviceRegistry.get<IContactRepository>(),
+          messageRepository: serviceRegistry.get<IMessageRepository>(),
         ),
       );
-      _logger.fine('✅ IRepositoryProvider registered (Phase 3)');
+      _logger.fine('✅ IRepositoryProvider registered');
     } else {
       _logger.fine('ℹ️ IRepositoryProvider already registered');
     }
 
-    if (!getIt.isRegistered<IHomeScreenFacadeFactory>()) {
-      getIt.registerLazySingleton<IHomeScreenFacadeFactory>(
+    if (!serviceRegistry.isRegistered<IHomeScreenFacadeFactory>()) {
+      serviceRegistry.registerLazySingleton<IHomeScreenFacadeFactory>(
         () => const HomeScreenFacadeFactory(),
       );
       _logger.fine('✅ IHomeScreenFacadeFactory registered');
@@ -231,8 +229,8 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ IHomeScreenFacadeFactory already registered');
     }
 
-    if (!getIt.isRegistered<IChatConnectionManagerFactory>()) {
-      getIt.registerLazySingleton<IChatConnectionManagerFactory>(
+    if (!serviceRegistry.isRegistered<IChatConnectionManagerFactory>()) {
+      serviceRegistry.registerLazySingleton<IChatConnectionManagerFactory>(
         () => const ChatConnectionManagerFactory(),
       );
       _logger.fine('✅ IChatConnectionManagerFactory registered');
@@ -240,8 +238,8 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ IChatConnectionManagerFactory already registered');
     }
 
-    if (!getIt.isRegistered<IChatListCoordinatorFactory>()) {
-      getIt.registerLazySingleton<IChatListCoordinatorFactory>(
+    if (!serviceRegistry.isRegistered<IChatListCoordinatorFactory>()) {
+      serviceRegistry.registerLazySingleton<IChatListCoordinatorFactory>(
         () => const ChatListCoordinatorFactory(),
       );
       _logger.fine('✅ IChatListCoordinatorFactory registered');
@@ -249,8 +247,8 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ IChatListCoordinatorFactory already registered');
     }
 
-    if (!getIt.isRegistered<IHandshakeCoordinatorFactory>()) {
-      getIt.registerLazySingleton<IHandshakeCoordinatorFactory>(
+    if (!serviceRegistry.isRegistered<IHandshakeCoordinatorFactory>()) {
+      serviceRegistry.registerLazySingleton<IHandshakeCoordinatorFactory>(
         () => const CoreHandshakeCoordinatorFactory(),
       );
       _logger.fine('✅ IHandshakeCoordinatorFactory registered');
@@ -258,8 +256,8 @@ Future<void> setupServiceLocator() async {
       _logger.fine('ℹ️ IHandshakeCoordinatorFactory already registered');
     }
 
-    if (!getIt.isRegistered<IMeshRelayEngineFactory>()) {
-      getIt.registerLazySingleton<IMeshRelayEngineFactory>(
+    if (!serviceRegistry.isRegistered<IMeshRelayEngineFactory>()) {
+      serviceRegistry.registerLazySingleton<IMeshRelayEngineFactory>(
         () => const CoreMeshRelayEngineFactory(),
       );
       _logger.fine('✅ IMeshRelayEngineFactory registered');
@@ -280,9 +278,7 @@ Future<void> setupServiceLocator() async {
     // MeshNetworkingService: Will be registered by AppCore after initialization
     _logger.fine('🌐 MeshNetworkingService will be registered by AppCore');
 
-    _logger.info(
-      '✅ Service registry setup complete',
-    );
+    _logger.info('✅ Service registry setup complete');
   } catch (e, stackTrace) {
     _logger.severe('❌ Failed to setup service locator', e, stackTrace);
     rethrow;
@@ -298,7 +294,8 @@ AppBootstrapServices resolveAppBootstrapServices() {
     userPreferences: _registry.resolve<IUserPreferences>(),
     preferencesRepository: _registry.resolve<IPreferencesRepository>(),
     repositoryProvider: _registry.resolve<IRepositoryProvider>(),
-    sharedMessageQueueProvider: _registry.resolve<ISharedMessageQueueProvider>(),
+    sharedMessageQueueProvider: _registry
+        .resolve<ISharedMessageQueueProvider>(),
     databaseProvider: _registry.resolve<IDatabaseProvider>(),
     seenMessageStore: _registry.resolve<ISeenMessageStore>(),
     bleServiceFacadeFactory: _registry.resolve<IBLEServiceFacadeFactory>(),
@@ -309,10 +306,10 @@ AppBootstrapServices resolveAppBootstrapServices() {
     exportService: _registry.maybeResolve<IExportService>(),
     importService: _registry.maybeResolve<IImportService>(),
     homeScreenFacadeFactory: _registry.maybeResolve<IHomeScreenFacadeFactory>(),
-    chatConnectionManagerFactory:
-        _registry.maybeResolve<IChatConnectionManagerFactory>(),
-    chatListCoordinatorFactory:
-        _registry.maybeResolve<IChatListCoordinatorFactory>(),
+    chatConnectionManagerFactory: _registry
+        .maybeResolve<IChatConnectionManagerFactory>(),
+    chatListCoordinatorFactory: _registry
+        .maybeResolve<IChatListCoordinatorFactory>(),
   );
 }
 
@@ -353,7 +350,11 @@ void registerInitializedServices({
       '✅ Initialized runtime services published outside the bootstrap registry',
     );
   } catch (e, stackTrace) {
-    _logger.severe('❌ Failed to publish initialized runtime services', e, stackTrace);
+    _logger.severe(
+      '❌ Failed to publish initialized runtime services',
+      e,
+      stackTrace,
+    );
     rethrow;
   }
 }
@@ -371,13 +372,14 @@ Future<void> resetServiceLocator() async {
   SmartHandshakeManager.clearRepositoryProviderResolver();
   MeshRelayEngine.clearDependencyResolvers();
   AppRuntimeServicesRegistry.clear();
-  await getIt.reset();
+  await serviceRegistry.reset();
   _logger.info('✅ Service locator reset complete');
 }
 
 /// Checks if a service is registered
 bool isRegistered<T extends Object>() {
-  return AppRuntimeServicesRegistry.has<T>() || getIt.isRegistered<T>();
+  return AppRuntimeServicesRegistry.has<T>() ||
+      serviceRegistry.isRegistered<T>();
 }
 
 T resolveRegistered<T extends Object>({String? dependencyName}) {

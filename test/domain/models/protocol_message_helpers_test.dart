@@ -10,18 +10,15 @@ import 'package:pak_connect/domain/values/id_types.dart';
 
 void main() {
   group('ProtocolMessage helpers', () {
-    test('identity constructor and helper getters preserve legacy device id', () {
+    test('identity constructor stores public key and display name only', () {
       final message = ProtocolMessage.identity(
         publicKey: 'pub-key',
         displayName: 'Alice',
-        legacyDeviceId: 'legacy-device',
       );
 
       expect(message.type, ProtocolMessageType.identity);
       expect(message.identityPublicKey, 'pub-key');
       expect(message.identityDisplayName, 'Alice');
-      expect(message.identityDeviceId, 'legacy-device');
-      expect(message.identityDeviceIdCompat, 'pub-key');
     });
 
     test('noise handshake constructors expose peer id and decoded payload', () {
@@ -60,7 +57,9 @@ void main() {
       expect(message.noiseHandshakeRejectAttemptedPattern, 'kk');
       expect(message.noiseHandshakeRejectSuggestedPattern, 'xx');
       expect(message.noiseHandshakeRejectPeerId, 'peer-eph');
-      expect(message.noiseHandshakeRejectContactStatus, {'hasAsContact': false});
+      expect(message.noiseHandshakeRejectContactStatus, {
+        'hasAsContact': false,
+      });
     });
 
     test('text and broadcast helpers expose addressing flags and ids', () {
@@ -137,26 +136,29 @@ void main() {
       expect(status.payload['hasAsContact'], isTrue);
     });
 
-    test('crypto verification helpers expose challenge, response and results', () {
-      final verify = ProtocolMessage.cryptoVerification(
-        challenge: 'c1',
-        testMessage: 'tm',
-      );
-      final response = ProtocolMessage.cryptoVerificationResponse(
-        challenge: 'c1',
-        decryptedMessage: 'plain',
-        success: true,
-        results: {'latencyMs': 12},
-      );
+    test(
+      'crypto verification helpers expose challenge, response and results',
+      () {
+        final verify = ProtocolMessage.cryptoVerification(
+          challenge: 'c1',
+          testMessage: 'tm',
+        );
+        final response = ProtocolMessage.cryptoVerificationResponse(
+          challenge: 'c1',
+          decryptedMessage: 'plain',
+          success: true,
+          results: {'latencyMs': 12},
+        );
 
-      expect(verify.cryptoVerificationChallenge, 'c1');
-      expect(verify.cryptoVerificationTestMessage, 'tm');
-      expect(verify.cryptoVerificationRequiresResponse, isTrue);
-      expect(response.cryptoVerificationResponseChallenge, 'c1');
-      expect(response.cryptoVerificationResponseDecrypted, 'plain');
-      expect(response.cryptoVerificationSuccess, isTrue);
-      expect(response.cryptoVerificationResults?['latencyMs'], 12);
-    });
+        expect(verify.cryptoVerificationChallenge, 'c1');
+        expect(verify.cryptoVerificationTestMessage, 'tm');
+        expect(verify.cryptoVerificationRequiresResponse, isTrue);
+        expect(response.cryptoVerificationResponseChallenge, 'c1');
+        expect(response.cryptoVerificationResponseDecrypted, 'plain');
+        expect(response.cryptoVerificationSuccess, isTrue);
+        expect(response.cryptoVerificationResults?['latencyMs'], 12);
+      },
+    );
 
     test('mesh relay, queue sync and relay ack typed getters work', () {
       final metadata = RelayMetadata(
@@ -194,16 +196,22 @@ void main() {
       );
 
       expect(relay.meshRelayOriginalMessageId, 'orig-msg');
-      expect(relay.meshRelayOriginalMessageIdValue, const MessageId('orig-msg'));
-      expect(relay.meshRelayOriginalSenderChatId, const ChatId('sender-a'));
       expect(
-        relay.meshRelayFinalRecipientChatId,
-        const ChatId('recipient-a'),
+        relay.meshRelayOriginalMessageIdValue,
+        const MessageId('orig-msg'),
       );
+      expect(relay.meshRelayOriginalSenderChatId, const ChatId('sender-a'));
+      expect(relay.meshRelayFinalRecipientChatId, const ChatId('recipient-a'));
       expect(relay.meshRelayUseEphemeralAddressing, isTrue);
-      expect(relay.meshRelayOriginalMessageType, ProtocolMessageType.textMessage);
+      expect(
+        relay.meshRelayOriginalMessageType,
+        ProtocolMessageType.textMessage,
+      );
 
-      expect(syncMsg.queueSyncMessageIdValues, const [MessageId('m1'), MessageId('m2')]);
+      expect(syncMsg.queueSyncMessageIdValues, const [
+        MessageId('m1'),
+        MessageId('m2'),
+      ]);
       expect(syncMsg.queueSyncMessageHashValues?[const MessageId('m1')], 'h1');
 
       expect(ack.relayAckOriginalMessageId, 'orig-msg');
@@ -222,22 +230,30 @@ void main() {
       expect(message.connectionReadyDeviceName, 'Pixel');
     });
 
-    test('fromBytes supports old raw json format and validates protocol schema', () {
-      final oldFormat = utf8.encode(
-        jsonEncode({
-          'type': ProtocolMessageType.ping.wireType,
-          'version': 1,
-          'payload': {},
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        }),
-      );
+    test(
+      'fromBytes rejects raw json without wire-format flags and validates protocol schema',
+      () {
+        final oldFormat = utf8.encode(
+          jsonEncode({
+            'type': ProtocolMessageType.ping.wireType,
+            'version': 1,
+            'payload': {},
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          }),
+        );
 
-      final parsed = ProtocolMessage.fromBytes(Uint8List.fromList(oldFormat));
-      expect(parsed.type, ProtocolMessageType.ping);
+        expect(
+          () => ProtocolMessage.fromBytes(Uint8List.fromList(oldFormat)),
+          throwsArgumentError,
+        );
 
-      expect(ProtocolMessage.isProtocolMessage(utf8.decode(oldFormat)), isTrue);
-      expect(ProtocolMessage.isProtocolMessage('{"foo":1}'), isFalse);
-      expect(ProtocolMessage.isProtocolMessage('not-json'), isFalse);
-    });
+        expect(
+          ProtocolMessage.isProtocolMessage(utf8.decode(oldFormat)),
+          isTrue,
+        );
+        expect(ProtocolMessage.isProtocolMessage('{"foo":1}'), isFalse);
+        expect(ProtocolMessage.isProtocolMessage('not-json'), isFalse);
+      },
+    );
   });
 }

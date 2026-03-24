@@ -160,7 +160,7 @@ Future<void> _scrollUntilVisible(WidgetTester tester, String text) async {
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   late _FakeUserPreferences userPreferences;
 

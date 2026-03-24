@@ -39,18 +39,18 @@ void main() {
     late MockContactRepository contactRepository;
 
     setUp(() async {
-      await getIt.reset();
+      await serviceRegistry.reset();
       clearRuntimeAppServicesForTesting();
       resetMockitoState();
       contactRepository = MockContactRepository();
-      getIt.registerSingleton<IContactRepository>(contactRepository);
+      serviceRegistry.registerSingleton<IContactRepository>(contactRepository);
       when(
         contactRepository.getAllContacts(),
       ).thenAnswer((_) async => <String, Contact>{});
     });
 
     tearDown(() async {
-      await getIt.reset();
+      await serviceRegistry.reset();
       clearRuntimeAppServicesForTesting();
     });
 

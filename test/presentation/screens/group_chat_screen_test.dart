@@ -30,8 +30,10 @@ class _FakeUserPreferences implements IUserPreferences {
   Future<String> getOrCreateDeviceId() async => 'device';
 
   @override
-  Future<Map<String, String>> getOrCreateKeyPair() async =>
-      <String, String>{'public': publicKey, 'private': 'private'};
+  Future<Map<String, String>> getOrCreateKeyPair() async => <String, String>{
+    'public': publicKey,
+    'private': 'private',
+  };
 
   @override
   Future<bool> getHintBroadcastEnabled() async => true;
@@ -128,7 +130,7 @@ Future<void> _pumpGroupChatScreen(
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   setUp(() {
     if (locator.isRegistered<IUserPreferences>()) {
@@ -156,7 +158,10 @@ void main() {
 
       expect(find.text('Study Circle'), findsOneWidget);
       expect(find.text('3 members'), findsOneWidget);
-      expect(find.text('No messages yet\nSend a message to get started!'), findsOneWidget);
+      expect(
+        find.text('No messages yet\nSend a message to get started!'),
+        findsOneWidget,
+      );
       expect(find.byTooltip('Send'), findsOneWidget);
     });
 
@@ -196,16 +201,17 @@ void main() {
         tester,
         loadGroup: (_) async => _group(),
         loadMessages: (_) async => const <GroupMessage>[],
-        sendMessage: ({
-          required String groupId,
-          required String senderKey,
-          required String content,
-        }) {
-          capturedGroupId = groupId;
-          capturedSenderKey = senderKey;
-          capturedContent = content;
-          return sendCompleter.future;
-        },
+        sendMessage:
+            ({
+              required String groupId,
+              required String senderKey,
+              required String content,
+            }) {
+              capturedGroupId = groupId;
+              capturedSenderKey = senderKey;
+              capturedContent = content;
+              return sendCompleter.future;
+            },
       );
       await tester.pumpAndSettle();
 
@@ -230,13 +236,14 @@ void main() {
         tester,
         loadGroup: (_) async => _group(),
         loadMessages: (_) async => const <GroupMessage>[],
-        sendMessage: ({
-          required String groupId,
-          required String senderKey,
-          required String content,
-        }) async {
-          throw Exception('send failed');
-        },
+        sendMessage:
+            ({
+              required String groupId,
+              required String senderKey,
+              required String content,
+            }) async {
+              throw Exception('send failed');
+            },
       );
       await tester.pumpAndSettle();
 
@@ -281,7 +288,11 @@ void main() {
         tester,
         loadGroup: (_) async => _group(),
         loadMessages: (_) async => <GroupMessage>[
-          _message(id: 'msg-1', content: 'status test', deliveryStatus: delivery),
+          _message(
+            id: 'msg-1',
+            content: 'status test',
+            deliveryStatus: delivery,
+          ),
         ],
         loadSummary: (_) async => <MessageDeliveryStatus, int>{
           MessageDeliveryStatus.delivered: 1,
@@ -293,7 +304,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('status test'), findsOneWidget);
-      expect(find.byTooltip('Delivered: 1/4\nSent: 1\nFailed: 1'), findsOneWidget);
+      expect(
+        find.byTooltip('Delivered: 1/4\nSent: 1\nFailed: 1'),
+        findsOneWidget,
+      );
       expect(find.text('1/4 delivered'), findsOneWidget);
 
       await tester.tap(find.text('1/4 delivered'));
@@ -330,7 +344,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
 
-      expect(find.byTooltip('Delivered: 1/1\nSent: 0\nFailed: 0'), findsOneWidget);
+      expect(
+        find.byTooltip('Delivered: 1/1\nSent: 0\nFailed: 0'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders app bar error title when group loading fails', (

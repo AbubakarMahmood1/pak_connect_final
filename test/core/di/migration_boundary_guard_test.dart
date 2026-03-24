@@ -5,6 +5,17 @@ import 'package:path/path.dart' as path;
 
 void main() {
   group('Migration boundary guardrails', () {
+    const legacyLocatorImport =
+        'package:'
+        'get_'
+        'it/get_'
+        'it.dart';
+    const legacyLocatorType =
+        'Get'
+        'It.';
+    const legacyLocatorGlobal =
+        'get'
+        'It.';
     late Directory projectRoot;
 
     setUpAll(() {
@@ -75,7 +86,9 @@ void main() {
         ),
       };
 
-      final existing = removedFiles.where((filePath) => File(filePath).existsSync());
+      final existing = removedFiles.where(
+        (filePath) => File(filePath).existsSync(),
+      );
 
       expect(
         existing,
@@ -86,35 +99,38 @@ void main() {
       );
     });
 
-    test('presentation code does not import get_it or use locator globals directly', () {
-      final violations = <String>[];
+    test(
+      'presentation code does not import get_it or use locator globals directly',
+      () {
+        final violations = <String>[];
 
-      for (final file in dartFilesUnder('lib/presentation')) {
-        final relativePath = relativePathFor(file);
-        final lines = file.readAsLinesSync();
+        for (final file in dartFilesUnder('lib/presentation')) {
+          final relativePath = relativePathFor(file);
+          final lines = file.readAsLinesSync();
 
-        for (var i = 0; i < lines.length; i++) {
-          final line = lines[i];
-          final trimmed = line.trim();
-          final usesGetIt =
-              trimmed.contains("package:get_it/get_it.dart") ||
-              trimmed.contains('GetIt.') ||
-              trimmed.contains('getIt.');
-          if (!usesGetIt) {
-            continue;
+          for (var i = 0; i < lines.length; i++) {
+            final line = lines[i];
+            final trimmed = line.trim();
+            final usesGetIt =
+                trimmed.contains(legacyLocatorImport) ||
+                trimmed.contains(legacyLocatorType) ||
+                trimmed.contains(legacyLocatorGlobal);
+            if (!usesGetIt) {
+              continue;
+            }
+            violations.add('$relativePath:${i + 1} -> $trimmed');
           }
-          violations.add('$relativePath:${i + 1} -> $trimmed');
         }
-      }
 
-      expect(
-        violations,
-        isEmpty,
-        reason: violations.isEmpty
-            ? 'Presentation code stays behind AppServices/DI helper boundaries.'
-            : 'Presentation must not depend on locator globals directly:\n${violations.join('\n')}',
-      );
-    });
+        expect(
+          violations,
+          isEmpty,
+          reason: violations.isEmpty
+              ? 'Presentation code stays behind AppServices/DI helper boundaries.'
+              : 'Presentation must not depend on locator globals directly:\n${violations.join('\n')}',
+        );
+      },
+    );
 
     test('runtime locator usage is centralized to service_locator.dart', () {
       final allowedFiles = <String>{
@@ -133,9 +149,9 @@ void main() {
           }
 
           final usesRuntimeLocator =
-              trimmed.contains("package:get_it/get_it.dart") ||
-              trimmed.contains('GetIt.') ||
-              trimmed.contains('getIt.');
+              trimmed.contains(legacyLocatorImport) ||
+              trimmed.contains(legacyLocatorType) ||
+              trimmed.contains(legacyLocatorGlobal);
           if (!usesRuntimeLocator) {
             continue;
           }
@@ -155,45 +171,54 @@ void main() {
       );
     });
 
-    test('service_locator does not publish runtime services into the bootstrap registry', () {
-      final file = File(
-        path.join(projectRoot.path, 'lib', 'core', 'di', 'service_locator.dart'),
-      );
-      final forbiddenSnippets = <String>{
-        'registerSingleton<AppServices>(',
-        'unregister<AppServices>(',
-        'registerSingleton<ISecurityService>(',
-        'registerSingleton<IMeshBleService>(',
-        'registerSingleton<IConnectionService>(',
-        'registerSingleton<IBLEServiceFacade>(',
-        'registerSingleton<MeshNetworkingService>(',
-        'registerSingleton<IMeshNetworkingService>(',
-        'registerSingleton<MeshRelayCoordinator>(',
-        'registerSingleton<MeshQueueSyncCoordinator>(',
-        'registerSingleton<MeshNetworkHealthMonitor>(',
-      };
-      final violations = <String>[];
-      final lines = file.readAsLinesSync();
+    test(
+      'service_locator does not publish runtime services into the bootstrap registry',
+      () {
+        final file = File(
+          path.join(
+            projectRoot.path,
+            'lib',
+            'core',
+            'di',
+            'service_locator.dart',
+          ),
+        );
+        final forbiddenSnippets = <String>{
+          'registerSingleton<AppServices>(',
+          'unregister<AppServices>(',
+          'registerSingleton<ISecurityService>(',
+          'registerSingleton<IMeshBleService>(',
+          'registerSingleton<IConnectionService>(',
+          'registerSingleton<IBLEServiceFacade>(',
+          'registerSingleton<MeshNetworkingService>(',
+          'registerSingleton<IMeshNetworkingService>(',
+          'registerSingleton<MeshRelayCoordinator>(',
+          'registerSingleton<MeshQueueSyncCoordinator>(',
+          'registerSingleton<MeshNetworkHealthMonitor>(',
+        };
+        final violations = <String>[];
+        final lines = file.readAsLinesSync();
 
-      for (var i = 0; i < lines.length; i++) {
-        final trimmed = lines[i].trim();
-        if (trimmed.startsWith('//') || trimmed.startsWith('///')) {
-          continue;
+        for (var i = 0; i < lines.length; i++) {
+          final trimmed = lines[i].trim();
+          if (trimmed.startsWith('//') || trimmed.startsWith('///')) {
+            continue;
+          }
+
+          if (forbiddenSnippets.any(trimmed.contains)) {
+            violations.add('service_locator.dart:${i + 1} -> $trimmed');
+          }
         }
 
-        if (forbiddenSnippets.any(trimmed.contains)) {
-          violations.add('service_locator.dart:${i + 1} -> $trimmed');
-        }
-      }
-
-      expect(
-        violations,
-        isEmpty,
-        reason: violations.isEmpty
-            ? 'Runtime services are published through AppRuntimeServicesRegistry, not the bootstrap registry.'
-            : 'service_locator.dart still registers runtime services in the bootstrap registry:\n${violations.join('\n')}',
-      );
-    });
+        expect(
+          violations,
+          isEmpty,
+          reason: violations.isEmpty
+              ? 'Runtime services are published through AppRuntimeServicesRegistry, not the bootstrap registry.'
+              : 'service_locator.dart still registers runtime services in the bootstrap registry:\n${violations.join('\n')}',
+        );
+      },
+    );
 
     test('repo no longer depends on package:get_it', () {
       final pubspec = File(path.join(projectRoot.path, 'pubspec.yaml'));

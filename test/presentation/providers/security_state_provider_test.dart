@@ -110,7 +110,7 @@ Future<void> _primeBleRuntime(ProviderContainer container) async {
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   setUp(() async {
     clearSecurityStateCache();

@@ -103,7 +103,7 @@ Future<void> _pumpQrScreen(
   required _FakeIntroHintRepository introHintRepository,
   QrScannerLauncher? scannerLauncher,
 }) async {
-  final locator = getIt;
+  final locator = serviceRegistry;
   await locator.reset();
   clearRuntimeAppServicesForTesting();
   locator.registerSingleton<IUserPreferences>(userPreferences);
@@ -207,7 +207,9 @@ void main() {
       expect(find.text('New QR code generated'), findsOneWidget);
     });
 
-    testWidgets('copy QR data calls clipboard and shows snackbar', (tester) async {
+    testWidgets('copy QR data calls clipboard and shows snackbar', (
+      tester,
+    ) async {
       final prefs = _FakeUserPreferences('Alice');
       final introRepo = _FakeIntroHintRepository();
       var clipboardSet = false;
@@ -275,37 +277,38 @@ void main() {
       expect(find.text('QR code expired - ask for a new one'), findsOneWidget);
     });
 
-    testWidgets('valid scan opens confirmation and cancel returns to share UI', (
-      tester,
-    ) async {
-      final prefs = _FakeUserPreferences('Alice');
-      final introRepo = _FakeIntroHintRepository();
-      final valid = _hint(
-        displayName: 'Bob',
-        expiresAt: DateTime.now().add(const Duration(days: 7)),
-      );
+    testWidgets(
+      'valid scan opens confirmation and cancel returns to share UI',
+      (tester) async {
+        final prefs = _FakeUserPreferences('Alice');
+        final introRepo = _FakeIntroHintRepository();
+        final valid = _hint(
+          displayName: 'Bob',
+          expiresAt: DateTime.now().add(const Duration(days: 7)),
+        );
 
-      await _pumpQrScreen(
-        tester,
-        userPreferences: prefs,
-        introHintRepository: introRepo,
-        scannerLauncher: (_) async => _scannerResult(valid.toQRString()),
-      );
+        await _pumpQrScreen(
+          tester,
+          userPreferences: prefs,
+          introHintRepository: introRepo,
+          scannerLauncher: (_) async => _scannerResult(valid.toQRString()),
+        );
 
-      await tester.tap(find.text('Scan Their QR'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Scan Their QR'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Confirm Contact'), findsOneWidget);
-      expect(find.text('Add Contact'), findsOneWidget);
-      expect(find.text('Bob'), findsOneWidget);
-      expect(find.textContaining('Hint:'), findsOneWidget);
+        expect(find.text('Confirm Contact'), findsOneWidget);
+        expect(find.text('Add Contact'), findsOneWidget);
+        expect(find.text('Bob'), findsOneWidget);
+        expect(find.textContaining('Hint:'), findsOneWidget);
 
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Share Your QR'), findsOneWidget);
-      expect(find.text('Add Contact'), findsNothing);
-    });
+        expect(find.text('Share Your QR'), findsOneWidget);
+        expect(find.text('Add Contact'), findsNothing);
+      },
+    );
 
     testWidgets('save hint stores scanned hint and pops the screen', (
       tester,
