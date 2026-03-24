@@ -89,8 +89,7 @@ class ProtocolMessage {
 
   /// Deserializes a protocol message from bytes with automatic decompression.
   ///
-  /// Handles both compressed and uncompressed formats transparently.
-  /// Falls back gracefully if decompression fails (tries to parse as JSON directly).
+  /// Handles both compressed and uncompressed current wire formats.
   static ProtocolMessage fromBytes(Uint8List bytes) {
     // Minimum size check (at least 1 byte for flags)
     if (bytes.isEmpty) {
@@ -139,31 +138,21 @@ class ProtocolMessage {
       final json = jsonDecode(utf8.decode(jsonBytes));
       return ProtocolMessage(
         type: ProtocolMessageTypeWireId.fromWireType(json['type']),
-        version: json['version'] ?? 1,
-        payload: Map<String, dynamic>.from(json['payload']),
-        timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
-        signature: json['signature'],
-        useEphemeralSigning: json['useEphemeralSigning'] ?? false,
-        ephemeralSigningKey: json['ephemeralSigningKey'],
+        version: _requireInt(json, 'version'),
+        payload: _requirePayload(json),
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          _requireInt(json, 'timestamp'),
+        ),
+        signature: json['signature'] as String?,
+        useEphemeralSigning: json['useEphemeralSigning'] as bool? ?? false,
+        ephemeralSigningKey: json['ephemeralSigningKey'] as String?,
       );
-    } catch (e) {
-      // Backward compatibility: Try parsing as raw JSON (old format without flags)
-      // This handles messages from old clients that don't have compression support
-      try {
-        final json = jsonDecode(utf8.decode(bytes));
-        return ProtocolMessage(
-          type: ProtocolMessageTypeWireId.fromWireType(json['type']),
-          version: json['version'] ?? 1,
-          payload: Map<String, dynamic>.from(json['payload']),
-          timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
-          signature: json['signature'],
-          useEphemeralSigning: json['useEphemeralSigning'] ?? false,
-          ephemeralSigningKey: json['ephemeralSigningKey'],
-        );
-      } catch (_) {
-        // Both compressed and raw JSON parsing failed
-        rethrow;
-      }
+    } on FormatException {
+      rethrow;
+    } on ArgumentError {
+      rethrow;
+    } catch (error) {
+      throw ArgumentError('Failed to decode protocol message: $error');
     }
   }
 
@@ -171,14 +160,9 @@ class ProtocolMessage {
   static ProtocolMessage identity({
     required String publicKey,
     required String displayName,
-    String? legacyDeviceId, // Backward compatibility
   }) => ProtocolMessage(
     type: ProtocolMessageType.identity,
-    payload: {
-      'publicKey': publicKey,
-      'displayName': displayName,
-      'deviceId': ?legacyDeviceId,
-    },
+    payload: {'publicKey': publicKey, 'displayName': displayName},
     timestamp: DateTime.now(),
   );
 
@@ -402,9 +386,6 @@ class ProtocolMessage {
   );
 
   // Helper to extract identity info
-  String? get identityDeviceId => type == ProtocolMessageType.identity
-      ? payload['deviceId'] as String?
-      : null;
   String? get identityDisplayName => type == ProtocolMessageType.identity
       ? payload['displayName'] as String?
       : null;
@@ -412,11 +393,6 @@ class ProtocolMessage {
   // Helper to extract public key from identity
   String? get identityPublicKey => type == ProtocolMessageType.identity
       ? payload['publicKey'] as String?
-      : null;
-
-  // Backward compatibility helper
-  String? get identityDeviceIdCompat => type == ProtocolMessageType.identity
-      ? (payload['publicKey'] as String? ?? payload['deviceId'] as String?)
       : null;
 
   // Noise Protocol XX Handshake data helpers
@@ -774,4 +750,23 @@ class ProtocolMessage {
   static MessageId? _wrapMessageId(String? id) =>
       id != null ? MessageId(id) : null;
   static ChatId? _wrapChatId(String? id) => id != null ? ChatId(id) : null;
+
+  static int _requireInt(Map<String, dynamic> json, String key) {
+    final value = json[key];
+    if (value is int) {
+      return value;
+    }
+    throw ArgumentError('Protocol message missing valid $key');
+  }
+
+  static Map<String, dynamic> _requirePayload(Map<String, dynamic> json) {
+    final payload = json['payload'];
+    if (payload is Map<String, dynamic>) {
+      return payload;
+    }
+    if (payload is Map) {
+      return Map<String, dynamic>.from(payload);
+    }
+    throw ArgumentError('Protocol message missing valid payload');
+  }
 }

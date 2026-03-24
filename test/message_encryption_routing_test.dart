@@ -1,6 +1,3 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 
@@ -113,23 +110,22 @@ void main() {
         messageHandler.setCurrentNodeId(arshadNodeId);
 
         // Create message from Ali to Arshad
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Hello Arshad',
             'encrypted': false,
             'encryptionMethod': 'none',
             'intendedRecipient': arshadNodeId,
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Process the message
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -144,10 +140,9 @@ void main() {
         messageHandler.setCurrentNodeId(abubakarNodeId);
 
         // Create message from Ali to Arshad (Abubakar should not receive this)
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Hello Arshad',
             'encrypted': false,
@@ -155,13 +150,13 @@ void main() {
             'intendedRecipient':
                 arshadNodeId, // Intended for Arshad, not Abubakar
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Process the message
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -175,23 +170,22 @@ void main() {
         messageHandler.setCurrentNodeId(aliNodeId);
 
         // Create message from Ali (sender == current user)
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'My own message',
             'encrypted': false,
             'encryptionMethod': 'none',
             // No intendedRecipient (direct P2P message)
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Process the message (sender is Ali, current user is also Ali)
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(messageJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId, // Same as current user
           contactRepository: stubContactRepository,
         );
@@ -232,23 +226,22 @@ void main() {
           messageHandler.setCurrentNodeId(arshadNodeId);
 
           // Create encrypted message from Ali to Arshad
-          final messageJson = jsonEncode({
-            'type': ProtocolMessageType.textMessage.wireType,
-            'version': 1,
-            'payload': {
+          final protocolMessage = ProtocolMessage(
+            type: ProtocolMessageType.textMessage,
+            payload: {
               'messageId': 'msg123',
               'content': 'encrypted_content',
               'encrypted': true,
               'encryptionMethod': 'ecdh',
               'intendedRecipient': arshadNodeId,
             },
-            'timestamp': DateTime.now().millisecondsSinceEpoch,
-            'useEphemeralSigning': false,
-          });
+            timestamp: DateTime.now(),
+            version: 1,
+          );
 
           // Process the encrypted message
           final result = await messageHandler.processReceivedData(
-            Uint8List.fromList(utf8.encode(messageJson)),
+            protocolMessageToWireBytes(protocolMessage),
             senderPublicKey: aliNodeId,
             contactRepository: stubContactRepository,
           );
@@ -294,10 +287,9 @@ void main() {
           messageHandler.setCurrentNodeId(abubakarNodeId);
 
           // Create relay message that reached Abubakar
-          final relayMessageJson = jsonEncode({
-            'type': ProtocolMessageType.meshRelay.wireType,
-            'version': 1,
-            'payload': {
+          final protocolMessage = ProtocolMessage(
+            type: ProtocolMessageType.meshRelay,
+            payload: {
               'originalMessageId': 'relay123',
               'originalSender': aliNodeId,
               'finalRecipient': abubakarNodeId,
@@ -310,13 +302,13 @@ void main() {
                 'encrypted': false,
               },
             },
-            'timestamp': DateTime.now().millisecondsSinceEpoch,
-            'useEphemeralSigning': false,
-          });
+            timestamp: DateTime.now(),
+            version: 1,
+          );
 
           // Process the relay message
           final result = await messageHandler.processReceivedData(
-            Uint8List.fromList(utf8.encode(relayMessageJson)),
+            protocolMessageToWireBytes(protocolMessage),
             senderPublicKey: arshadNodeId, // Came from Arshad (relay node)
             contactRepository: stubContactRepository,
           );
@@ -401,21 +393,20 @@ void main() {
         messageHandler.setCurrentNodeId(aliNodeId);
 
         // Create message where sender == current user (potential loop)
-        final loopMessageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Loop message',
             'encrypted': false,
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Process message from Ali (sender == current user)
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(loopMessageJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId, // Same as current node
           contactRepository: stubContactRepository,
         );
@@ -430,21 +421,20 @@ void main() {
         messageHandler.setCurrentNodeId(abubakarNodeId);
 
         // Create message intended for Arshad (not Abubakar)
-        final wrongRecipientJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Secret for Arshad only',
             'intendedRecipient': arshadNodeId, // Not for Abubakar
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Abubakar shouldn't receive message intended for Arshad
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(wrongRecipientJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -458,21 +448,20 @@ void main() {
         messageHandler.setCurrentNodeId(arshadNodeId);
 
         // Create message intended for Arshad
-        final correctRecipientJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'msg123',
             'content': 'Message for Arshad',
             'intendedRecipient': arshadNodeId, // Correctly intended for Arshad
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Arshad should receive message intended for him
         final result = await messageHandler.processReceivedData(
-          Uint8List.fromList(utf8.encode(correctRecipientJson)),
+          protocolMessageToWireBytes(protocolMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -509,7 +498,7 @@ void main() {
         messageHandler.setCurrentNodeId(arshadNodeId);
 
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(outgoingMessage),
+          protocolMessageToWireBytes(outgoingMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -536,7 +525,7 @@ void main() {
 
         // Process encrypted message
         final result = await messageHandler.processReceivedData(
-          protocolMessageToJsonBytes(encryptedMessage),
+          protocolMessageToWireBytes(encryptedMessage),
           senderPublicKey: aliNodeId,
           contactRepository: stubContactRepository,
         );
@@ -583,22 +572,21 @@ void main() {
         messageHandler.setCurrentNodeId(longNodeId);
 
         // Create and process a message to trigger logging that uses substring operations
-        final messageJson = jsonEncode({
-          'type': ProtocolMessageType.textMessage.wireType,
-          'version': 1,
-          'payload': {
+        final protocolMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          payload: {
             'messageId': 'bounds_test_message',
             'content': 'Testing bounds safety',
             'intendedRecipient': longNodeId,
           },
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'useEphemeralSigning': false,
-        });
+          timestamp: DateTime.now(),
+          version: 1,
+        );
 
         // Should not throw RangeError during processing
         expect(() async {
           await messageHandler.processReceivedData(
-            Uint8List.fromList(utf8.encode(messageJson)),
+            protocolMessageToWireBytes(protocolMessage),
             senderPublicKey: aliNodeId,
             contactRepository: stubContactRepository,
           );

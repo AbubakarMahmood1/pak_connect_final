@@ -38,7 +38,10 @@ class _FakeGroupRepository implements IGroupRepository {
       messages[messageId];
 
   @override
-  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50}) async {
+  Future<List<GroupMessage>> getGroupMessages(
+    String groupId, {
+    int limit = 50,
+  }) async {
     return messages.values
         .where((message) => message.groupId == groupId)
         .take(limit)
@@ -116,9 +119,14 @@ class _FakeGroupMessagingService extends Fake implements GroupMessagingService {
   }
 
   @override
-  Future<List<GroupMessage>> getGroupMessages(String groupId, {int limit = 50}) async {
+  Future<List<GroupMessage>> getGroupMessages(
+    String groupId, {
+    int limit = 50,
+  }) async {
     getGroupMessagesCalls++;
-    return storedMessages.where((message) => message.groupId == groupId).toList();
+    return storedMessages
+        .where((message) => message.groupId == groupId)
+        .toList();
   }
 
   @override
@@ -134,16 +142,17 @@ class _FakeGroupMessagingService extends Fake implements GroupMessagingService {
     MessageId messageId,
   ) async {
     return summaries[messageId.value] ??
-        const <MessageDeliveryStatus, int>{
-          MessageDeliveryStatus.sent: 1,
-        };
+        const <MessageDeliveryStatus, int>{MessageDeliveryStatus.sent: 1};
   }
 
   @override
   Future<void> markDelivered(MessageId messageId, String memberKey) async {}
 
   @override
-  Future<void> markDeliveredForMember(MessageId messageId, ChatId memberId) async {
+  Future<void> markDeliveredForMember(
+    MessageId messageId,
+    ChatId memberId,
+  ) async {
     deliveredMessageId = messageId;
     deliveredMemberId = memberId;
   }
@@ -208,7 +217,7 @@ GroupMessage _groupMessage({required String id, required String groupId}) {
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   void unregisterIfPresent<T extends Object>() {
     if (locator.isRegistered<T>()) {
@@ -232,15 +241,18 @@ void main() {
   });
 
   group('group_providers', () {
-    test('groupRepositoryProvider resolves repository from service locator', () {
-      final repo = _FakeGroupRepository();
-      registerSingleton<IGroupRepository>(repo);
+    test(
+      'groupRepositoryProvider resolves repository from service locator',
+      () {
+        final repo = _FakeGroupRepository();
+        registerSingleton<IGroupRepository>(repo);
 
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
 
-      expect(container.read(groupRepositoryProvider), same(repo));
-    });
+        expect(container.read(groupRepositoryProvider), same(repo));
+      },
+    );
 
     test('group readers expose repository-backed data', () async {
       final repo = _FakeGroupRepository();
@@ -264,7 +276,9 @@ void main() {
 
       final allGroups = await container.read(allGroupsProvider.future);
       final byId = await container.read(groupByIdProvider('g1').future);
-      final memberGroups = await container.read(groupsForMemberProvider('alice').future);
+      final memberGroups = await container.read(
+        groupsForMemberProvider('alice').future,
+      );
 
       expect(allGroups.length, 2);
       expect(byId?.name, 'Alpha');
@@ -296,68 +310,71 @@ void main() {
       expect(repo.groups, isEmpty);
     });
 
-    test('message providers delegate to group messaging service and invalidate', () async {
-      final service = _FakeGroupMessagingService();
-      service.storedMessages.add(_groupMessage(id: 'm1', groupId: 'g1'));
-      service.summaries['m1'] = const <MessageDeliveryStatus, int>{
-        MessageDeliveryStatus.delivered: 1,
-      };
+    test(
+      'message providers delegate to group messaging service and invalidate',
+      () async {
+        final service = _FakeGroupMessagingService();
+        service.storedMessages.add(_groupMessage(id: 'm1', groupId: 'g1'));
+        service.summaries['m1'] = const <MessageDeliveryStatus, int>{
+          MessageDeliveryStatus.delivered: 1,
+        };
 
-      final container = ProviderContainer(
-        overrides: [
-          groupMessagingServiceProvider.overrideWithValue(service),
-        ],
-      );
-      addTearDown(container.dispose);
+        final container = ProviderContainer(
+          overrides: [groupMessagingServiceProvider.overrideWithValue(service)],
+        );
+        addTearDown(container.dispose);
 
-      final summarySub = container.listen(
-        messageDeliverySummaryProvider('m1'),
-        (previous, next) {},
-        fireImmediately: true,
-      );
-      addTearDown(summarySub.close);
+        final summarySub = container.listen(
+          messageDeliverySummaryProvider('m1'),
+          (previous, next) {},
+          fireImmediately: true,
+        );
+        addTearDown(summarySub.close);
 
-      final messagesSub = container.listen(
-        groupMessagesProvider('g1'),
-        (previous, next) {},
-        fireImmediately: true,
-      );
-      addTearDown(messagesSub.close);
+        final messagesSub = container.listen(
+          groupMessagesProvider('g1'),
+          (previous, next) {},
+          fireImmediately: true,
+        );
+        addTearDown(messagesSub.close);
 
-      await Future<void>.delayed(Duration.zero);
-      final initialMessageLoads = service.getGroupMessagesCalls;
+        await Future<void>.delayed(Duration.zero);
+        final initialMessageLoads = service.getGroupMessagesCalls;
 
-      final sendMessage = container.read(sendGroupMessageProvider);
-      final sent = await sendMessage(
-        groupId: 'g1',
-        senderKey: 'sender',
-        content: 'new message',
-      );
+        final sendMessage = container.read(sendGroupMessageProvider);
+        final sent = await sendMessage(
+          groupId: 'g1',
+          senderKey: 'sender',
+          content: 'new message',
+        );
 
-      final fetchedMessage = await container.read(groupMessageByIdProvider('m1').future);
-      final fetchedSummary = await container.read(
-        messageDeliverySummaryProvider('m1').future,
-      );
+        final fetchedMessage = await container.read(
+          groupMessageByIdProvider('m1').future,
+        );
+        final fetchedSummary = await container.read(
+          messageDeliverySummaryProvider('m1').future,
+        );
 
-      await container.read(markMessageDeliveredProvider)(
-        messageId: 'm1',
-        memberKey: 'peer-a',
-      );
-      await container.read(markMessageFailedProvider)(
-        messageId: 'm1',
-        memberKey: 'peer-b',
-      );
-      await Future<void>.delayed(Duration.zero);
+        await container.read(markMessageDeliveredProvider)(
+          messageId: 'm1',
+          memberKey: 'peer-a',
+        );
+        await container.read(markMessageFailedProvider)(
+          messageId: 'm1',
+          memberKey: 'peer-b',
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(sent.content, 'new message');
-      expect(fetchedMessage?.id, 'm1');
-      expect(fetchedSummary[MessageDeliveryStatus.delivered], 1);
-      expect(service.getGroupMessagesCalls, greaterThan(initialMessageLoads));
-      expect(service.deliveredMessageId?.value, 'm1');
-      expect(service.deliveredMemberId?.value, 'peer-a');
-      expect(service.failedMessageId?.value, 'm1');
-      expect(service.failedMemberId?.value, 'peer-b');
-    });
+        expect(sent.content, 'new message');
+        expect(fetchedMessage?.id, 'm1');
+        expect(fetchedSummary[MessageDeliveryStatus.delivered], 1);
+        expect(service.getGroupMessagesCalls, greaterThan(initialMessageLoads));
+        expect(service.deliveredMessageId?.value, 'm1');
+        expect(service.deliveredMemberId?.value, 'peer-a');
+        expect(service.failedMessageId?.value, 'm1');
+        expect(service.failedMemberId?.value, 'peer-b');
+      },
+    );
 
     test('groupMessagingServiceProvider validates queue initialization', () {
       registerSingleton<IGroupRepository>(_FakeGroupRepository());
@@ -376,29 +393,32 @@ void main() {
         () => container.read(groupMessagingServiceProvider),
         throwsA(
           predicate(
-            (error) => error
-                .toString()
-                .contains('Shared message queue is not initialized'),
+            (error) => error.toString().contains(
+              'Shared message queue is not initialized',
+            ),
           ),
         ),
       );
     });
 
-    test('groupMessagingServiceProvider builds service when queue is ready', () {
-      registerSingleton<IGroupRepository>(_FakeGroupRepository());
-      registerSingleton<IContactRepository>(_FakeContactRepository());
-      registerSingleton<ISharedMessageQueueProvider>(
-        _FakeSharedQueueProvider(
-          isInitialized: true,
-          queue: _FakeOfflineQueue(),
-        ),
-      );
+    test(
+      'groupMessagingServiceProvider builds service when queue is ready',
+      () {
+        registerSingleton<IGroupRepository>(_FakeGroupRepository());
+        registerSingleton<IContactRepository>(_FakeContactRepository());
+        registerSingleton<ISharedMessageQueueProvider>(
+          _FakeSharedQueueProvider(
+            isInitialized: true,
+            queue: _FakeOfflineQueue(),
+          ),
+        );
 
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
 
-      final service = container.read(groupMessagingServiceProvider);
-      expect(service, isA<GroupMessagingService>());
-    });
+        final service = container.read(groupMessagingServiceProvider);
+        expect(service, isA<GroupMessagingService>());
+      },
+    );
   });
 }

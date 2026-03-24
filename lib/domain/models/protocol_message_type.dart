@@ -88,8 +88,6 @@ extension ProtocolMessageTypeWireId on ProtocolMessageType {
   /// Deserialize a wire-type integer back to [ProtocolMessageType].
   ///
   /// Accepts both [int] and stringified int for JSON flexibility.
-  /// Falls back to legacy `.index` lookup when the value is in range
-  /// (backward compat with pre-wireType peers).
   static ProtocolMessageType fromWireType(Object? rawType) {
     final wireType = rawType is int ? rawType : int.tryParse('$rawType');
     if (wireType == null) {
@@ -97,13 +95,8 @@ extension ProtocolMessageTypeWireId on ProtocolMessageType {
     }
 
     final type = _messageTypeByWireType[wireType];
-    if (type != null) return type;
-
-    // Backward compat: older peers may send an index that happens to match
-    // (since current wire IDs equal enum indices, this is a no-op today
-    //  but guards against future remapping).
-    if (wireType >= 0 && wireType < ProtocolMessageType.values.length) {
-      return ProtocolMessageType.values[wireType];
+    if (type != null) {
+      return type;
     }
 
     throw ArgumentError('Unknown protocol message type id: $wireType');

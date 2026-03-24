@@ -70,7 +70,7 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final messageBytes = protocolMessageToWireBytes(protocolMessage);
         final result = await handler.processReceivedData(
           messageBytes,
           senderPublicKey: 'sender_key_456',
@@ -99,7 +99,7 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final messageBytes = protocolMessageToWireBytes(protocolMessage);
         final result = await handler.processReceivedData(
           messageBytes,
           senderPublicKey: 'sender_key_456',
@@ -127,7 +127,7 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final messageBytes = protocolMessageToWireBytes(protocolMessage);
         final result = await handler.processReceivedData(
           messageBytes,
           senderPublicKey: 'sender_key_456',
@@ -153,7 +153,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+      final messageBytes = protocolMessageToWireBytes(protocolMessage);
       final result = await handler.processReceivedData(
         messageBytes,
         senderPublicKey: 'our_node_123', // Same as our node ID
@@ -178,7 +178,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+      final messageBytes = protocolMessageToWireBytes(protocolMessage);
       final result = await handler.processReceivedData(
         messageBytes,
         senderPublicKey: 'our_node_123', // Same as our node ID
@@ -205,7 +205,7 @@ void main() {
           timestamp: DateTime.now(),
         );
 
-        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final messageBytes = protocolMessageToWireBytes(protocolMessage);
         final result = await handler.processReceivedData(
           messageBytes,
           senderPublicKey: 'sender_key_456',
@@ -270,7 +270,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+      final messageBytes = protocolMessageToWireBytes(protocolMessage);
       final result = await handler.processReceivedData(
         messageBytes,
         senderPublicKey: 'sender_key_456',
@@ -295,7 +295,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+      final messageBytes = protocolMessageToWireBytes(protocolMessage);
       final result = await handler.processReceivedData(
         messageBytes,
         senderPublicKey: null, // Null sender

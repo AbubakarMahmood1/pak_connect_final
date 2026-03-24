@@ -113,7 +113,7 @@ class _FakeHomeScreenFacadeFactory implements IHomeScreenFacadeFactory {
 }
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   setUp(() async {
     await locator.reset();

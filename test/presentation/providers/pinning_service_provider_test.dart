@@ -16,7 +16,7 @@ class _MockChatsRepository extends Mock implements IChatsRepository {}
 class _MockMessageRepository extends Mock implements IMessageRepository {}
 
 void main() {
-  final locator = getIt;
+  final locator = serviceRegistry;
 
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();

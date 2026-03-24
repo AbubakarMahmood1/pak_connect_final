@@ -23,10 +23,10 @@ import 'i_message_repository.dart';
 ///
 /// **Registration in DI**:
 /// ```dart
-/// getIt.registerSingleton<IRepositoryProvider>(
+/// serviceRegistry.registerSingleton<IRepositoryProvider>(
 ///   RepositoryProviderImpl(
-///     contactRepository: getIt<IContactRepository>(),
-///     messageRepository: getIt<IMessageRepository>(),
+///     contactRepository: serviceRegistry<IContactRepository>(),
+///     messageRepository: serviceRegistry<IMessageRepository>(),
 ///     // ... others
 ///   ),
 /// );

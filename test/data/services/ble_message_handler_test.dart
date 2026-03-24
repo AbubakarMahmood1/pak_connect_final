@@ -43,17 +43,7 @@ String _persistentPublicKeyForTests() {
 }
 
 Uint8List _rawProtocolFrame(ProtocolMessage message) {
-  final json = {
-    'type': message.type.wireType,
-    'version': message.version,
-    'payload': message.payload,
-    'timestamp': message.timestamp.millisecondsSinceEpoch,
-    if (message.signature != null) 'signature': message.signature,
-    'useEphemeralSigning': message.useEphemeralSigning,
-    if (message.ephemeralSigningKey != null)
-      'ephemeralSigningKey': message.ephemeralSigningKey,
-  };
-  return Uint8List.fromList(utf8.encode(jsonEncode(json)));
+  return message.toBytes(enableCompression: false);
 }
 
 class _FakeSecurityService extends Fake implements ISecurityService {

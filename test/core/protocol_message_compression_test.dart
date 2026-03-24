@@ -172,7 +172,7 @@ void main() {
         );
       });
 
-      test('backward compatible with old format (no flags byte)', () {
+      test('rejects raw json without wire-format flags', () {
         // Simulate old-format message (raw JSON without flags)
         final json = {
           'type': ProtocolMessageType.ping.wireType,
@@ -185,11 +185,10 @@ void main() {
           utf8.encode(jsonEncode(json)),
         );
 
-        // Should parse successfully via backward compatibility fallback
-        final decoded = ProtocolMessage.fromBytes(oldFormatBytes);
-
-        expect(decoded.type, equals(ProtocolMessageType.ping));
-        expect(decoded.version, equals(1));
+        expect(
+          () => ProtocolMessage.fromBytes(oldFormatBytes),
+          throwsArgumentError,
+        );
       });
 
       test('throws on invalid compressed data', () {

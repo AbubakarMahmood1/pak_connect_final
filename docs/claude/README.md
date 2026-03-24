@@ -1,5 +1,7 @@
 # Claude Code Documentation Structure
 
+> Historical/planning note: the files in this directory were written for earlier migration phases. Keep them as reference material, but treat the root [CLAUDE.md](/C:/Users/theab/Compressed/pak_connect_final/CLAUDE.md), [AGENTS.md](/C:/Users/theab/Compressed/pak_connect_final/AGENTS.md), and current repo docs as the authoritative source of present-day architecture.
+
 This directory contains detailed documentation for working with PakConnect, organized by topic. The main `CLAUDE.md` file in the project root acts as an orchestrator that references these files on-demand.
 
 ## File Organization

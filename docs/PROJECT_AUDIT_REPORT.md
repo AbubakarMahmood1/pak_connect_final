@@ -1,4 +1,6 @@
 # PakConnect Project Audit Report
+> Historical audit snapshot from November 2025. This report describes a pre-cleanup architecture state and is retained for reference only; it does not describe the current codebase.
+
 **Date**: 2025-11-14
 **Auditor**: Claude (Code Analysis AI)
 **Requested By**: Project Owner

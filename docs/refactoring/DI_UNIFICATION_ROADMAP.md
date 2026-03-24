@@ -2,6 +2,11 @@
 
 **Last Updated**: 2026-03-24 (checkpoint 7 final cleanup)
 
+Current end state:
+- Production/runtime code no longer depends on `package:get_it/get_it.dart`.
+- The app now uses the internal `ServiceRegistry` plus `AppRuntimeServicesRegistry`.
+- Phase-based test filenames referenced below are historical checkpoint names, not current file paths.
+
 ---
 
 ## Progress Scale
@@ -141,7 +146,7 @@ Pass 5 progress highlights:
 - `test/presentation/controllers/home_screen_controller_test.dart` no longer
   mutates global locator state via `configureTestDI`; dependencies are injected
   locally through constructor/provider wiring.
-- `test/core/di/phase3_integration_flows_test.dart` dropped its legacy
+- `test/core/di/integration_flows_end_to_end_test.dart` dropped its legacy
   `configureTestDI()` bootstrap; all test suites now use
   `initializeTestEnvironment(...)` as the shared DI baseline.
 

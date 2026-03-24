@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -6,25 +5,13 @@ import 'package:pak_connect/domain/models/protocol_message.dart';
 
 const _publicKeyStorageKey = 'ecdh_public_key_v2';
 
-/// Serializes a [ProtocolMessage] into raw JSON bytes.
+/// Serializes a [ProtocolMessage] into the current uncompressed wire format.
 ///
-/// The production transports prepend compression flags that confuse the
-/// test-only BLE harness. For unit tests, we bypass compression entirely and
-/// feed pure JSON into [BLEMessageHandler.processReceivedData].
-Uint8List protocolMessageToJsonBytes(ProtocolMessage message) {
-  final json = {
-    'type': message.type.index,
-    'version': message.version,
-    'payload': message.payload,
-    'timestamp': message.timestamp.millisecondsSinceEpoch,
-    'useEphemeralSigning': message.useEphemeralSigning,
-    if (message.signature != null) 'signature': message.signature,
-    if (message.ephemeralSigningKey != null)
-      'ephemeralSigningKey': message.ephemeralSigningKey,
-  };
-
-  return Uint8List.fromList(utf8.encode(jsonEncode(json)));
-}
+/// Tests should exercise the same envelope shape that production direct
+/// protocol handling accepts, while still disabling compression to keep the
+/// byte payload stable and readable.
+Uint8List protocolMessageToWireBytes(ProtocolMessage message) =>
+    message.toBytes(enableCompression: false);
 
 /// Seeds the in-memory secure storage with a deterministic public key so
 /// [UserPreferences.getPublicKey] returns the same identity the tests expect.

@@ -450,7 +450,7 @@ void main() {
           queueMessage: syncMessage,
         );
 
-        final messageBytes = protocolMessageToJsonBytes(protocolMessage);
+        final messageBytes = protocolMessageToWireBytes(protocolMessage);
 
         // Set up callback to capture sync messages
         QueueSyncMessage? receivedSyncMessage;
@@ -684,7 +684,7 @@ void main() {
       await TestSetup.nukeDatabase();
     });
 
-    test('should handle large queue hash calculation efficiently', () async {
+    test('should calculate and cache large queue hashes deterministically', () async {
       const int messageCount = 1000;
 
       // Add many messages
@@ -697,15 +697,17 @@ void main() {
         );
       }
 
-      final stopwatch = Stopwatch()..start();
       final hash = largeQueue.calculateQueueHash(forceRecalculation: true);
-      stopwatch.stop();
+      final cachedHash = largeQueue.calculateQueueHash();
+      final performanceStats = largeQueue.getPerformanceStats();
 
       expect(hash, isNotEmpty);
-      expect(stopwatch.elapsedMilliseconds, lessThan(1000)); // Should be fast
+      expect(cachedHash, equals(hash));
+      expect(performanceStats['totalMessages'], equals(messageCount));
+      expect(performanceStats['hashCached'], isTrue);
     });
 
-    test('should cache hash calculations for performance', () async {
+    test('should reuse cached hashes until queue state changes', () async {
       // Add some messages
       for (int i = 0; i < 100; i++) {
         await largeQueue.queueMessage(
@@ -716,21 +718,22 @@ void main() {
         );
       }
 
-      // First calculation (no cache)
-      final stopwatch1 = Stopwatch()..start();
       final hash1 = largeQueue.calculateQueueHash(forceRecalculation: true);
-      stopwatch1.stop();
-
-      // Second calculation (should use cache)
-      final stopwatch2 = Stopwatch()..start();
       final hash2 = largeQueue.calculateQueueHash();
-      stopwatch2.stop();
+      final cachedStats = largeQueue.getPerformanceStats();
+
+      await largeQueue.queueMessage(
+        chatId: 'test_chat_new',
+        content: 'Message 100',
+        recipientPublicKey: 'test_recipient_key_2',
+        senderPublicKey: 'test_sender_key',
+      );
+
+      final hash3 = largeQueue.calculateQueueHash();
 
       expect(hash1, equals(hash2));
-      expect(
-        stopwatch2.elapsedMicroseconds,
-        lessThan(stopwatch1.elapsedMicroseconds),
-      );
+      expect(cachedStats['hashCached'], isTrue);
+      expect(hash3, isNot(equals(hash2)));
     });
   });
 }

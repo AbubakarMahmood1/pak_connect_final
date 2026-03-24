@@ -401,29 +401,24 @@ class BLEMessageHandler {
         return null;
       }
 
-      // Check for direct protocol messages (non-fragmented ACKs/pings)
+      // Check for direct protocol messages using the current wire format
       try {
         _trace(
-          '📥 RECEIVE STEP 2: Attempting UTF-8 decode for direct protocol message check',
+          '📥 RECEIVE STEP 2: Attempting current-format direct protocol decode',
         );
-        final directMessage = utf8.decode(data);
-        if (ProtocolMessage.isProtocolMessage(directMessage)) {
-          _trace(
-            '📥 RECEIVE STEP 2✅: Detected direct protocol message (non-chunked)',
-          );
-          final messageBytes = utf8.encode(directMessage);
-          final protocolMessage = ProtocolMessage.fromBytes(messageBytes);
+        final protocolMessage = ProtocolMessage.fromBytes(data);
+        _trace(
+          '📥 RECEIVE STEP 2✅: Detected direct protocol message (non-chunked)',
+        );
 
-          return await _protocolDispatcher.dispatch(
-            protocolMessage,
-            onMessageIdFound: onMessageIdFound,
-            senderPublicKey: senderPublicKey,
-          );
-        }
-        _trace('📥 RECEIVE STEP 2❌: Not a direct protocol message');
+        return await _protocolDispatcher.dispatch(
+          protocolMessage,
+          onMessageIdFound: onMessageIdFound,
+          senderPublicKey: senderPublicKey,
+        );
       } catch (e) {
         _trace(
-          '📥 RECEIVE STEP 2❌: UTF-8 decode failed (expected for chunked messages): $e',
+          '📥 RECEIVE STEP 2❌: Direct protocol decode failed (expected for chunked messages): $e',
         );
         // Not a direct message, try chunk processing
       }
