@@ -37,7 +37,6 @@ void main() {
       // strict behavior construct their own handler with explicit flags.
       handler = ProtocolMessageHandler(
         securityService: securityService,
-        allowLegacyV2Decrypt: true,
         requireV2Signature: false,
       );
     });
@@ -724,8 +723,9 @@ void main() {
     );
 
     test(
-      'blocks v2 legacy_global_v1 decrypt mode even when compatibility is enabled',
+      'rejects removed legacy_global_v1 transport header',
       () async {
+        allowedSevere.add('v2 encrypted message has unsupported crypto mode');
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
@@ -751,12 +751,8 @@ void main() {
       },
     );
 
-    test('blocks legacy v2 decrypt modes when policy disables them', () async {
-      final strictHandler = ProtocolMessageHandler(
-        securityService: securityService,
-        allowLegacyV2Decrypt: false,
-        requireV2Signature: false,
-      );
+    test('rejects removed legacy v2 transport mode header', () async {
+      allowedSevere.add('v2 encrypted message has unsupported crypto mode');
       final message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
         version: 2,
@@ -770,7 +766,7 @@ void main() {
         timestamp: DateTime.now(),
       );
 
-      final result = await strictHandler.processProtocolMessage(
+      final result = await handler.processProtocolMessage(
         message: message,
         fromDeviceId: 'device-1',
         fromNodeId: 'relay-node',
@@ -782,8 +778,9 @@ void main() {
     });
 
     test(
-      'blocks legacy v2 decrypt mode for peers already observed at v2 floor',
+      'rejects removed legacy transport header after peer upgrade',
       () async {
+        allowedSevere.add('v2 encrypted message has unsupported crypto mode');
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
         final signingKeyPair = _generateEphemeralSigningKeyPair();
         final peerKey = signingKeyPair.publicHex;
@@ -1139,7 +1136,7 @@ void main() {
             'v2 encrypted message missing signature under strict/upgraded-peer policy',
           );
           // Construct with NO overrides — exercises the hardened production defaults
-          // (allowLegacyV2Decrypt=false, requireV2Signature=true).
+          // (requireV2Signature=true).
           final strictHandler = ProtocolMessageHandler(
             securityService: securityService,
           );
@@ -1168,11 +1165,9 @@ void main() {
       );
 
       test(
-        'blocks legacy v2 decrypt with production defaults',
+        'rejects removed legacy transport with production defaults',
         () async {
-          allowedSevere.add(
-            'v2 encrypted message missing signature under strict/upgraded-peer policy',
-          );
+          allowedSevere.add('v2 encrypted message has unsupported crypto mode');
           final strictHandler = ProtocolMessageHandler(
             securityService: securityService,
           );
@@ -1186,6 +1181,7 @@ void main() {
               'senderId': 'sender-key',
               'crypto': {'mode': 'legacy_ecdh_v1', 'modeVersion': 1},
             },
+            signature: 'sig',
             timestamp: DateTime.now(),
           );
 

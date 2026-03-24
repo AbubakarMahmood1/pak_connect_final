@@ -24,14 +24,6 @@ class InboundTextResult {
 
 /// Handles routing, decryption, and signature verification for inbound text messages.
 class InboundTextProcessor {
-  /// Legacy v2 decryption is disabled by default for security hardening.
-  /// Override at build time with -DPAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=true
-  /// for backward compatibility during migration.
-  static const bool _defaultAllowLegacyV2Decrypt = bool.fromEnvironment(
-    'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
-    defaultValue: false,
-  );
-
   /// V2 signatures are required by default. Override at build time with
   /// -DPAKCONNECT_REQUIRE_V2_SIGNATURE=false to relax during migration.
   static const bool _defaultRequireV2Signature = bool.fromEnvironment(
@@ -44,7 +36,6 @@ class InboundTextProcessor {
     required Future<bool> Function(String? intendedRecipient) isMessageForMe,
     required String? Function() currentNodeIdProvider,
     ISecurityService? securityService,
-    bool? allowLegacyV2Decrypt,
     bool? requireV2Signature,
     Logger? logger,
   }) : _contactRepository = contactRepository,
@@ -52,8 +43,6 @@ class InboundTextProcessor {
        _currentNodeIdProvider = currentNodeIdProvider,
        _securityService =
            securityService ?? SecurityServiceLocator.resolveService(),
-       _allowLegacyV2Decrypt =
-           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt,
        _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature,
        _logger = logger ?? Logger('InboundTextProcessor');
 
@@ -61,7 +50,6 @@ class InboundTextProcessor {
   final Future<bool> Function(String? intendedRecipient) _isMessageForMe;
   final String? Function() _currentNodeIdProvider;
   final ISecurityService _securityService;
-  final bool _allowLegacyV2Decrypt;
   final bool _requireV2Signature;
   final Logger _logger;
   static const bool _allowLegacyV1DecryptFallback = true;
@@ -221,7 +209,14 @@ class InboundTextProcessor {
 
       try {
         if (protocolMessage.version >= 2) {
+          final rawCryptoMode = _extractRawCryptoMode(protocolMessage);
           if (cryptoHeader == null) {
+            if (rawCryptoMode != null) {
+              _logger.severe(
+                '🔒 v2 encrypted message has unsupported crypto mode: $rawCryptoMode',
+              );
+              return const InboundTextResult(content: null, shouldAck: false);
+            }
             _logger.severe(
               '🔒 v2 encrypted message missing crypto header: $messageId',
             );
@@ -250,28 +245,6 @@ class InboundTextProcessor {
               '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
             );
           } else {
-            if (cryptoHeader.mode == CryptoMode.legacyGlobalV1) {
-              _logger.warning(
-                '🔒 v2 legacy global decrypt mode is blocked by policy: '
-                '${cryptoHeader.mode.wireValue} '
-                '(messageId=${_safeTruncate(messageId)})',
-              );
-              return const InboundTextResult(content: null, shouldAck: false);
-            }
-            if (_shouldRejectLegacyV2ModeForUpgradedPeer(
-              peerKey: versionPeerKey,
-              mode: cryptoHeader.mode,
-              messageId: messageId,
-            )) {
-              return const InboundTextResult(content: null, shouldAck: false);
-            }
-            if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
-              _logger.warning(
-                '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
-                '(messageId=${_safeTruncate(messageId)})',
-              );
-              return const InboundTextResult(content: null, shouldAck: false);
-            }
             final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
             if (encryptionType == null) {
               _logger.severe(
@@ -659,12 +632,6 @@ class InboundTextProcessor {
     return null;
   }
 
-  bool _isLegacyMode(CryptoMode mode) {
-    return mode == CryptoMode.legacyEcdhV1 ||
-        mode == CryptoMode.legacyPairingV1 ||
-        mode == CryptoMode.legacyGlobalV1;
-  }
-
   bool _shouldRequireV2Signature({
     required int messageVersion,
     required String peerKey,
@@ -679,28 +646,6 @@ class InboundTextProcessor {
       return false;
     }
     return PeerProtocolVersionGuard.floorForPeer(peerKey) >= 2;
-  }
-
-  bool _shouldRejectLegacyV2ModeForUpgradedPeer({
-    required String peerKey,
-    required CryptoMode mode,
-    required String messageId,
-  }) {
-    if (!_isLegacyMode(mode) || peerKey.isEmpty) {
-      return false;
-    }
-
-    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
-    if (floor < 2) {
-      return false;
-    }
-
-    _logger.warning(
-      '🔒 v2 legacy decrypt mode blocked for upgraded peer '
-      '${_safeTruncate(peerKey)} (floor=v$floor, mode=${mode.wireValue}, '
-      'messageId=${_safeTruncate(messageId)})',
-    );
-    return true;
   }
 
   bool _isBroadcastV2TextMessage({
@@ -718,17 +663,19 @@ class InboundTextProcessor {
     switch (mode) {
       case CryptoMode.noiseV1:
         return EncryptionType.noise;
-      case CryptoMode.legacyEcdhV1:
-        return EncryptionType.ecdh;
-      case CryptoMode.legacyPairingV1:
-        return EncryptionType.pairing;
-      case CryptoMode.legacyGlobalV1:
-        // v2 never permits legacy global decrypt.
-        return null;
       case CryptoMode.none:
       case CryptoMode.sealedV1:
         return null;
     }
+  }
+
+  String? _extractRawCryptoMode(ProtocolMessage protocolMessage) {
+    final rawCrypto = protocolMessage.payload['crypto'];
+    if (rawCrypto is! Map) {
+      return null;
+    }
+    final mode = rawCrypto['mode'];
+    return mode is String && mode.isNotEmpty ? mode : null;
   }
 
   String _safeTruncate(String? input, {int maxLength = 16, String? fallback}) {

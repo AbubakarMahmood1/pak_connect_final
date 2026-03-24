@@ -78,17 +78,12 @@ void main() {
     SecurityServiceLocator.clearServiceResolver();
   });
 
-  OutboundMessageSender makeSender({
-    bool? allowLegacyV2Send,
-    bool? enableSealedV1Send,
-  }) {
+  OutboundMessageSender makeSender() {
     return OutboundMessageSender(
       logger: logger,
       ackTracker: ackTracker,
       chunkSender: chunkSender,
       securityService: securityService,
-      allowLegacyV2Send: allowLegacyV2Send,
-      enableSealedV1Send: enableSealedV1Send,
     );
   }
 
@@ -362,14 +357,12 @@ void main() {
   // Constructor edge cases
   // -------------------------------------------------------------------------
   group('Constructor edge cases', () {
-    test('creates with all custom write functions and both flags', () {
+    test('creates with all custom write functions', () {
       final sender = OutboundMessageSender(
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: chunkSender,
         securityService: securityService,
-        allowLegacyV2Send: false,
-        enableSealedV1Send: true,
         centralWrite: ({
           required centralManager,
           required peripheral,
@@ -402,20 +395,16 @@ void main() {
         ackTracker: ackTracker,
         chunkSender: chunkSender,
         securityService: securityService,
-        allowLegacyV2Send: false,
-        enableSealedV1Send: false,
       );
       expect(sender, isNotNull);
     });
 
-    test('sender with all flags enabled', () {
+    test('sender with repeated default construction', () {
       final sender = OutboundMessageSender(
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: chunkSender,
         securityService: securityService,
-        allowLegacyV2Send: true,
-        enableSealedV1Send: true,
       );
       expect(sender, isNotNull);
     });

@@ -35,9 +35,9 @@ void main() {
           'recipientId': 'recipient-persistent',
           'intendedRecipient': 'recipient-persistent',
           'crypto': {
-            'mode': 'legacy_ecdh_v1',
+            'mode': 'sealed_v1',
             'modeVersion': 1,
-            'sessionId': 'session-a',
+            'kid': 'kid-a',
           },
         },
         timestamp: now,

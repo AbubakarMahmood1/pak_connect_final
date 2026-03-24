@@ -21,30 +21,15 @@ import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import '../../domain/models/security_level.dart';
 import '../../domain/values/id_types.dart';
 import '../../core/security/sealed/sealed_encryption_service.dart';
-import '../../core/security/peer_protocol_version_guard.dart';
 
 /// Handles outbound message preparation and sending for BLEMessageHandler.
 class OutboundMessageSender {
-  /// Legacy v2 send is disabled by default for security hardening.
-  /// Override at build time with -DPAKCONNECT_ALLOW_LEGACY_V2_SEND=true
-  /// for backward compatibility during migration.
-  static const bool _defaultAllowLegacyV2Send = bool.fromEnvironment(
-    'PAKCONNECT_ALLOW_LEGACY_V2_SEND',
-    defaultValue: false,
-  );
-  static const bool _defaultEnableSealedV1Send = bool.fromEnvironment(
-    'PAKCONNECT_ENABLE_SEALED_V1_SEND',
-    defaultValue: false,
-  );
-
   OutboundMessageSender({
     required Logger logger,
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
     ISecurityService? securityService,
     SealedEncryptionService? sealedEncryptionService,
-    bool? allowLegacyV2Send,
-    bool? enableSealedV1Send,
     Future<void> Function({
       required CentralManager centralManager,
       required Peripheral peripheral,
@@ -67,8 +52,6 @@ class OutboundMessageSender {
            securityService ?? SecurityServiceLocator.resolveService(),
        _sealedEncryptionService =
            sealedEncryptionService ?? SealedEncryptionService(),
-       _allowLegacyV2Send = allowLegacyV2Send ?? _defaultAllowLegacyV2Send,
-       _enableSealedV1Send = enableSealedV1Send ?? _defaultEnableSealedV1Send,
        _centralWrite = centralWrite,
        _peripheralWrite = peripheralWrite;
 
@@ -77,8 +60,6 @@ class OutboundMessageSender {
   final MessageChunkSender _chunkSender;
   final ISecurityService _securityService;
   final SealedEncryptionService _sealedEncryptionService;
-  final bool _allowLegacyV2Send;
-  final bool _enableSealedV1Send;
   final Future<void> Function({
     required CentralManager centralManager,
     required Peripheral peripheral,
@@ -185,15 +166,8 @@ class OutboundMessageSender {
         throw Exception('Cannot send message without encryption key');
       }
 
-      final upgradedPeerObserved = _hasUpgradedPeerProtocolFloor(
-        recipientId: finalRecipientId,
-        contactLookupKey: encryptionKey,
-      );
       final shouldAttemptSealedFallback =
-          _isLegacyEncryptionType(encryptionDecision.type) &&
-          (_enableSealedV1Send ||
-              upgradedPeerObserved ||
-              !_allowLegacyV2Send);
+          _isLegacyEncryptionType(encryptionDecision.type);
 
       if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(
@@ -212,6 +186,14 @@ class OutboundMessageSender {
             '🔒 MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
           );
         }
+      }
+
+      if (_isLegacyTransportMethod(encryptionMethod) &&
+          explicitCryptoHeader == null) {
+        throw StateError(
+          'Legacy v2 transport modes have been removed. '
+          'Recipient ${_safeTruncate(finalRecipientId, 12)} requires sealed_v1 capability.',
+        );
       }
 
       SecurityLevel trustLevel;
@@ -239,12 +221,6 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
-      final allowLegacyV2ForMessage = _allowLegacyV2ForMessage(
-        recipientId: finalRecipientId,
-        contactLookupKey: encryptionKey,
-        transportSide: 'central',
-        messageId: msgId,
-      );
       final cryptoHeader =
           explicitCryptoHeader ??
           _buildCryptoHeader(
@@ -252,9 +228,6 @@ class OutboundMessageSender {
             sessionId: encryptionMethod == 'noise'
                 ? (encryptionDecision.publicKey ?? encryptionKey)
                 : null,
-            messageId: msgId,
-            transportSide: 'central',
-            allowLegacyV2ForMessage: allowLegacyV2ForMessage,
           );
 
       final legacyPayload = {
@@ -479,15 +452,8 @@ class OutboundMessageSender {
         throw Exception('Cannot send message without encryption key');
       }
 
-      final upgradedPeerObserved = _hasUpgradedPeerProtocolFloor(
-        recipientId: finalRecipientId,
-        contactLookupKey: encryptionKey,
-      );
       final shouldAttemptSealedFallback =
-          _isLegacyEncryptionType(encryptionDecision.type) &&
-          (_enableSealedV1Send ||
-              upgradedPeerObserved ||
-              !_allowLegacyV2Send);
+          _isLegacyEncryptionType(encryptionDecision.type);
 
       if (shouldAttemptSealedFallback) {
         final sealedResult = await _tryEncryptWithSealedV1(
@@ -506,6 +472,14 @@ class OutboundMessageSender {
             '🔒 PERIPHERAL MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
           );
         }
+      }
+
+      if (_isLegacyTransportMethod(encryptionMethod) &&
+          explicitCryptoHeader == null) {
+        throw StateError(
+          'Legacy v2 transport modes have been removed. '
+          'Recipient ${_safeTruncate(finalRecipientId, 12)} requires sealed_v1 capability.',
+        );
       }
 
       SecurityLevel trustLevel;
@@ -539,12 +513,6 @@ class OutboundMessageSender {
 
       final intendedRecipientPayload =
           originalIntendedRecipient ?? finalRecipientId;
-      final allowLegacyV2ForMessage = _allowLegacyV2ForMessage(
-        recipientId: finalRecipientId,
-        contactLookupKey: encryptionKey,
-        transportSide: 'peripheral',
-        messageId: msgId,
-      );
       final cryptoHeader =
           explicitCryptoHeader ??
           _buildCryptoHeader(
@@ -552,9 +520,6 @@ class OutboundMessageSender {
             sessionId: encryptionMethod == 'noise'
                 ? (encryptionDecision.publicKey ?? encryptionKey)
                 : null,
-            messageId: msgId,
-            transportSide: 'peripheral',
-            allowLegacyV2ForMessage: allowLegacyV2ForMessage,
           );
 
       final legacyPayload = {
@@ -803,81 +768,12 @@ class OutboundMessageSender {
   CryptoHeader? _buildCryptoHeader({
     required String encryptionMethod,
     required String? sessionId,
-    required String messageId,
-    required String transportSide,
-    required bool allowLegacyV2ForMessage,
   }) {
     final mode = _mapEncryptionMethodToMode(encryptionMethod);
     if (mode == null) {
       return null;
     }
-    if (_isLegacyMode(mode)) {
-      if (!allowLegacyV2ForMessage) {
-        throw StateError(
-          'Legacy v2 send mode blocked by policy: $encryptionMethod '
-          '(messageId=$messageId). Enable PAKCONNECT_ALLOW_LEGACY_V2_SEND=true '
-          'temporarily during migration.',
-        );
-      }
-      _logger.warning(
-        '🔒 POLICY: Emitting legacy v2 mode ${mode.wireValue} for '
-        '$transportSide message ${_safeTruncate(messageId, 16)} '
-        '(compatibility mode enabled)',
-      );
-    }
     return CryptoHeader(mode: mode, modeVersion: 1, sessionId: sessionId);
-  }
-
-  bool _allowLegacyV2ForMessage({
-    required String recipientId,
-    required String contactLookupKey,
-    required String transportSide,
-    required String messageId,
-  }) {
-    if (!_allowLegacyV2Send) {
-      return false;
-    }
-    if (!PeerProtocolVersionGuard.isEnabled) {
-      return true;
-    }
-
-    final peerCandidates = <String>{recipientId, contactLookupKey}
-      ..removeWhere((candidate) => candidate.isEmpty);
-    for (final candidate in peerCandidates) {
-      final floor = PeerProtocolVersionGuard.floorForPeer(candidate);
-      if (floor >= 2) {
-        _logger.warning(
-          '🔒 POLICY: Blocking legacy v2 mode for upgraded peer '
-          '${_safeTruncate(candidate, 12)} on $transportSide send '
-          '(messageId=${_safeTruncate(messageId, 16)}, floor=v$floor)',
-        );
-        return false;
-      }
-    }
-    return true;
-  }
-
-  bool _hasUpgradedPeerProtocolFloor({
-    required String recipientId,
-    required String contactLookupKey,
-  }) {
-    if (!PeerProtocolVersionGuard.isEnabled) {
-      return false;
-    }
-    final peerCandidates = <String>{recipientId, contactLookupKey}
-      ..removeWhere((candidate) => candidate.isEmpty);
-    for (final candidate in peerCandidates) {
-      if (PeerProtocolVersionGuard.floorForPeer(candidate) >= 2) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool _isLegacyMode(CryptoMode mode) {
-    return mode == CryptoMode.legacyEcdhV1 ||
-        mode == CryptoMode.legacyPairingV1 ||
-        mode == CryptoMode.legacyGlobalV1;
   }
 
   CryptoMode? _mapEncryptionMethodToMode(String encryptionMethod) {
@@ -886,10 +782,6 @@ class OutboundMessageSender {
         return CryptoMode.noiseV1;
       case 'sealed':
         return CryptoMode.sealedV1;
-      case 'ecdh':
-        return CryptoMode.legacyEcdhV1;
-      case 'pairing':
-        return CryptoMode.legacyPairingV1;
       case 'global':
         return null;
       case 'none':
@@ -897,6 +789,10 @@ class OutboundMessageSender {
       default:
         return null;
     }
+  }
+
+  bool _isLegacyTransportMethod(String encryptionMethod) {
+    return encryptionMethod == 'ecdh' || encryptionMethod == 'pairing';
   }
 
   Future<_MessageIdentities> _resolveMessageIdentities({

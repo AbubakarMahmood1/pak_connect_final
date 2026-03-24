@@ -27,14 +27,6 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
-  /// Legacy v2 decryption is disabled by default for security hardening.
-  /// Override at build time with -DPAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=true
-  /// for backward compatibility during migration.
-  static const bool _defaultAllowLegacyV2Decrypt = bool.fromEnvironment(
-    'PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT',
-    defaultValue: false,
-  );
-
   /// V2 signatures are required by default. Override at build time with
   /// -DPAKCONNECT_REQUIRE_V2_SIGNATURE=false to relax during migration.
   static const bool _defaultRequireV2Signature = bool.fromEnvironment(
@@ -56,18 +48,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   final _logger = Logger('ProtocolMessageHandler');
   final ContactRepository _contactRepository;
   final ISecurityService _securityService;
-  final bool _allowLegacyV2Decrypt;
   final bool _requireV2Signature;
 
   ProtocolMessageHandler({
     required ISecurityService securityService,
     ContactRepository? contactRepository,
-    bool? allowLegacyV2Decrypt,
     bool? requireV2Signature,
   }) : _securityService = securityService,
        _contactRepository = contactRepository ?? ContactRepository(),
-       _allowLegacyV2Decrypt =
-           allowLegacyV2Decrypt ?? _defaultAllowLegacyV2Decrypt,
        _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature;
 
   // Callbacks
@@ -335,7 +323,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         try {
           if (message.version >= 2) {
             final cryptoHeader = message.cryptoHeader;
+            final rawCryptoMode = _extractRawCryptoMode(message);
             if (cryptoHeader == null) {
+              if (rawCryptoMode != null) {
+                _logger.severe(
+                  '🔒 v2 encrypted message has unsupported crypto mode: $rawCryptoMode',
+                );
+                return null;
+              }
               _logger.severe(
                 '🔒 v2 encrypted message missing crypto header: $messageId',
               );
@@ -373,28 +368,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
                 recipientId: recipientForSealed,
               );
             } else {
-              if (cryptoHeader.mode == CryptoMode.legacyGlobalV1) {
-                _logger.warning(
-                  '🔒 v2 legacy global decrypt mode is blocked by policy: '
-                  '${cryptoHeader.mode.wireValue} '
-                  '(messageId=${messageId.shortId(8)})',
-                );
-                return null;
-              }
-              if (_shouldRejectLegacyV2ModeForUpgradedPeer(
-                peerKey: versionPeerKey,
-                mode: cryptoHeader.mode,
-                messageId: messageId,
-              )) {
-                return null;
-              }
-              if (!_allowLegacyV2Decrypt && _isLegacyMode(cryptoHeader.mode)) {
-                _logger.warning(
-                  '🔒 v2 legacy decrypt mode blocked by policy: ${cryptoHeader.mode.wireValue} '
-                  '(messageId=${messageId.shortId(8)})',
-                );
-                return null;
-              }
               final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
               if (encryptionType == null) {
                 _logger.severe(
@@ -866,34 +839,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     return null;
   }
 
-  bool _isLegacyMode(CryptoMode mode) {
-    return mode == CryptoMode.legacyEcdhV1 ||
-        mode == CryptoMode.legacyPairingV1 ||
-        mode == CryptoMode.legacyGlobalV1;
-  }
-
-  bool _shouldRejectLegacyV2ModeForUpgradedPeer({
-    required String peerKey,
-    required CryptoMode mode,
-    required String messageId,
-  }) {
-    if (!_isLegacyMode(mode) || peerKey.isEmpty) {
-      return false;
-    }
-
-    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
-    if (floor < 2) {
-      return false;
-    }
-
-    _logger.warning(
-      '🔒 v2 legacy decrypt mode blocked for upgraded peer '
-      '${peerKey.shortId(8)}... (floor=v$floor, mode=${mode.wireValue}, '
-      'messageId=${messageId.shortId(8)})',
-    );
-    return true;
-  }
-
   bool _shouldRequireV2Signature({
     required int messageVersion,
     required String peerKey,
@@ -925,17 +870,19 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     switch (mode) {
       case CryptoMode.noiseV1:
         return EncryptionType.noise;
-      case CryptoMode.legacyEcdhV1:
-        return EncryptionType.ecdh;
-      case CryptoMode.legacyPairingV1:
-        return EncryptionType.pairing;
-      case CryptoMode.legacyGlobalV1:
-        // v2 never permits legacy global decrypt.
-        return null;
       case CryptoMode.none:
       case CryptoMode.sealedV1:
         return null;
     }
+  }
+
+  String? _extractRawCryptoMode(domain_models.ProtocolMessage message) {
+    final rawCrypto = message.payload['crypto'];
+    if (rawCrypto is! Map) {
+      return null;
+    }
+    final mode = rawCrypto['mode'];
+    return mode is String && mode.isNotEmpty ? mode : null;
   }
 
   /// Resolves message sender and recipient identities
