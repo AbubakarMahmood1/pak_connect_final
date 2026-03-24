@@ -99,7 +99,7 @@ Acceptance:
 - Human-readable test names no longer mention phases.
 - Full suite still passes after the rename.
 
-Status: Pending.
+Status: Completed on 2026-03-24.
 
 ## Test Plan
 Run focused verification at the end of each checkpoint, then a full suite at the end of checkpoints 3 and 5.
