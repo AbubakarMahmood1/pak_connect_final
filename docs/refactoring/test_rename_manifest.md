@@ -100,7 +100,7 @@ Generated: 2026-03-24
 | `test/presentation/controllers/chat_screen_controller_phase13_test.dart` | `test/presentation/controllers/chat_screen_controller_coverage_test.dart` | ChatScreenController – Phase 13 coverage |
 | `test/presentation/controllers/chat_screen_controller_phase13b_test.dart` | `test/presentation/controllers/chat_screen_controller_message_actions_test.dart` | ChatScreenController – Phase 13b coverage |
 | `test/presentation/controllers/chat_scrolling_controller_phase13_test.dart` | `test/presentation/controllers/chat_scrolling_controller_coverage_test.dart` | ChatScrollingController |
-| `test/presentation/controllers/home_screen_controller_phase12_test.dart` | `test/presentation/controllers/home_screen_controller_2_supplementary_test.dart` | HomeScreenController – Phase 1-2 supplementary |
+| `test/presentation/controllers/home_screen_controller_phase12_test.dart` | `test/presentation/controllers/home_screen_controller_search_and_paging_test.dart` | HomeScreenController – Phase 1-2 supplementary |
 | `test/presentation/controllers/home_screen_controller_phase13_test.dart` | `test/presentation/controllers/home_screen_controller_navigation_and_refresh_test.dart` | HomeScreenController – Phase 13 supplementary |
 | `test/presentation/controllers/home_screen_controller_phase13b_test.dart` | `test/presentation/controllers/home_screen_controller_unread_and_reload_test.dart` | HomeScreenController – Phase 13b supplementary |
 | `test/presentation/controllers/home_screen_controller_phase13d_test.dart` | `test/presentation/controllers/home_screen_controller_provider_and_listener_test.dart` | HomeScreenController – Phase 13d supplementary |
