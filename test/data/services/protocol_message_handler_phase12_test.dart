@@ -24,7 +24,6 @@ void main() {
     securityService = _FakeSecurityService();
     handler = ProtocolMessageHandler(
       securityService: securityService,
-      allowLegacyV2Decrypt: true,
       requireV2Signature: false,
     );
   });

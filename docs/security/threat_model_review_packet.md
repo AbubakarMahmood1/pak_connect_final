@@ -35,8 +35,8 @@ Validate envelope/mode policy and Pass C sealed-lane scaffold before full wiring
 3. Are sender identity and transport identity cleanly separated for decrypt and signature checks?
 4. What concrete attack scenarios still remain in current Pass A code?
 5. What is the minimum safe spec for Pass B (noise/sealed send policy) to avoid regressions?
-6. Is `PAKCONNECT_ALLOW_LEGACY_V2_SEND` an acceptable temporary migration gate, and what criteria should flip default to `false`?
+6. Are removed legacy v2 transport modes rejected consistently on both outbound and inbound paths, with no residual fallback behavior?
 7. Does `sealed_encryption_service.dart` have any construction-level mistakes (KDF, nonce handling, key erasure, AAD semantics)?
 8. What is the minimum safe envelope spec for wiring sealed mode (`kid`, `epk`, `nonce`, sender binding) without creating downgrade or replay gaps?
-9. Is the interaction between `PAKCONNECT_ALLOW_LEGACY_V2_SEND` and `PAKCONNECT_ENABLE_SEALED_V1_SEND` safe for phased rollout, or can it create downgrade confusion?
+9. Does the automatic sealed fallback for removed legacy transport attempts create any downgrade confusion or ambiguous sender/recipient binding?
 10. Does the new `decryptSealedMessage(...)` API/usage bind the same AAD context as sender-side sealing, and what edge cases remain?

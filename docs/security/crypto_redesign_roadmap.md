@@ -46,19 +46,15 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - no non-comment `print(...)` in `lib/**`.
   - `Timer.periodic(...)` count regression gate capped at current baseline.
 - Strict crypto policy gate added to CI:
-  - targeted strict-path tests now run under release-like policy flags via
+  - targeted fail-closed transport tests now run via
     `scripts/crypto_policy_gate.ps1`.
   - gate currently enforces:
-    - outbound block of legacy v2 send modes in strict policy mode.
-    - sealed v1 strict fallback emission when recipient static Noise key exists.
+    - removed legacy v2 transport modes are rejected on send.
+    - sealed v1 fallback is used when recipient static Noise key exists.
     - sealed v2 inbound sender-binding requirement (no transport fallback).
     - inbound encrypted v2 signature requirement in both text handler paths.
     - inbound rejection of unsigned v2 direct plaintext text messages.
-    - inbound block of legacy v2 decrypt modes for upgraded peers.
-- Pass B migration scaffold added:
-  - outbound v2 send path can now fail-closed on legacy modes using
-    `PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`.
-  - default remains compatibility-on (`true`) for progressive rollout.
+    - upgraded peers continue to reject removed legacy transport headers.
 - Pass B correctness hardening added:
   - outbound encryption now executes by the preselected method type via
     `ISecurityService.encryptMessageByType(...)`.
@@ -92,22 +88,18 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
   - reconnect cleanup and fresh re-establishment flow are now regression-tested.
   - message-limit rekey threshold behavior is now regression-tested
     (session marked for rekey at 10k sends, 10,001st send fails closed).
-- Pass B compatibility-tightening hook added:
-  - inbound v2 legacy decrypt modes (`legacy_ecdh_v1`, `legacy_pairing_v1`,
-    `legacy_global_v1`) can now be blocked by policy:
-    `PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=false`.
+- Pass B compatibility-tightening completed:
+  - inbound v2 transport accepts only active modes.
+  - removed legacy transport headers (`legacy_ecdh_v1`,
+    `legacy_pairing_v1`, `legacy_global_v1`) are rejected deterministically.
 - Pass B peer-upgrade send policy tightening added:
-  - outbound legacy v2 send modes are now auto-blocked for peers already
-    observed at protocol floor v2+, even when global compatibility mode is on.
-  - when strict policy blocks legacy send (`PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`),
-    outbound now auto-attempts `sealed_v1` fallback if recipient sealed
-    prerequisites are available, even if rollout flag is disabled.
-  - when a peer is already upgraded and legacy mode is blocked, outbound now
-    auto-attempts `sealed_v1` fallback even if the global sealed rollout flag
-    is disabled (still fail-closed if recipient sealed prerequisites are absent).
+  - outbound no longer emits legacy v2 transport modes.
+  - if an old ECDH/pairing contact path is encountered, outbound now
+    auto-attempts `sealed_v1` fallback when recipient sealed prerequisites are
+    available and otherwise fails closed.
 - Pass B peer-upgrade decrypt policy tightening added:
-  - inbound legacy v2 decrypt modes are now auto-blocked for peers already
-    observed at protocol floor v2+, even when compatibility mode is enabled.
+  - inbound removed legacy transport headers are rejected for peers already
+    observed at protocol floor v2+.
   - implemented in:
     - `lib/data/services/protocol_message_handler.dart`
     - `lib/data/services/inbound_text_processor.dart`
@@ -133,13 +125,10 @@ Conclusion: current system is functional, but crypto complexity and fallback bre
     - wrong-recipient decrypt failure
     - ciphertext tamper failure
     - AAD mismatch failure
-- outbound strict-mode fallback now supports sealed send when explicitly enabled:
-  - `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`
-  - requires recipient Noise static key in contact record
-  - covered by `test/data/services/ble_write_adapter_test.dart`
-- when sealed send is enabled, outbound now prefers `sealed_v1` over legacy
-  methods for offline-eligible sends (with legacy fallback only if sealed
-  prerequisites are missing).
+- outbound removed-legacy fallback now supports sealed send whenever recipient
+  static Noise key material is available.
+- when sealed send prerequisites are present, outbound now prefers `sealed_v1`
+  over removed legacy transport methods for offline-eligible sends.
 - inbound sealed decrypt path is now wired for v2 handlers via
   `ISecurityService.decryptSealedMessage(...)`.
 - inbound sealed v2 sender/recipient envelope binding is now strict:
@@ -260,23 +249,19 @@ This preserves:
 - No new outbound payload is produced with legacy/global mode.
 - Fallback logic only applies to old incoming messages.
 
-**Status**: Mostly completed; remaining work is compatibility quarantine and
-eventual deletion (`2026-03-23`).
+**Status**: Completed (`2026-03-24`).
 
 Implemented now:
-- strict policy gate exists for outbound v2 legacy mode emission.
+- strict policy gate exists for outbound rejection of removed legacy transport
+  modes.
 - outbound v2 `crypto.mode`/`sessionId` metadata now derives from
   `ISecurityService.getEncryptionMethod(...)` (not local heuristics),
   reducing header/method mismatch risk.
 - outbound encryption now uses `ISecurityService.encryptMessageByType(...)`
   with the same resolved method used for metadata, removing dual-path drift.
-- runtime decrypt ordering no longer treats legacy/global as a normal
-  per-security-level method. Legacy/global is now only a policy-gated explicit
-  migration fallback.
-
-Remaining:
-- make strict mode default globally in controlled stages.
-- complete the compatibility-lane deletion once the removal criteria above are met.
+- runtime decrypt ordering no longer treats removed legacy/global transport as a
+  normal per-security-level method.
+- legacy v2 transport emission and decrypt fallback have been deleted.
 
 ### Pass C (35-55%): Offline Async Prekey Lane
 
@@ -292,16 +277,12 @@ Remaining:
 **Status**: In progress (`2026-02-12`).
 
 Implemented now:
-- sealed/offline cryptographic primitive service and core invariants are in place
-  via `test/core/security/sealed/sealed_encryption_service_test.dart`.
-- outbound v2 strict policy can switch legacy send attempts to `sealed_v1`
-  when:
-  - legacy v2 send is blocked (`PAKCONNECT_ALLOW_LEGACY_V2_SEND=false`)
-  - sealed fallback is enabled (`PAKCONNECT_ENABLE_SEALED_V1_SEND=true`)
-  - recipient static Noise key is available.
-- outbound can also prefer `sealed_v1` before legacy methods whenever
-  `PAKCONNECT_ENABLE_SEALED_V1_SEND=true`, enabling progressive rollout of the
-  offline lane without forcing strict mode first.
+- sealed/offline cryptographic primitive service and core invariants are in
+  place via `test/core/security/sealed/sealed_encryption_service_test.dart`.
+- outbound v2 now switches removed legacy send attempts to `sealed_v1` when a
+  recipient static Noise key is available.
+- outbound now prefers `sealed_v1` before any removed legacy transport method
+  when offline prerequisites are available.
 - inbound v2 handlers route `sealed_v1` to dedicated sealed decrypt logic
   (no legacy fallback guessing for sealed mode).
 - binary payload processing is now fail-closed when decrypt fails.

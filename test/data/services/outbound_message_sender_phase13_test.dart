@@ -2,14 +2,12 @@
 /// - _wireMethodForType for all EncryptionType values
 /// - _isLegacyEncryptionType paths
 /// - _mapEncryptionMethodToMode for each wire method string
-/// - _buildCryptoHeader with legacy mode blocking
+/// - _buildCryptoHeader for supported transport modes
 /// - _safeTruncate edge cases (null, short, long, empty)
 /// - _normalizeContactKey with repo_ prefix and without
 /// - _buildSealedV1Aad deterministic output
 /// - _tryEncryptWithSealedV1 guard paths (empty ids, no key, bad base64, wrong length)
 /// - sendBinaryPayload with multi-fragment and inter-chunk delay
-/// - _allowLegacyV2ForMessage with PeerProtocolVersionGuard paths
-/// - _hasUpgradedPeerProtocolFloor paths
 /// - _resolveMessageIdentities security-level-aware identity selection paths
 library;
 import 'dart:typed_data';
@@ -90,17 +88,12 @@ void main() {
     SecurityServiceLocator.clearServiceResolver();
   });
 
-  OutboundMessageSender makeSender({
-    bool? allowLegacyV2Send,
-    bool? enableSealedV1Send,
-  }) {
+  OutboundMessageSender makeSender() {
     return OutboundMessageSender(
       logger: logger,
       ackTracker: ackTracker,
       chunkSender: chunkSender,
       securityService: securityService,
-      allowLegacyV2Send: allowLegacyV2Send,
-      enableSealedV1Send: enableSealedV1Send,
     );
   }
 
@@ -209,21 +202,13 @@ void main() {
   // Constructor variants
   // -------------------------------------------------------------------------
   group('Constructor', () {
-    test('creates with enableSealedV1Send true', () {
-      final sender = makeSender(enableSealedV1Send: true);
+    test('creates successfully with defaults', () {
+      final sender = makeSender();
       expect(sender, isNotNull);
     });
 
-    test('creates with allowLegacyV2Send false', () {
-      final sender = makeSender(allowLegacyV2Send: false);
-      expect(sender, isNotNull);
-    });
-
-    test('creates with both flags explicitly set', () {
-      final sender = makeSender(
-        allowLegacyV2Send: true,
-        enableSealedV1Send: false,
-      );
+    test('creates multiple instances consistently', () {
+      final sender = makeSender();
       expect(sender, isNotNull);
     });
 

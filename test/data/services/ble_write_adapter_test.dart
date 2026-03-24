@@ -287,14 +287,10 @@ void main() {
     stateManager = _FakeStateManager();
     contactRepository = ContactRepository();
     writeClient = FakeBleWriteClient();
-    // Explicit permissive flag: production now defaults to strict.
-    // Tests that exercise non-policy logic use permissive mode; tests for
-    // strict behavior construct their own adapter with explicit flags.
     adapter = BleWriteAdapter(
       contactRepository: contactRepository,
       stateManagerProvider: () => stateManager,
       writeClient: writeClient,
-      allowLegacyV2Send: true,
     );
   });
 
@@ -339,7 +335,10 @@ void main() {
 
   test('central send returns false when write client throws', () async {
     await contactRepository.saveContact('recipient', 'Recipient');
-    SimpleCrypto.initializeConversation('recipient', 'ble-write-test-secret');
+    securityService.registerIdentityMapping(
+      persistentPublicKey: 'recipient',
+      ephemeralID: 'noise-session-recipient',
+    );
 
     // This test intentionally throws an error to test error handling
     allowSevere('Failed to send message: Exception: central boom');
@@ -392,34 +391,31 @@ void main() {
   );
 
   test(
-    'central send blocks legacy v2 crypto mode when compatibility is disabled',
+    'central send rejects removed legacy transport when no sealed_v1 fallback exists',
     () async {
       await contactRepository.saveContact(
-        'recipient_strict_policy',
-        'Recipient Strict Policy',
+        'recipient_removed_transport',
+        'Recipient Removed Transport',
       );
       SimpleCrypto.initializeConversation(
-        'recipient_strict_policy',
-        'ble-write-test-strict-secret',
+        'recipient_removed_transport',
+        'ble-write-test-removed-transport-secret',
       );
 
-      // With no Noise session, sender would pick PAIRING for v2.
-      // Strict policy must fail-closed instead of emitting legacy_v2 mode.
       adapter = BleWriteAdapter(
         contactRepository: contactRepository,
         stateManagerProvider: () => stateManager,
         writeClient: writeClient,
-        allowLegacyV2Send: false,
       );
-      allowSevere('Legacy v2 send mode blocked by policy');
+      allowSevere('Legacy v2 transport modes have been removed');
       allowSevere('Stack trace');
 
       final result = await adapter.sendCentralMessage(
         centralManager: _FakeCentralManager(),
         connectedDevice: FakePeripheral(uuid: makeUuid(21)),
         messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(22)),
-        recipientKey: 'recipient_strict_policy',
-        content: 'strict mode should block legacy v2 sends',
+        recipientKey: 'recipient_removed_transport',
+        content: 'removed transport should fail closed',
         mtuSize: 185,
       );
 
@@ -427,7 +423,7 @@ void main() {
       expect(
         writeClient.lastCentralValue,
         isNull,
-        reason: 'Strict mode must block transport writes for legacy v2 modes',
+        reason: 'Transport must not write when only removed legacy modes are available',
       );
     },
   );
@@ -485,7 +481,7 @@ void main() {
   );
 
   test(
-    'strict mode can emit sealed_v1 when recipient Noise static key is known',
+    'send upgrades to sealed_v1 when recipient Noise static key is known',
     () async {
       await contactRepository.saveContact(
         'recipient_sealed',
@@ -497,8 +493,6 @@ void main() {
         sessionState: 'established',
       );
 
-      // With no active Noise session, fake security chooses ECDH (legacy).
-      // Strict mode blocks legacy modes unless sealed_v1 fallback is enabled.
       SimpleCrypto.initializeConversation(
         'recipient_sealed',
         'ble-write-test-sealed-secret',
@@ -509,8 +503,6 @@ void main() {
         contactRepository: contactRepository,
         stateManagerProvider: () => stateManager,
         writeClient: captureWriteClient,
-        allowLegacyV2Send: false,
-        enableSealedV1Send: true,
       );
 
       allowSevere(
@@ -555,7 +547,7 @@ void main() {
   );
 
   test(
-    'strict mode auto-falls back to sealed_v1 even when rollout flag is disabled',
+    'send auto-falls back to sealed_v1 when legacy transport is unavailable',
     () async {
       await contactRepository.saveContact(
         'recipient_strict_auto_sealed',
@@ -576,8 +568,6 @@ void main() {
         contactRepository: contactRepository,
         stateManagerProvider: () => stateManager,
         writeClient: captureWriteClient,
-        allowLegacyV2Send: false,
-        enableSealedV1Send: false,
       );
 
       allowSevere(
@@ -590,7 +580,7 @@ void main() {
         connectedDevice: FakePeripheral(uuid: makeUuid(43)),
         messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(44)),
         recipientKey: 'recipient_strict_auto_sealed',
-        content: 'strict auto sealed fallback',
+        content: 'auto sealed fallback',
         mtuSize: 1024,
       );
 
@@ -612,51 +602,7 @@ void main() {
   );
 
   test(
-    'legacy v2 send is blocked for peers already observed on v2 protocol floor',
-    () async {
-      await contactRepository.saveContact(
-        'recipient_v2_floor',
-        'Recipient V2 Floor',
-      );
-      SimpleCrypto.initializeConversation(
-        'recipient_v2_floor',
-        'ble-write-test-v2-floor-secret',
-      );
-      PeerProtocolVersionGuard.trackObservedVersion(
-        messageVersion: 2,
-        peerKey: 'recipient_v2_floor',
-      );
-
-      adapter = BleWriteAdapter(
-        contactRepository: contactRepository,
-        stateManagerProvider: () => stateManager,
-        writeClient: writeClient,
-        allowLegacyV2Send: true,
-      );
-      allowSevere('Legacy v2 send mode blocked by policy');
-      allowSevere('Stack trace');
-
-      final result = await adapter.sendCentralMessage(
-        centralManager: _FakeCentralManager(),
-        connectedDevice: FakePeripheral(uuid: makeUuid(46)),
-        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(47)),
-        recipientKey: 'recipient_v2_floor',
-        content: 'legacy must be blocked for upgraded peer',
-        mtuSize: 185,
-      );
-
-      expect(result, isFalse);
-      expect(
-        writeClient.lastCentralValue,
-        isNull,
-        reason:
-            'Transport must not write when legacy v2 mode is disallowed by upgraded peer floor',
-      );
-    },
-  );
-
-  test(
-    'sealed_v1 is preferred over legacy mode when offline lane flag is enabled',
+    'sealed_v1 is used when recipient static key is available',
     () async {
       await contactRepository.saveContact(
         'recipient_sealed_pref',
@@ -668,8 +614,6 @@ void main() {
         sessionState: 'established',
       );
 
-      // Fake security picks ECDH here, but outbound sender should upgrade to
-      // sealed_v1 when the offline lane flag is enabled.
       SimpleCrypto.initializeConversation(
         'recipient_sealed_pref',
         'ble-write-test-sealed-pref-secret',
@@ -680,7 +624,6 @@ void main() {
         contactRepository: contactRepository,
         stateManagerProvider: () => stateManager,
         writeClient: captureWriteClient,
-        enableSealedV1Send: true,
       );
 
       allowSevere(
@@ -715,7 +658,7 @@ void main() {
   );
 
   test(
-    'upgraded peer auto-falls back to sealed_v1 even when rollout flag is disabled',
+    'upgraded peer also uses sealed_v1 after legacy transport removal',
     () async {
       await contactRepository.saveContact(
         'recipient_sealed_upgraded',
@@ -740,8 +683,6 @@ void main() {
         contactRepository: contactRepository,
         stateManagerProvider: () => stateManager,
         writeClient: captureWriteClient,
-        allowLegacyV2Send: true,
-        enableSealedV1Send: false,
       );
 
       allowSevere(

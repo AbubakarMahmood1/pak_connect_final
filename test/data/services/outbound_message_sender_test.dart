@@ -86,14 +86,12 @@ void main() {
       expect(sender, isNotNull);
     });
 
-    test('creates with custom legacy/sealed flags', () {
+    test('creates with custom active transport options', () {
       final sender = OutboundMessageSender(
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: chunkSender,
         securityService: securityService,
-        allowLegacyV2Send: false,
-        enableSealedV1Send: true,
       );
       expect(sender, isNotNull);
     });

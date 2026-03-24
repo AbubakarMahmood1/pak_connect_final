@@ -58,9 +58,6 @@ enum CryptoMode {
   none,
   noiseV1,
   sealedV1,
-  legacyPairingV1,
-  legacyEcdhV1,
-  legacyGlobalV1,
 
   ;
 
@@ -75,12 +72,6 @@ enum CryptoMode {
         return CryptoMode.noiseV1;
       case 'sealed_v1':
         return CryptoMode.sealedV1;
-      case 'legacy_pairing_v1':
-        return CryptoMode.legacyPairingV1;
-      case 'legacy_ecdh_v1':
-        return CryptoMode.legacyEcdhV1;
-      case 'legacy_global_v1':
-        return CryptoMode.legacyGlobalV1;
       default:
         return null;
     }
@@ -96,12 +87,6 @@ extension CryptoModeWire on CryptoMode {
         return 'noise_v1';
       case CryptoMode.sealedV1:
         return 'sealed_v1';
-      case CryptoMode.legacyPairingV1:
-        return 'legacy_pairing_v1';
-      case CryptoMode.legacyEcdhV1:
-        return 'legacy_ecdh_v1';
-      case CryptoMode.legacyGlobalV1:
-        return 'legacy_global_v1';
     }
   }
 }

@@ -291,7 +291,7 @@ void main() {
       expect(
         () => sm.decryptSealedMessage(
           encryptedMessage: 'data',
-          cryptoHeader: const CryptoHeader(mode: CryptoMode.legacyGlobalV1),
+          cryptoHeader: const CryptoHeader(mode: CryptoMode.noiseV1),
           messageId: 'msg1',
           senderId: 'sender1',
           recipientId: 'recipient1',

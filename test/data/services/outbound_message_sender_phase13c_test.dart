@@ -34,8 +34,8 @@ import '../../test_helpers/mocks/in_memory_secure_storage.dart';
 // ---------------------------------------------------------------------------
 
 class _FakeSecurityService extends Fake implements ISecurityService {
-  EncryptionMethod nextMethod = EncryptionMethod.ecdh(
-    'default-ecdh-recipient-key',
+  EncryptionMethod nextMethod = EncryptionMethod.noise(
+    'default-noise-session-key',
   );
   SecurityLevel nextLevel = SecurityLevel.low;
   bool nextHasNoise = false;
@@ -167,7 +167,6 @@ void main() {
       final sentChunks = <Uint8List>[];
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -222,7 +221,6 @@ void main() {
 
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -269,7 +267,6 @@ void main() {
     test('empty recipient throws and fires error callbacks', () async {
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 2));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -319,7 +316,6 @@ void main() {
 
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -359,7 +355,6 @@ void main() {
 
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -399,7 +394,6 @@ void main() {
       final ackTracker =
           MessageAckTracker(timeout: Duration(milliseconds: 50));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -440,7 +434,6 @@ void main() {
 
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 2));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -479,7 +472,6 @@ void main() {
       final ackTracker =
           MessageAckTracker(timeout: Duration(milliseconds: 100));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -517,7 +509,6 @@ void main() {
       final ackTracker =
           MessageAckTracker(timeout: Duration(milliseconds: 200));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -553,7 +544,6 @@ void main() {
       final ackTracker =
           MessageAckTracker(timeout: Duration(milliseconds: 200));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
@@ -601,7 +591,6 @@ void main() {
     test('happy path returns true and fires callbacks', () async {
       final sentChunks = <Uint8List>[];
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -649,7 +638,6 @@ void main() {
 
     test('empty recipient throws', () async {
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -687,6 +675,9 @@ void main() {
     });
 
     test('sealed V1 fallback with valid noise key', () async {
+      securityService.nextMethod = EncryptionMethod.ecdh(
+        'sealed-contact-pk-abcdef1234',
+      );
       // Provide a contact with a valid 32-byte base64 noise key
       final noiseKey = base64.encode(List.filled(32, 0x42));
       contactRepo.contactToReturn = _makeContact(
@@ -696,13 +687,10 @@ void main() {
       contactRepo.contactByAnyIdToReturn = contactRepo.contactToReturn;
 
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
         securityService: securityService,
-        
-        enableSealedV1Send: true,
         peripheralWrite: ({
           required PeripheralManager peripheralManager,
           required Central central,
@@ -737,7 +725,6 @@ void main() {
       securityService.getCurrentLevelThrows = true;
 
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -778,7 +765,6 @@ void main() {
       securityService.encryptThrows = true;
 
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -816,7 +802,6 @@ void main() {
     test('no peripheralWrite — uses PeripheralManager.notifyCharacteristic',
         () async {
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -848,7 +833,6 @@ void main() {
     test('binary envelope path for large peripheral messages', () async {
       final sentChunks = <Uint8List>[];
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -889,7 +873,6 @@ void main() {
     test('originalIntendedRecipient overrides default in peripheral',
         () async {
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -932,7 +915,6 @@ void main() {
       );
 
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -971,7 +953,6 @@ void main() {
 
     test('recipientId fallback when contactPublicKey is null', () async {
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: MessageAckTracker(),
         chunkSender: MessageChunkSender(logger: logger),
@@ -1008,7 +989,10 @@ void main() {
   // sendCentralMessage — sealed V1 fallback (central path)
   // =========================================================================
   group('sendCentralMessage sealed V1', () {
-    test('sealed V1 applied when enableSealedV1Send is true', () async {
+    test('sealed V1 applied when legacy transport falls back to offline lane', () async {
+      securityService.nextMethod = EncryptionMethod.ecdh(
+        'sealed-central-pk-abcdef1234',
+      );
       final noiseKey = base64.encode(List.filled(32, 0x42));
       contactRepo.contactToReturn = _makeContact(
         publicKey: 'sealed-central-pk-abcdef1234',
@@ -1018,13 +1002,10 @@ void main() {
 
       final ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
       final sender = OutboundMessageSender(
-        allowLegacyV2Send: true,
         logger: logger,
         ackTracker: ackTracker,
         chunkSender: MessageChunkSender(logger: logger),
         securityService: securityService,
-        
-        enableSealedV1Send: true,
         centralWrite: ({
           required CentralManager centralManager,
           required Peripheral peripheral,
@@ -1056,3 +1037,4 @@ void main() {
     });
   });
 }
+

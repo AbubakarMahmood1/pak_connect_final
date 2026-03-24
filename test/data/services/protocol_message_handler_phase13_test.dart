@@ -40,7 +40,6 @@ void main() {
     securityService = _FakeSecurityService();
     handler = ProtocolMessageHandler(
       securityService: securityService,
-      allowLegacyV2Decrypt: true,
       requireV2Signature: false,
     );
   });
@@ -608,7 +607,6 @@ void main() {
       );
       handler = ProtocolMessageHandler(
         securityService: securityService,
-        allowLegacyV2Decrypt: true,
         requireV2Signature: false,
       );
 
@@ -620,7 +618,6 @@ void main() {
       ProtocolMessageHandler.configureIdentityManagerResolver(() => null);
       handler = ProtocolMessageHandler(
         securityService: securityService,
-        allowLegacyV2Decrypt: true,
         requireV2Signature: false,
       );
       handler.setCurrentNodeId('my-node');
@@ -635,7 +632,6 @@ void main() {
       });
       handler = ProtocolMessageHandler(
         securityService: securityService,
-        allowLegacyV2Decrypt: true,
         requireV2Signature: false,
       );
       handler.setCurrentNodeId('my-node');

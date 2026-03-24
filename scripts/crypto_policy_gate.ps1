@@ -35,38 +35,29 @@ if (Test-Path $LogPath) {
     Remove-Item -Path $LogPath -Force
 }
 
-$strictBlePolicyDefines = @(
-    '--dart-define=PAKCONNECT_ALLOW_LEGACY_V2_SEND=false',
-    '--dart-define=PAKCONNECT_ENABLE_SEALED_V1_SEND=true'
-)
-$strictNoRolloutDefines = @(
-    '--dart-define=PAKCONNECT_ALLOW_LEGACY_V2_SEND=false',
-    '--dart-define=PAKCONNECT_ENABLE_SEALED_V1_SEND=false'
-)
-
 $testCases = @(
     [PSCustomObject]@{
-        Label = 'block legacy v2 send when strict policy is enabled'
+        Label = 'reject removed legacy transport when no sealed_v1 fallback exists'
         TestFile = 'test/data/services/ble_write_adapter_test.dart'
-        PlainName = 'central send blocks legacy v2 crypto mode when compatibility is disabled'
-        Defines = $strictBlePolicyDefines
+        PlainName = 'central send rejects removed legacy transport when no sealed_v1 fallback exists'
+        Defines = @()
     },
     [PSCustomObject]@{
-        Label = 'allow sealed_v1 strict fallback when recipient static key exists'
+        Label = 'upgrade removed legacy transport to sealed_v1 when recipient static key exists'
         TestFile = 'test/data/services/ble_write_adapter_test.dart'
-        PlainName = 'strict mode can emit sealed_v1 when recipient Noise static key is known'
-        Defines = $strictBlePolicyDefines
+        PlainName = 'send upgrades to sealed_v1 when recipient Noise static key is known'
+        Defines = @()
     },
     [PSCustomObject]@{
-        Label = 'strict mode auto-falls back to sealed_v1 even without rollout flag'
+        Label = 'auto-fall back to sealed_v1 when removed legacy transport cannot send directly'
         TestFile = 'test/data/services/ble_write_adapter_test.dart'
-        PlainName = 'strict mode auto-falls back to sealed_v1 even when rollout flag is disabled'
-        Defines = $strictNoRolloutDefines
+        PlainName = 'send auto-falls back to sealed_v1 when legacy transport is unavailable'
+        Defines = @()
     },
     [PSCustomObject]@{
-        Label = 'auto sealed_v1 fallback for upgraded peers'
+        Label = 'use sealed_v1 for upgraded peers after removed legacy transport'
         TestFile = 'test/data/services/ble_write_adapter_test.dart'
-        PlainName = 'upgraded peer auto-falls back to sealed_v1 even when rollout flag is disabled'
+        PlainName = 'upgraded peer also uses sealed_v1 after legacy transport removal'
         Defines = @()
     },
     [PSCustomObject]@{
@@ -94,9 +85,9 @@ $testCases = @(
         Defines = @()
     },
     [PSCustomObject]@{
-        Label = 'protocol handler blocks legacy v2 mode for upgraded peer floor'
+        Label = 'protocol handler rejects removed legacy transport after peer upgrade'
         TestFile = 'test/data/services/protocol_message_handler_test.dart'
-        PlainName = 'blocks legacy v2 decrypt mode for peers already observed at v2 floor'
+        PlainName = 'rejects removed legacy transport header after peer upgrade'
         Defines = @()
     },
     [PSCustomObject]@{
@@ -124,9 +115,9 @@ $testCases = @(
         Defines = @()
     },
     [PSCustomObject]@{
-        Label = 'inbound processor blocks legacy v2 mode for upgraded peer floor'
+        Label = 'inbound processor rejects removed legacy transport after peer upgrade'
         TestFile = 'test/data/services/inbound_text_processor_test.dart'
-        PlainName = 'blocks legacy v2 decrypt mode for peers already observed at v2 floor'
+        PlainName = 'rejects removed legacy transport header after peer upgrade'
         Defines = @()
     }
 )
