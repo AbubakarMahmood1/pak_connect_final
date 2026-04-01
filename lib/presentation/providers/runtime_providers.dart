@@ -134,7 +134,9 @@ final appBootstrapReadyProvider = FutureProvider<AppBootstrapState>((
   return completer.future;
 });
 
-class _NoopSharedMessageQueueProvider implements ISharedMessageQueueProvider {
+class _NoopSharedMessageQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   const _NoopSharedMessageQueueProvider();
 
   @override

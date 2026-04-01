@@ -29,6 +29,7 @@ class OutboundMessageSender {
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
     ISecurityService? securityService,
+    ISecurityService Function()? securityServiceResolver,
     SealedEncryptionService? sealedEncryptionService,
     Future<void> Function({
       required CentralManager centralManager,
@@ -48,8 +49,9 @@ class OutboundMessageSender {
   }) : _logger = logger,
        _ackTracker = ackTracker,
        _chunkSender = chunkSender,
-       _securityService =
-           securityService ?? SecurityServiceLocator.resolveService(),
+       _securityServiceOverride = securityService,
+       _securityServiceResolver =
+           securityServiceResolver ?? SecurityServiceLocator.resolveService,
        _sealedEncryptionService =
            sealedEncryptionService ?? SealedEncryptionService(),
        _centralWrite = centralWrite,
@@ -58,7 +60,8 @@ class OutboundMessageSender {
   final Logger _logger;
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
-  final ISecurityService _securityService;
+  final ISecurityService? _securityServiceOverride;
+  final ISecurityService Function() _securityServiceResolver;
   final SealedEncryptionService _sealedEncryptionService;
   final Future<void> Function({
     required CentralManager centralManager,
@@ -76,6 +79,18 @@ class OutboundMessageSender {
   })?
   _peripheralWrite;
   String? _currentNodeId;
+  ISecurityService? _resolvedSecurityService;
+
+  ISecurityService get _securityService {
+    final existing = _securityServiceOverride ?? _resolvedSecurityService;
+    if (existing != null) {
+      return existing;
+    }
+
+    final resolved = _securityServiceResolver();
+    _resolvedSecurityService = resolved;
+    return resolved;
+  }
 
   void setCurrentNodeId(String? nodeId) {
     _currentNodeId = nodeId;
@@ -439,9 +454,7 @@ class OutboundMessageSender {
 
     if (identities.isSpyMode) {
       _logger.info('🕵️ SPY MODE: Sending anonymously');
-      _logger.info(
-        '🕵️   Sender: ${finalSenderId.shortId(8)}... (ephemeral)',
-      );
+      _logger.info('🕵️   Sender: ${finalSenderId.shortId(8)}... (ephemeral)');
       _logger.info(
         '🕵️   Recipient: ${finalRecipientId.shortId(8)}... (ephemeral)',
       );
@@ -552,10 +565,7 @@ class OutboundMessageSender {
       unsignedMessage,
       fallbackContent: message,
     );
-    final signature = SigningManager.signMessage(
-      signaturePayload,
-      trustLevel,
-    );
+    final signature = SigningManager.signMessage(signaturePayload, trustLevel);
     final finalMessage = ProtocolMessage(
       type: unsignedMessage.type,
       version: unsignedMessage.version,

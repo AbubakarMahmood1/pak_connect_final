@@ -2,15 +2,15 @@
 // Safely creates the appropriate notification handler based on platform
 // Avoids build issues on Windows/iOS by conditionally importing Android-only code
 
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import '../../domain/interfaces/i_notification_handler.dart';
 import '../../domain/interfaces/i_preferences_repository.dart';
 import 'notification_service.dart'; // For ForegroundNotificationHandler
 
-// Conditional import - only imports on Android, doesn't break build on other platforms
-import 'background_notification_handler_impl.dart'
-    if (dart.library.html) 'notification_service.dart'; // Web fallback
+import 'background_notification_handler_factory_stub.dart'
+    if (dart.library.io) 'background_notification_handler_factory_native.dart'
+    as background_handler;
 
 /// Factory for creating platform-appropriate notification handlers
 ///
@@ -71,16 +71,23 @@ class NotificationHandlerFactory {
       'Creating background notification handler for platform: ${_getPlatformName()}',
     );
 
+    if (kIsWeb) {
+      _logger.info('ℹ️ Web uses foreground notifications only');
+      return ForegroundNotificationHandler(
+        preferencesRepository: preferencesRepository,
+      );
+    }
+
     // Only Android has full background notification support
-    if (Platform.isAndroid) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
       _logger.info('✅ Using BackgroundNotificationHandlerImpl for Android');
-      return BackgroundNotificationHandlerImpl(
+      return background_handler.createPlatformBackgroundNotificationHandler(
         preferencesRepository: preferencesRepository,
       );
     }
 
     // iOS future implementation
-    if (Platform.isIOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       _logger.info(
         '⚠️ iOS background notifications not yet implemented, using foreground handler',
       );
@@ -91,7 +98,7 @@ class NotificationHandlerFactory {
     }
 
     // Windows - no background service support
-    if (Platform.isWindows) {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
       _logger.info('ℹ️ Windows uses foreground notifications only');
       return ForegroundNotificationHandler(
         preferencesRepository: preferencesRepository,
@@ -99,7 +106,7 @@ class NotificationHandlerFactory {
     }
 
     // Linux - could support libnotify in future
-    if (Platform.isLinux) {
+    if (defaultTargetPlatform == TargetPlatform.linux) {
       _logger.info(
         '⚠️ Linux system notifications not yet implemented, using foreground handler',
       );
@@ -110,7 +117,7 @@ class NotificationHandlerFactory {
     }
 
     // macOS - could use UNUserNotificationCenter
-    if (Platform.isMacOS) {
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
       _logger.info(
         '⚠️ macOS notifications not yet implemented, using foreground handler',
       );
@@ -129,34 +136,38 @@ class NotificationHandlerFactory {
 
   /// Check if background notifications are supported on current platform
   static bool isBackgroundNotificationSupported() {
-    return Platform.isAndroid; // Only Android for now
+    return !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   }
 
   /// Get human-readable platform name
   static String _getPlatformName() {
-    if (Platform.isAndroid) return 'Android';
-    if (Platform.isIOS) return 'iOS';
-    if (Platform.isWindows) return 'Windows';
-    if (Platform.isLinux) return 'Linux';
-    if (Platform.isMacOS) return 'macOS';
+    if (kIsWeb) return 'Web';
+    if (defaultTargetPlatform == TargetPlatform.android) return 'Android';
+    if (defaultTargetPlatform == TargetPlatform.iOS) return 'iOS';
+    if (defaultTargetPlatform == TargetPlatform.windows) return 'Windows';
+    if (defaultTargetPlatform == TargetPlatform.linux) return 'Linux';
+    if (defaultTargetPlatform == TargetPlatform.macOS) return 'macOS';
     return 'Unknown';
   }
 
   /// Get platform capabilities description
   static String getPlatformCapabilities() {
-    if (Platform.isAndroid) {
+    if (kIsWeb) {
+      return 'Browser/in-app notifications only';
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) {
       return 'Full background notifications with system tray, sounds, and vibration';
     }
-    if (Platform.isIOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'In-app notifications (system notifications coming soon)';
     }
-    if (Platform.isWindows) {
+    if (defaultTargetPlatform == TargetPlatform.windows) {
       return 'In-app notifications only';
     }
-    if (Platform.isLinux) {
+    if (defaultTargetPlatform == TargetPlatform.linux) {
       return 'In-app notifications (system notifications coming soon)';
     }
-    if (Platform.isMacOS) {
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
       return 'In-app notifications (system notifications coming soon)';
     }
     return 'In-app notifications only';

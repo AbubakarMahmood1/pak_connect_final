@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/relay_coordinator.dart';
@@ -7,7 +9,7 @@ import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
     as domain_messaging;
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
@@ -64,7 +66,7 @@ class _FakeMeshRelayEngineFactory implements IMeshRelayEngineFactory {
     ISeenMessageStore? seenMessageStore,
     bool forceFloodMode = false,
   }) {
-    return _FakeMeshRelayEngine();
+    return _FakeMeshRelayEngine(seenMessageStore: seenMessageStore);
   }
 }
 
@@ -82,6 +84,13 @@ class _FakeMeshRelayEngine implements domain_messaging.MeshRelayEngine {
     currentRelayProbability: 0,
   );
 
+  final ISeenMessageStore? seenMessageStore;
+  String? _currentNodeId;
+  Function(MeshRelayMessage, String)? _onRelayMessage;
+  Function(String, String, String)? _onDeliverToSelf;
+
+  _FakeMeshRelayEngine({this.seenMessageStore});
+
   @override
   Future<void> initialize({
     required String currentNodeId,
@@ -90,7 +99,11 @@ class _FakeMeshRelayEngine implements domain_messaging.MeshRelayEngine {
     onDeliverToSelf,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
-  }) async {}
+  }) async {
+    _currentNodeId = currentNodeId;
+    _onRelayMessage = onRelayMessage;
+    _onDeliverToSelf = onDeliverToSelf;
+  }
 
   @override
   Future<RelayProcessingResult> processIncomingRelay({
@@ -98,7 +111,44 @@ class _FakeMeshRelayEngine implements domain_messaging.MeshRelayEngine {
     required String fromNodeId,
     List<String> availableNextHops = const [],
     ProtocolMessageType? messageType,
-  }) async => RelayProcessingResult.dropped('not-used-in-this-test');
+  }) async {
+    if (!relayMessage.canRelay) {
+      return RelayProcessingResult.dropped('ttl exceeded');
+    }
+
+    if (seenMessageStore?.hasDelivered(relayMessage.originalMessageId) ??
+        false) {
+      return RelayProcessingResult.dropped('duplicate');
+    }
+
+    await seenMessageStore?.markDelivered(relayMessage.originalMessageId);
+
+    final relayPayload =
+        relayMessage.relayPayload ?? relayMessage.originalContent;
+    if (relayPayload.isEmpty) {
+      return RelayProcessingResult.dropped('missing relay payload');
+    }
+
+    final isForCurrentNode =
+        relayMessage.relayMetadata.finalRecipient == _currentNodeId;
+    final isBroadcast =
+        relayMessage.relayMetadata.finalRecipient == 'broadcast_all_nodes';
+
+    if (isForCurrentNode || isBroadcast) {
+      _onDeliverToSelf?.call(
+        relayMessage.originalMessageId,
+        relayPayload,
+        relayMessage.relayMetadata.originalSender,
+      );
+      return RelayProcessingResult.deliveredToSelf(relayPayload);
+    }
+
+    final nextHop = availableNextHops.isNotEmpty
+        ? availableNextHops.first
+        : 'next-hop';
+    _onRelayMessage?.call(relayMessage, nextHop);
+    return RelayProcessingResult.relayed(nextHop);
+  }
 
   @override
   Future<MeshRelayMessage?> createOutgoingRelay({
@@ -109,7 +159,29 @@ class _FakeMeshRelayEngine implements domain_messaging.MeshRelayEngine {
     String? encryptedPayload,
     ProtocolMessageType? originalMessageType,
     bool sealedSender = false,
-  }) async => null;
+  }) async {
+    final relayPayload = encryptedPayload;
+    if (relayPayload == null || relayPayload.isEmpty) {
+      return null;
+    }
+
+    final nodeId = _currentNodeId ?? 'unknown';
+    return MeshRelayMessage.createRelay(
+      originalMessageId: originalMessageId,
+      originalContent: '',
+      metadata: RelayMetadata.create(
+        originalMessageContent: relayPayload,
+        priority: priority,
+        originalSender: nodeId,
+        finalRecipient: finalRecipientPublicKey,
+        currentNodeId: nodeId,
+      ),
+      relayNodeId: nodeId,
+      encryptedPayload: relayPayload,
+      originalMessageType:
+          originalMessageType ?? ProtocolMessageType.textMessage,
+    );
+  }
 
   @override
   Future<bool> shouldAttemptDecryption({
@@ -119,6 +191,19 @@ class _FakeMeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
   @override
   RelayStatistics getStatistics() => _emptyStats;
+}
+
+String _buildInnerProtocolPayload({
+  String messageId = 'inner-msg',
+  String content = 'encrypted payload',
+}) {
+  final message = ProtocolMessage(
+    type: ProtocolMessageType.textMessage,
+    version: 2,
+    payload: {'messageId': messageId, 'content': content, 'encrypted': true},
+    timestamp: DateTime(2026, 1, 1, 12, 0),
+  );
+  return base64.encode(message.toBytes(enableCompression: false));
 }
 
 void main() {
@@ -239,6 +324,7 @@ void main() {
     test('handleMeshRelay marks message as delivered', () async {
       final seenStore = MockSeenMessageStore();
       coordinator.setSeenMessageStore(seenStore);
+      await coordinator.initializeRelaySystem(currentNodeId: 'local-node');
 
       // Initially not delivered
       expect(seenStore.hasDelivered('msg-relay-test'), isFalse);
@@ -246,9 +332,9 @@ void main() {
       // Handle relay
       final result = await coordinator.handleMeshRelay(
         originalMessageId: 'msg-relay-test',
-        content: 'Test message',
+        content: _buildInnerProtocolPayload(messageId: 'msg-relay-test'),
         originalSender: 'sender-node',
-        intendedRecipient: null,
+        intendedRecipient: 'local-node',
         messageData: null,
         currentHopCount: 0,
       );
@@ -342,9 +428,14 @@ void main() {
     });
 
     test('creates outgoing relay message', () async {
+      await coordinator.initializeRelaySystem(currentNodeId: 'local-node');
+      final relayPayload = _buildInnerProtocolPayload(
+        messageId: 'original-msg-123',
+        content: 'Test content',
+      );
       final relayMsg = await coordinator.createOutgoingRelay(
         originalMessageId: 'original-msg-123',
-        content: 'Test content',
+        content: relayPayload,
         originalSender: 'sender-node',
         intendedRecipient: 'recipient-node',
         currentHopCount: 1,
@@ -353,10 +444,11 @@ void main() {
       expect(relayMsg, isNotNull);
       if (relayMsg != null) {
         expect(relayMsg.originalMessageId, equals('original-msg-123'));
-        expect(relayMsg.originalContent, equals('Test content'));
-        expect(relayMsg.relayMetadata.originalSender, equals('sender-node'));
+        expect(relayMsg.originalContent, isEmpty);
+        expect(relayMsg.relayPayload, equals(relayPayload));
+        expect(relayMsg.relayMetadata.originalSender, equals('local-node'));
         expect(relayMsg.relayMetadata.finalRecipient, equals('recipient-node'));
-        expect(relayMsg.relayMetadata.hopCount, equals(1)); // initial hop
+        expect(relayMsg.relayMetadata.hopCount, equals(1));
       }
     });
 

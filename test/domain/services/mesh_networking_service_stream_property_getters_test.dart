@@ -63,6 +63,9 @@ void main() {
   void stubForInitialize() {
     when(mockSharedQueueProvider.isInitialized).thenReturn(true);
     when(mockSharedQueueProvider.messageQueue).thenReturn(mockMessageQueue);
+    when(
+      mockSharedQueueProvider.waitForMessageQueue(),
+    ).thenAnswer((_) async => mockMessageQueue);
     when(mockMessageQueue.getStatistics()).thenReturn(_emptyQueueStats);
     when(
       mockQueueCoordinator.initialize(
@@ -377,10 +380,7 @@ void main() {
       when(
         mockBleService.currentConnectionInfo,
       ).thenReturn(const ConnectionInfo(isConnected: false, isReady: false));
-      stubSecureInnerProtocolMessage(
-        recipientKey: 'short',
-        content: 'hello',
-      );
+      stubSecureInnerProtocolMessage(recipientKey: 'short', content: 'hello');
       when(
         mockRelayCoordinator.sendRelayMessage(
           innerProtocolMessage: anyNamed('innerProtocolMessage'),

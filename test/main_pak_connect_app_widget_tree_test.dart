@@ -90,9 +90,7 @@ void main() {
       bleStateProvider.overrideWith(
         (ref) => const AsyncValue.data(BluetoothLowEnergyState.poweredOff),
       ),
-      blePermissionsGrantedProvider.overrideWith(
-        (ref) async => false,
-      ),
+      blePermissionsGrantedProvider.overrideWith((ref) async => false),
       eagerBurstScanningProvider.overrideWith((ref) async => true),
       spyModeDetectedProvider.overrideWith(
         (ref) => const AsyncValue<SpyModeInfo>.loading(),
@@ -513,7 +511,9 @@ class _FixedThemeModeNotifier extends ThemeModeNotifier {
   ThemeMode build() => _mode;
 }
 
-class _NoopSharedQueueProvider implements ISharedMessageQueueProvider {
+class _NoopSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   const _NoopSharedQueueProvider();
 
   @override

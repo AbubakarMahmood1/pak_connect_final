@@ -2,6 +2,7 @@
 /// sendBinaryPayload, setCurrentNodeId, and helper method behaviour
 /// accessed through the public API.
 library;
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:pak_connect/domain/messaging/message_chunk_sender.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/services/security_service_locator.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -26,15 +28,13 @@ class _FakeSecurityService extends Fake implements ISecurityService {
   Future<EncryptionMethod> getEncryptionMethod(
     String publicKey,
     IContactRepository repo,
-  ) async =>
-      nextMethod;
+  ) async => nextMethod;
 
   @override
   Future<SecurityLevel> getCurrentLevel(
     String publicKey, [
     IContactRepository? repo,
-  ]) async =>
-      nextLevel;
+  ]) async => nextLevel;
 
   @override
   bool hasEstablishedNoiseSession(String peerSessionId) => false;
@@ -45,8 +45,7 @@ class _FakeSecurityService extends Fake implements ISecurityService {
     String publicKey,
     IContactRepository repo,
     EncryptionType type,
-  ) async =>
-      'encrypted:$message';
+  ) async => 'encrypted:$message';
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +69,7 @@ void main() {
 
   tearDown(() {
     Logger.root.clearListeners();
+    SecurityServiceLocator.clearServiceResolver();
   });
 
   // -------------------------------------------------------------------------
@@ -102,20 +102,46 @@ void main() {
         ackTracker: ackTracker,
         chunkSender: chunkSender,
         securityService: securityService,
-        centralWrite: ({
-          required centralManager,
-          required peripheral,
-          required characteristic,
-          required value,
-        }) async {},
-        peripheralWrite: ({
-          required peripheralManager,
-          required central,
-          required characteristic,
-          required value,
-          bool withoutResponse = false,
-        }) async {},
+        centralWrite:
+            ({
+              required centralManager,
+              required peripheral,
+              required characteristic,
+              required value,
+            }) async {},
+        peripheralWrite:
+            ({
+              required peripheralManager,
+              required central,
+              required characteristic,
+              required value,
+              bool withoutResponse = false,
+            }) async {},
       );
+      expect(sender, isNotNull);
+    });
+
+    test('does not resolve security service eagerly', () {
+      SecurityServiceLocator.clearServiceResolver();
+
+      final sender = OutboundMessageSender(
+        logger: logger,
+        ackTracker: ackTracker,
+        chunkSender: chunkSender,
+      );
+
+      expect(sender, isNotNull);
+    });
+
+    test('uses configured security resolver when sending later', () {
+      SecurityServiceLocator.configureServiceResolver(() => securityService);
+
+      final sender = OutboundMessageSender(
+        logger: logger,
+        ackTracker: ackTracker,
+        chunkSender: chunkSender,
+      );
+
       expect(sender, isNotNull);
     });
   });

@@ -330,7 +330,9 @@ class _FakeRuntimeConnectionService implements IConnectionService {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-class _FakeSharedQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedQueueProvider({
     required bool initialized,
     this.throwOnInitialize = false,

@@ -649,7 +649,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     }
 
     _logger.fine('📦 Using shared message queue provider');
-    return queueProvider.messageQueue;
+    return queueProvider.waitForMessageQueue();
   }
 
   ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
