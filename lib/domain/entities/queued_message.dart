@@ -94,6 +94,12 @@ class QueuedMessage {
   }) {
     final queuedAt = relayMessage.relayedAt;
     final priority = relayMessage.relayMetadata.priority;
+    final relayPayload = relayMessage.relayPayload;
+    if (relayPayload == null || relayPayload.isEmpty) {
+      throw ArgumentError(
+        'Relay message must contain encrypted inner payload before queuing',
+      );
+    }
 
     // Calculate expiry time based on priority
     Duration ttl;
@@ -115,7 +121,7 @@ class QueuedMessage {
     return QueuedMessage(
       id: '${relayMessage.originalMessageId}_relay_${DateTime.now().millisecondsSinceEpoch}',
       chatId: chatId,
-      content: relayMessage.originalContent,
+      content: relayPayload,
       recipientPublicKey: relayMessage.relayMetadata.finalRecipient,
       senderPublicKey: relayMessage.relayMetadata.originalSender,
       priority: priority,

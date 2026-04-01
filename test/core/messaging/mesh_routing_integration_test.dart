@@ -107,6 +107,7 @@ void main() {
         originalContent: 'Hello from A to B',
         finalRecipientPublicKey: nodeB,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Hello from A to B'),
       );
 
       expect(relayMessage, isNotNull);
@@ -142,6 +143,7 @@ void main() {
         originalContent: 'Message from A to C via B',
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Message from A to C via B'),
       );
 
       expect(relayMessage, isNotNull);
@@ -158,6 +160,7 @@ void main() {
         originalContent: 'Multi-hop message A to D',
         finalRecipientPublicKey: nodeD,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Multi-hop message A to D'),
       );
 
       expect(relayMessage, isNotNull);
@@ -262,6 +265,7 @@ void main() {
         originalMessageId: 'msg_004',
         originalContent: 'Message before topology change',
         finalRecipientPublicKey: nodeC,
+        encryptedPayload: _relayPayload('Message before topology change'),
       );
 
       expect(relayMessage, isNotNull);
@@ -272,6 +276,7 @@ void main() {
         originalMessageId: 'msg_005',
         originalContent: 'Message after topology change',
         finalRecipientPublicKey: nodeC,
+        encryptedPayload: _relayPayload('Message after topology change'),
       );
 
       expect(relayMessage2, isNotNull);
@@ -338,6 +343,7 @@ void main() {
         originalContent: 'Queue test message',
         finalRecipientPublicKey: nodeB,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Queue test message'),
       );
 
       expect(relayMessage, isNotNull);
@@ -355,6 +361,7 @@ void main() {
           originalMessageId: 'spam_test_$i',
           originalContent: 'Spam test message $i',
           finalRecipientPublicKey: nodeB,
+          encryptedPayload: _relayPayload('Spam test message $i'),
         );
 
         expect(relayMessage, isNotNull);
@@ -380,6 +387,7 @@ void main() {
         originalMessageId: 'fallback_001',
         originalContent: 'Message without routing service',
         finalRecipientPublicKey: nodeB,
+        encryptedPayload: _relayPayload('Message without routing service'),
       );
 
       expect(relayMessage, isNotNull);
@@ -400,6 +408,7 @@ void main() {
         originalMessageId: 'fallback_002',
         originalContent: 'Message without topology',
         finalRecipientPublicKey: nodeB,
+        encryptedPayload: _relayPayload('Message without topology'),
       );
 
       expect(relayMessage, isNotNull);
@@ -422,6 +431,7 @@ void main() {
             originalContent: 'Concurrent message $i',
             finalRecipientPublicKey: nodeB,
             priority: MessagePriority.normal,
+            encryptedPayload: _relayPayload('Concurrent message $i'),
           ),
         );
       }
@@ -441,11 +451,12 @@ void main() {
 
         for (int i = 0; i < 3; i++) {
           futures.add(
-            relayEngine.createOutgoingRelay(
-              originalMessageId: 'concurrent_relay_$i',
-              originalContent: 'Concurrent relay $i',
-              finalRecipientPublicKey: nodeB,
-            ),
+          relayEngine.createOutgoingRelay(
+            originalMessageId: 'concurrent_relay_$i',
+            originalContent: 'Concurrent relay $i',
+            finalRecipientPublicKey: nodeB,
+            encryptedPayload: _relayPayload('Concurrent relay $i'),
+          ),
           );
         }
 
@@ -529,3 +540,5 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';

@@ -325,6 +325,17 @@ class BLEMessagingService implements IBLEMessagingService {
     await _sendProtocolMessage(protocolMessage);
   }
 
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    try {
+      await _sendProtocolMessage(message);
+      return true;
+    } catch (e) {
+      _logger.warning('Failed to send protocol message directly: $e');
+      return false;
+    }
+  }
+
   // ============================================================================
   // IDENTITY EXCHANGE (PROTOCOL LEVEL)
   // ============================================================================

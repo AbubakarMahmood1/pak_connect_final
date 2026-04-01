@@ -33,12 +33,15 @@ import '../domain/services/notification_service.dart';
 import '../domain/services/notification_handler_factory.dart';
 import '../domain/services/hint_cache_manager.dart';
 import '../domain/services/hint_scanner_service.dart';
+import '../domain/services/panic_wipe_runtime_bridge.dart';
+import '../domain/services/security_service_locator.dart';
 import '../domain/entities/message.dart';
 import '../domain/entities/preference_keys.dart';
 import '../domain/interfaces/i_archive_repository.dart';
 import '../domain/interfaces/i_chats_repository.dart';
 import '../domain/interfaces/i_contact_repository.dart';
 import '../domain/interfaces/i_database_provider.dart';
+import '../domain/interfaces/i_ble_service_facade.dart';
 import '../domain/interfaces/i_message_repository.dart';
 import '../domain/interfaces/i_preferences_repository.dart';
 import '../domain/interfaces/i_repository_provider.dart';
@@ -77,6 +80,7 @@ class AppCore {
   late final BatteryOptimizer batteryOptimizer;
   late final IConnectionService bleService;
   late final MeshNetworkingService meshNetworkingService;
+  IBLEServiceFacade? _bleFacade;
 
   // Repositories
   late final IContactRepository contactRepository;
@@ -115,9 +119,19 @@ class AppCore {
   }
 
   /// Get singleton instance
-  static AppCore get instance {
+  static AppCore get shared {
     _instance ??= AppCore._();
     return _instance!;
+  }
+
+  static AppCore get instance {
+    return shared;
+  }
+
+  static Future<void> initializeSingleton() => shared.initialize();
+
+  static Future<void> disposeSingleton() async {
+    shared.dispose();
   }
 
   /// Get initialization status
@@ -160,6 +174,13 @@ class AppCore {
 
   /// Initialize the entire application core
   Future<void> initialize() async {
+    PanicWipeRuntimeBridge.configure(
+      disposeAppCore: AppCore.disposeSingleton,
+      shutdownSecurityManager: SecurityManager.shutdownSingleton,
+      resetAppCoreSingleton: () async => AppCore.resetForRebootstrap(),
+      initializeAppCore: AppCore.initializeSingleton,
+    );
+
     // If initialization already completed, short-circuit.
     if (_isInitialized) {
       _logger.warning('App core already initialized');
@@ -269,49 +290,94 @@ class AppCore {
       );
       if (_shouldAbortInitialization('core service initialization')) return;
 
-      // Initialize BLE integration
-      _logger.info('📡 Initializing BLE integration...');
-      final bleStart = DateTime.now();
-      await _initializeBLEIntegration();
+      // Prepare BLE/mesh runtime objects so the app shell can render before
+      // time-sensitive Bluetooth bring-up finishes.
+      _logger.info('📡 Preparing BLE integration for background warm-up...');
+      final blePrepareStart = DateTime.now();
+      await _prepareBLEIntegration();
       _logger.info(
-        '✅ BLE integration initialized in ${DateTime.now().difference(bleStart).inMilliseconds}ms',
+        '✅ BLE runtime prepared in ${DateTime.now().difference(blePrepareStart).inMilliseconds}ms',
       );
-      if (_shouldAbortInitialization('BLE integration')) return;
+      if (_shouldAbortInitialization('BLE integration preparation')) return;
 
-      // Initialize enhanced features (battery, burst scanning)
-      _logger.info('⚡ Initializing enhanced features...');
-      final featuresStart = DateTime.now();
-      await _initializeEnhancedFeatures();
-      _logger.info(
-        '✅ Enhanced features initialized in ${DateTime.now().difference(featuresStart).inMilliseconds}ms',
-      );
+      _services = _buildAppServices();
+      publishAppServices(_services!);
+      _initializationTime = DateTime.now();
+
+      // Home can render once local/core services and runtime bindings exist.
+      _emitStatus(AppStatus.ready);
+      _logger.info('🎯 Status changed to READY (BLE warming in background)');
+
+      Object? backgroundWarmupError;
+      StackTrace? backgroundWarmupStack;
+
+      Future<void> runBackgroundStage(
+        String label,
+        Future<void> Function() action,
+      ) async {
+        try {
+          await action();
+        } catch (e, stackTrace) {
+          backgroundWarmupError ??= e;
+          backgroundWarmupStack ??= stackTrace;
+          _logger.warning(
+            '⚠️ $label failed; app will stay usable in degraded mode: $e',
+            e,
+            stackTrace,
+          );
+        }
+      }
+
+      await runBackgroundStage('BLE warm-up', () async {
+        _logger.info('📡 Warming BLE integration in background...');
+        final bleWarmStart = DateTime.now();
+        await _warmBLEIntegration();
+        _logger.info(
+          '✅ BLE warm-up completed in ${DateTime.now().difference(bleWarmStart).inMilliseconds}ms',
+        );
+      });
+      if (_shouldAbortInitialization('BLE integration warm-up')) return;
+
+      await runBackgroundStage('Enhanced feature initialization', () async {
+        _logger.info('⚡ Initializing enhanced features...');
+        final featuresStart = DateTime.now();
+        await _initializeEnhancedFeatures();
+        _logger.info(
+          '✅ Enhanced features initialized in ${DateTime.now().difference(featuresStart).inMilliseconds}ms',
+        );
+      });
       if (_shouldAbortInitialization('enhanced feature initialization')) {
         return;
       }
 
-      // Start integrated systems
-      _logger.info('🔄 Starting integrated systems...');
-      final systemsStart = DateTime.now();
-      await _startIntegratedSystems();
-      _logger.info(
-        '✅ Integrated systems started in ${DateTime.now().difference(systemsStart).inMilliseconds}ms',
-      );
+      await runBackgroundStage('Integrated system startup', () async {
+        _logger.info('🔄 Starting integrated systems...');
+        final systemsStart = DateTime.now();
+        await _startIntegratedSystems();
+        _logger.info(
+          '✅ Integrated systems started in ${DateTime.now().difference(systemsStart).inMilliseconds}ms',
+        );
+      });
       if (_shouldAbortInitialization('integrated system startup')) return;
 
-      _services = _buildAppServices();
-      publishAppServices(_services!);
-
       _isInitialized = true;
-      _initializationTime = DateTime.now();
 
-      // Emit ready status
-      _emitStatus(AppStatus.ready);
-      _logger.info('🎯 Status changed to READY');
+      _emitStatus(AppStatus.running);
+      _logger.info('🎯 Status changed to RUNNING');
 
       final totalTime = DateTime.now().difference(startTime);
-      _logger.info(
-        '🎉 Application core initialized successfully in ${totalTime.inMilliseconds}ms',
-      );
+      if (backgroundWarmupError == null) {
+        _logger.info(
+          '🎉 Application core initialized successfully in ${totalTime.inMilliseconds}ms',
+        );
+      } else {
+        _logger.warning(
+          '⚠️ Application core entered degraded runtime after ${totalTime.inMilliseconds}ms: '
+          '$backgroundWarmupError',
+          backgroundWarmupError,
+          backgroundWarmupStack,
+        );
+      }
       _initializationCompleter?.complete();
     } catch (e, stackTrace) {
       _logger.severe('❌ Failed to initialize app core: $e');
@@ -458,6 +524,7 @@ class AppCore {
     final securityManager = SecurityManager();
     await securityManager.initialize();
     securityService = securityManager;
+    SecurityServiceLocator.configureServiceResolver(() => securityService);
     _logger.info('✅ SecurityManager initialized successfully');
 
     // 🔧 FIX P1: Initialize EphemeralKeyManager ONCE here before any component uses it
@@ -535,18 +602,23 @@ class AppCore {
   /// Initialize BLE integration
   /// Phase 1 Part C: Initialize BLEService and MeshNetworkingService,
   /// then register in DI container for access via providers
-  Future<void> _initializeBLEIntegration() async {
-    _logger.info('📡 Initializing BLE + mesh stack via AppCore...');
+  Future<void> _prepareBLEIntegration() async {
+    _logger.info('📡 Preparing BLE + mesh stack via AppCore...');
 
     try {
-      final bleFacade =
-          _bootstrap.bleServiceFacade ?? _bootstrap.bleServiceFacadeFactory.create();
+      _bleFacade =
+          _bootstrap.bleServiceFacade ??
+          _bootstrap.bleServiceFacadeFactory.create();
+      final bleFacade = _bleFacade!;
       final connectionService = bleFacade as IConnectionService;
+      bleService = connectionService;
+
       MeshRelayEngine.configureDependencyResolvers(
         persistentIdResolver: () => connectionService.myPersistentId,
       );
       sharedMessageQueueProvider = _bootstrap.sharedMessageQueueProvider;
       final sharedQueueProvider = sharedMessageQueueProvider;
+
       MessageRouter.configureQueueFactories(
         standaloneQueueFactory: () => OfflineMessageQueue(),
         initializedQueueFactory: () async {
@@ -560,26 +632,10 @@ class AppCore {
         userPreferencesResolver: () => userPreferences,
         sharedQueueProviderResolver: () => sharedQueueProvider,
       );
-      if (!bleFacade.isInitialized) {
-        await bleFacade.initialize();
-        await MessageRouter.initialize(
-          connectionService,
-          offlineQueue: messageQueue,
-          preferencesRepository: preferencesRepository,
-          sharedQueueProvider: sharedQueueProvider,
-        );
-      } else {
-        _logger.fine('ℹ️ BLE facade already initialized; reusing instance');
-      }
-
-      bleService = connectionService;
-      _logger.info('✅ BLE facade initialized via AppCore');
-
-      final messageHandlerFacade = bleFacade.meshMessageHandler;
 
       meshNetworkingService = MeshNetworkingService(
         bleService: bleService,
-        messageHandler: messageHandlerFacade,
+        messageHandler: bleFacade.meshMessageHandler,
         chatManagementService: chatService,
         repositoryProvider: repositoryProvider,
         sharedQueueProvider: sharedQueueProvider,
@@ -590,11 +646,6 @@ class AppCore {
               forceFloodMode: false,
             ),
       );
-      await meshNetworkingService.initialize();
-      _logger.info('🌐 MeshNetworkingService initialized successfully');
-
-      // Phase 2: Wire change_log sync DB callbacks
-      _wireChangeLogSync(meshNetworkingService);
 
       registerInitializedServices(
         securityService: securityService,
@@ -604,12 +655,43 @@ class AppCore {
         meshQueueSyncCoordinator: meshNetworkingService.queueCoordinator,
         meshHealthMonitor: meshNetworkingService.healthMonitor,
       );
-      _logger.info('📦 BLE + mesh services published to runtime composition');
+      _logger.info('📦 BLE + mesh runtime objects published to composition');
     } catch (e, stackTrace) {
-      _logger.severe('❌ Failed to initialize BLE integration: $e');
+      _logger.severe('❌ Failed to prepare BLE integration: $e');
       _logger.severe('Stack trace: $stackTrace');
       rethrow;
     }
+  }
+
+  Future<void> _warmBLEIntegration() async {
+    _logger.info('📡 Warming BLE + mesh stack via AppCore...');
+
+    final bleFacade = _bleFacade;
+    if (bleFacade == null) {
+      throw StateError(
+        'BLE facade not prepared before warm-up. Call _prepareBLEIntegration first.',
+      );
+    }
+
+    final sharedQueueProvider = sharedMessageQueueProvider;
+
+    if (!bleFacade.isInitialized) {
+      await bleFacade.initialize();
+      await MessageRouter.initialize(
+        bleService,
+        offlineQueue: messageQueue,
+        preferencesRepository: preferencesRepository,
+        sharedQueueProvider: sharedQueueProvider,
+      );
+    } else {
+      _logger.fine('ℹ️ BLE facade already initialized; reusing instance');
+    }
+
+    await meshNetworkingService.initialize();
+    _logger.info('🌐 MeshNetworkingService initialized successfully');
+
+    // Phase 2: Wire change_log sync DB callbacks
+    _wireChangeLogSync(meshNetworkingService);
   }
 
   /// Wire change_log sync callbacks into the mesh networking service.
@@ -1152,10 +1234,14 @@ class AppCore {
     }
   }
 
-  @visibleForTesting
-  static void resetForTesting() {
+  static void resetForRebootstrap() {
     clearPublishedAppServices();
     _instance = null;
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    resetForRebootstrap();
   }
 }
 

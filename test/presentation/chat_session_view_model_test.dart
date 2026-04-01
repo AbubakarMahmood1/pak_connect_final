@@ -640,6 +640,8 @@ class _FakeConnectionService implements IConnectionService {
     String? messageId,
     String? originalIntendedRecipient,
   }) async => true;
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async => true;
 
   @override
   Future<String> sendBinaryMedia({

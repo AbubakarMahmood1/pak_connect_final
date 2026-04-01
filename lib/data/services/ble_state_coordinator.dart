@@ -193,16 +193,9 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
   @override
   Future<void> handlePersistentKeyExchange(String theirPersistentKey) async {
     _logger.info('📥 STEP 4: Received persistent key from peer');
-
-    // Create contact at LOW security (Noise only)
-    await _contactRepository.saveContactWithSecurity(
-      theirPersistentKey,
-      'User',
-      SecurityLevel.low,
-      persistentPublicKey: null,
+    _logger.info(
+      '🔐 Deferring persistent identity binding until pairing verification succeeds',
     );
-
-    _logger.info('🔑📊 Persistent key exchange complete');
 
     // Spy mode detection would happen here
     await _detectSpyMode(theirPersistentKey);
@@ -214,7 +207,9 @@ class BLEStateCoordinator implements IBLEStateCoordinator {
 
   Future<void> _detectSpyMode(String theirPersistentKey) async {
     try {
-      final contact = await _contactRepository.getContact(theirPersistentKey);
+      final contact = await _contactRepository.getContactByAnyId(
+        theirPersistentKey,
+      );
       if (contact != null) {
         _logger.info('🕵️ SPY MODE: Connected to ${contact.displayName}');
         onSpyModeDetected?.call();

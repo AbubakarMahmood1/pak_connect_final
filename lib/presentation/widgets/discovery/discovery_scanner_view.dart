@@ -2,6 +2,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/services/burst_scanning_controller.dart';
 
 import '../../../domain/services/device_deduplication_manager.dart';
 import '../../../domain/interfaces/i_connection_service.dart';
@@ -48,10 +49,11 @@ class DiscoveryScannerView extends ConsumerWidget {
     final connectionService = ref.read(connectionServiceProvider);
     final connectionInfo = ref.watch(connectionInfoProvider).value;
     final isConnectionReady = connectionInfo?.isReady ?? false;
+    final scannerUiState = ref.watch(discoveryScannerUiStateProvider);
 
     return Column(
       children: [
-        _buildMinimalistScanningCircle(context, ref),
+        _buildMinimalistScanningCircle(context, ref, scannerUiState),
         const SizedBox(height: 8),
         _buildConnectionSlotIndicator(connectionService),
         const SizedBox(height: 8),
@@ -60,11 +62,13 @@ class DiscoveryScannerView extends ConsumerWidget {
           child: devicesAsync.when(
             data: (devices) => _buildDeviceList(
               context,
+              ref,
               connectionService,
               devices,
               isConnectionReady,
             ),
-            loading: () => _buildBurstAwareLoadingState(context, ref),
+            loading: () =>
+                _buildBurstAwareLoadingState(context, ref, scannerUiState),
             error: (error, stack) => _buildErrorState(context, error),
           ),
         ),
@@ -74,6 +78,7 @@ class DiscoveryScannerView extends ConsumerWidget {
 
   Widget _buildDeviceList(
     BuildContext context,
+    WidgetRef ref,
     IConnectionService connectionService,
     List<Peripheral> devices,
     bool isConnectionReady,
@@ -87,7 +92,7 @@ class DiscoveryScannerView extends ConsumerWidget {
         : deduplicatedDevices.values.map((d) => d.peripheral).toList();
 
     if (devicesForList.isEmpty) {
-      return _buildEmptyState(context);
+      return _buildEmptyState(context, ref);
     }
 
     final now = DateTime.now();
@@ -299,82 +304,105 @@ class DiscoveryScannerView extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context, WidgetRef ref) {
+    final scannerUiState = ref.watch(discoveryScannerUiStateProvider);
+    final theme = Theme.of(context);
+    final statusText = switch (scannerUiState.phase) {
+      DiscoveryScannerUiPhase.warmingUp => 'Preparing scanner...',
+      DiscoveryScannerUiPhase.bluetoothOff =>
+        'Bluetooth is off. Turn it back on to resume nearby discovery.',
+      DiscoveryScannerUiPhase.permissionsRequired =>
+        'Nearby Devices permission is required before scanning can start.',
+      DiscoveryScannerUiPhase.error =>
+        'Scanner unavailable right now. Retry to re-check Bluetooth.',
+      DiscoveryScannerUiPhase.scanning =>
+        'Searching for nearby devices...',
+      DiscoveryScannerUiPhase.countdown =>
+        'Make sure other devices are in discoverable mode',
+    };
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.bluetooth_disabled,
+            scannerUiState.phase == DiscoveryScannerUiPhase.bluetoothOff
+                ? Icons.bluetooth_disabled
+                : Icons.bluetooth_searching,
             size: 64,
-            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(),
+            color: theme.colorScheme.onSurfaceVariant.withValues(),
           ),
           const SizedBox(height: 20),
           Text(
-            'Make sure other devices are in discoverable mode',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            statusText,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
-          if (!controller.getUnifiedScanningState())
+          if (scannerUiState.phase == DiscoveryScannerUiPhase.countdown &&
+              !controller.getUnifiedScanningState())
             Text(
               'Tap the timer circle above to scan manually',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
                 fontStyle: FontStyle.italic,
               ),
             ),
+          if (scannerUiState.phase == DiscoveryScannerUiPhase.bluetoothOff ||
+              scannerUiState.phase ==
+                  DiscoveryScannerUiPhase.permissionsRequired ||
+              scannerUiState.phase == DiscoveryScannerUiPhase.error) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: onStartScanning,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildBurstAwareLoadingState(BuildContext context, WidgetRef ref) {
-    final burstStatusAsync = ref.watch(burstScanningStatusProvider);
+  Widget _buildBurstAwareLoadingState(
+    BuildContext context,
+    WidgetRef ref,
+    DiscoveryScannerUiState scannerUiState,
+  ) {
+    final theme = Theme.of(context);
+    final showSpinner =
+        scannerUiState.phase == DiscoveryScannerUiPhase.warmingUp ||
+        scannerUiState.phase == DiscoveryScannerUiPhase.scanning;
 
-    return burstStatusAsync.when(
-      data: (burstStatus) {
-        final isActuallyScanning = burstStatus.isBurstActive;
-        final statusText = isActuallyScanning
-            ? 'Searching for devices...'
-            : 'Waiting scan - Tap timer for manual scan';
-
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isActuallyScanning) ...[
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-              ],
-              Text(
-                statusText,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-      loading: () => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Initializing...'),
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (showSpinner) ...[
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
           ],
-        ),
-      ),
-      error: (error, stack) => Center(
-        child: Text(
-          'Ready to scan',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          Text(
+            scannerUiState.message,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
           ),
-        ),
+          if (scannerUiState.phase == DiscoveryScannerUiPhase.bluetoothOff ||
+              scannerUiState.phase ==
+                  DiscoveryScannerUiPhase.permissionsRequired ||
+              scannerUiState.phase == DiscoveryScannerUiPhase.error) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: onStartScanning,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -411,20 +439,38 @@ class DiscoveryScannerView extends ConsumerWidget {
     );
   }
 
-  Widget _buildMinimalistScanningCircle(BuildContext context, WidgetRef ref) {
-    final burstStatusAsync = ref.watch(burstScanningStatusProvider);
-
+  Widget _buildMinimalistScanningCircle(
+    BuildContext context,
+    WidgetRef ref,
+    DiscoveryScannerUiState scannerUiState,
+  ) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          burstStatusAsync.when(
-            data: (burstStatus) =>
-                _buildScanningCircleWithStatus(context, burstStatus),
-            loading: () => _buildLoadingScanningCircle(context),
-            error: (error, stack) => _buildErrorScanningCircle(context),
-          ),
+          switch (scannerUiState.phase) {
+            DiscoveryScannerUiPhase.warmingUp => _buildLoadingScanningCircle(
+                context,
+              ),
+            DiscoveryScannerUiPhase.bluetoothOff => _buildStatusScanningCircle(
+                context,
+                icon: Icons.bluetooth_disabled,
+                color: Colors.orange,
+              ),
+            DiscoveryScannerUiPhase.permissionsRequired =>
+              _buildStatusScanningCircle(
+                context,
+                icon: Icons.lock_outline,
+                color: Colors.orange,
+              ),
+            DiscoveryScannerUiPhase.error => _buildErrorScanningCircle(context),
+            DiscoveryScannerUiPhase.scanning ||
+            DiscoveryScannerUiPhase.countdown => _buildScanningCircleWithStatus(
+                context,
+                scannerUiState.burstStatus,
+              ),
+          },
         ],
       ),
     );
@@ -432,10 +478,10 @@ class DiscoveryScannerView extends ConsumerWidget {
 
   Widget _buildScanningCircleWithStatus(
     BuildContext context,
-    dynamic burstStatus,
+    BurstScanningStatus? burstStatus,
   ) {
     final theme = Theme.of(context);
-    final isScanning = burstStatus.isBurstActive;
+    final isScanning = burstStatus?.isBurstActive ?? false;
 
     final primaryColor = isScanning ? Colors.red : Colors.blue;
     final backgroundColor = isScanning
@@ -447,8 +493,8 @@ class DiscoveryScannerView extends ConsumerWidget {
     String? displayLabel;
 
     if (isScanning) {
-      if (burstStatus.burstTimeRemaining != null) {
-        final remaining = burstStatus.burstTimeRemaining!;
+      if (burstStatus?.burstTimeRemaining != null) {
+        final remaining = burstStatus!.burstTimeRemaining!;
         const totalDuration = 20;
         final elapsed = totalDuration - remaining;
         progress = elapsed / totalDuration;
@@ -456,11 +502,19 @@ class DiscoveryScannerView extends ConsumerWidget {
         displayLabel = 'sec';
       }
     } else {
-      if (burstStatus.secondsUntilNextScan != null &&
-          burstStatus.secondsUntilNextScan! > 0) {
-        final totalSeconds = (burstStatus.currentScanInterval / 1000).round();
+      if (burstStatus?.secondsUntilNextScan != null &&
+          burstStatus!.secondsUntilNextScan! > 0) {
         final remaining = burstStatus.secondsUntilNextScan!;
-        progress = (totalSeconds - remaining) / totalSeconds;
+        final scheduledSeconds =
+            burstStatus.scheduledCountdownDuration?.inSeconds;
+        final totalSeconds =
+            scheduledSeconds != null && scheduledSeconds > 0
+            ? scheduledSeconds
+            : (burstStatus.currentScanInterval / 1000).round();
+        final progressDenominator = remaining > totalSeconds
+            ? remaining
+            : totalSeconds;
+        progress = (progressDenominator - remaining) / progressDenominator;
         displayNumber = remaining;
         displayLabel = 'sec';
       }
@@ -581,6 +635,24 @@ class DiscoveryScannerView extends ConsumerWidget {
         size: 28,
         color: theme.colorScheme.onErrorContainer,
       ),
+    );
+  }
+
+  Widget _buildStatusScanningCircle(
+    BuildContext context, {
+    required IconData icon,
+    required Color color,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: theme.colorScheme.surfaceContainerHighest,
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Icon(icon, size: 28, color: color),
     );
   }
 

@@ -447,11 +447,12 @@ void main() {
  });
 
  test('returns null on processing error', () async {
- allowedSevere.add('Failed to handle direct protocol message');
- allowedSevere.add('Failed to handle text message');
+  allowedSevere.add('Failed to handle direct protocol message');
+  allowedSevere.add('Failed to handle text message');
+  allowedSevere.add('Legacy live text message rejected');
 
- // Create a message that will cause internal error
- final badMsg = ProtocolMessage(type: ProtocolMessageType.textMessage,
+  // Create a message that will cause internal error
+  final badMsg = ProtocolMessage(type: ProtocolMessageType.textMessage,
  payload: {}, // Missing required fields
  timestamp: DateTime.now(),
 );
@@ -691,11 +692,12 @@ void main() {
 
  group('error propagation', () {
  test('processProtocolMessage catches and returns null on error', () async {
- allowedSevere.add('Failed to process protocol message');
- allowedSevere.add('Failed to handle text message');
+  allowedSevere.add('Failed to process protocol message');
+  allowedSevere.add('Failed to handle text message');
+  allowedSevere.add('Legacy live text message rejected');
 
- // A textMessage with null textMessageId will throw
- final msg = ProtocolMessage(type: ProtocolMessageType.textMessage,
+  // A textMessage with null textMessageId will throw
+  final msg = ProtocolMessage(type: ProtocolMessageType.textMessage,
  payload: {},
  timestamp: DateTime.now(),
 );

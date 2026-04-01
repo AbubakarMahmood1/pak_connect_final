@@ -398,8 +398,9 @@ void main() {
     });
 
     test(
-      'legacy v1 plaintext callback keeps transport sender over declared sender',
+      'rejects legacy v1 plaintext live text traffic',
       () async {
+        allowedSevere.add('Legacy live text message rejected');
         String? callbackSender;
         handler.onTextMessageReceived((content, messageId, senderNodeId) async {
           callbackSender = senderNodeId;
@@ -424,14 +425,15 @@ void main() {
           fromNodeId: 'transport-sender',
         );
 
-        expect(result, equals('hello-v1'));
-        expect(callbackSender, equals('transport-sender'));
+        expect(result, isNull);
+        expect(callbackSender, isNull);
       },
     );
 
     test(
-      'legacy v1 encrypted messages decrypt with transport sender first',
+      'rejects legacy v1 encrypted live text traffic',
       () async {
+        allowedSevere.add('Legacy live text message rejected');
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 1,
@@ -451,13 +453,13 @@ void main() {
           fromNodeId: 'transport-sender',
         );
 
-        expect(result, equals('legacy:ciphertext-v1'));
-        expect(securityService.lastDecryptPublicKey, equals('transport-sender'));
+        expect(result, isNull);
+        expect(securityService.lastDecryptPublicKey, isNull);
       },
     );
 
     test(
-      'routes v2 decrypt by declared mode without fallback guessing',
+      'routes v2 decrypt by declared mode without letting payload sender override transport pre-auth',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -482,7 +484,7 @@ void main() {
         expect(securityService.decryptMessageByTypeCalls, equals(1));
         expect(securityService.decryptMessageCalls, equals(0));
         expect(securityService.lastDecryptType, equals(EncryptionType.noise));
-        expect(securityService.lastDecryptPublicKey, equals('sender-key'));
+        expect(securityService.lastDecryptPublicKey, equals('relay-node'));
       },
     );
 
@@ -542,7 +544,7 @@ void main() {
     });
 
     test('rejects v2 sealed message missing sender binding', () async {
-      allowedSevere.add('v2 sealed message missing sender binding');
+      allowedSevere.add('v2 sealed message missing sender/recipient binding');
       final message = ProtocolMessage(
         type: ProtocolMessageType.textMessage,
         version: 2,
@@ -578,7 +580,7 @@ void main() {
     test(
       'rejects v2 sealed message missing explicit recipient binding',
       () async {
-        allowedSevere.add('v2 sealed message missing recipient binding');
+        allowedSevere.add('v2 sealed message missing sender/recipient binding');
         handler.setCurrentNodeId('recipient-key');
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -683,6 +685,41 @@ void main() {
       expect(securityService.decryptMessageByTypeCalls, equals(0));
       expect(securityService.decryptMessageCalls, equals(0));
     });
+
+    test(
+      'rejects v2 ephemeral-signed message when ephemeral signing key is missing',
+      () async {
+        allowedSevere.add('v2 ephemeral signature missing signing key');
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-missing-ephemeral-signing-key',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'sender-key',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+          signature: 'placeholder-sig',
+          useEphemeralSigning: true,
+          ephemeralSigningKey: null,
+        );
+
+        final result = await handler.processProtocolMessage(
+          message: message,
+          fromDeviceId: 'device-1',
+          fromNodeId: 'relay-node',
+        );
+
+        expect(
+          result,
+          equals('[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]'),
+        );
+        expect(securityService.decryptMessageByTypeCalls, equals(0));
+        expect(securityService.decryptMessageCalls, equals(0));
+      },
+    );
 
     test(
       'rejects sealed v2 message with whitespace-only signature',
@@ -864,6 +901,7 @@ void main() {
     test(
       'rejects v1 message after observing authenticated v2 from same peer',
       () async {
+        allowedSevere.add('Legacy live text message rejected');
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
         final signingKeyPair = _generateEphemeralSigningKeyPair();
         final peerKey = signingKeyPair.publicHex;
@@ -930,6 +968,7 @@ void main() {
     test(
       'does not raise protocol floor for unauthenticated v2 message',
       () async {
+        allowedSevere.add('Legacy live text message rejected');
         final unsignedV2 = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
           version: 2,
@@ -966,7 +1005,7 @@ void main() {
         );
 
         expect(firstResult, equals('typed:ciphertext-unsigned'));
-        expect(secondResult, equals('hello-v1'));
+        expect(secondResult, isNull);
         expect(securityService.decryptMessageCalls, equals(0));
         expect(securityService.decryptMessageByTypeCalls, equals(1));
       },
@@ -975,7 +1014,7 @@ void main() {
     test(
       'rejects v2 envelope tampering across bound fields when signature is present',
       () async {
-        allowedSevere.add('Signature verification failed');
+        allowedSevere.add('SIGNATURE VERIFICATION FAILED');
         handler.setCurrentNodeId('local-node');
 
         final now = DateTime.fromMillisecondsSinceEpoch(1739325600000);
@@ -1118,7 +1157,7 @@ void main() {
 
           expect(
             tamperedResult,
-            equals('[❌ UNTRUSTED MESSAGE - Invalid signature]'),
+            equals('[❌ UNTRUSTED MESSAGE - Signature Invalid]'),
             reason: 'Tamper case failed: ${tamperCase.label}',
           );
         }

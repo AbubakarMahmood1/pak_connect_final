@@ -18,6 +18,7 @@ import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     show RelayStatistics;
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
@@ -101,6 +102,25 @@ void main() {
     await service.initialize(nodeId: nodeId);
     // Let unawaited futures (MediaTransferStore cleanup, etc.) settle.
     await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+
+  void stubSecureInnerProtocolMessage({
+    required String recipientKey,
+    required String content,
+  }) {
+    when(
+      mockMessageHandler.buildSecureTextProtocolMessage(
+        recipientKey: recipientKey,
+        content: content,
+      ),
+    ).thenAnswer((_) async {
+      return ProtocolMessage.textMessage(
+        messageId: 'relay-inner-message',
+        content: 'sealed:$content',
+        encrypted: true,
+        recipientId: recipientKey,
+      );
+    });
   }
 
   setUp(() {
@@ -274,9 +294,13 @@ void main() {
         when(
           mockBleService.currentConnectionInfo,
         ).thenReturn(const ConnectionInfo(isConnected: false, isReady: false));
+        stubSecureInnerProtocolMessage(
+          recipientKey: 'recipient-abc',
+          content: 'hello world',
+        );
         when(
           mockRelayCoordinator.sendRelayMessage(
-            content: anyNamed('content'),
+            innerProtocolMessage: anyNamed('innerProtocolMessage'),
             recipientPublicKey: anyNamed('recipientPublicKey'),
             chatId: anyNamed('chatId'),
             priority: anyNamed('priority'),
@@ -292,7 +316,7 @@ void main() {
         expect(result.isRelay, isTrue);
         verify(
           mockRelayCoordinator.sendRelayMessage(
-            content: 'hello world',
+            innerProtocolMessage: anyNamed('innerProtocolMessage'),
             recipientPublicKey: 'recipient-abc',
             chatId: anyNamed('chatId'),
             priority: MessagePriority.normal,
@@ -309,9 +333,13 @@ void main() {
         when(
           mockBleService.currentConnectionInfo,
         ).thenReturn(const ConnectionInfo(isConnected: false, isReady: false));
+        stubSecureInnerProtocolMessage(
+          recipientKey: 'recipient-xyz',
+          content: 'urgent message',
+        );
         when(
           mockRelayCoordinator.sendRelayMessage(
-            content: anyNamed('content'),
+            innerProtocolMessage: anyNamed('innerProtocolMessage'),
             recipientPublicKey: anyNamed('recipientPublicKey'),
             chatId: anyNamed('chatId'),
             priority: anyNamed('priority'),
@@ -326,7 +354,7 @@ void main() {
 
         verify(
           mockRelayCoordinator.sendRelayMessage(
-            content: 'urgent message',
+            innerProtocolMessage: anyNamed('innerProtocolMessage'),
             recipientPublicKey: 'recipient-xyz',
             chatId: anyNamed('chatId'),
             priority: MessagePriority.high,
@@ -611,13 +639,17 @@ void main() {
         when(
           mockBleService.currentConnectionInfo,
         ).thenReturn(const ConnectionInfo(isConnected: false, isReady: false));
-        when(
-          mockRelayCoordinator.sendRelayMessage(
-            content: anyNamed('content'),
-            recipientPublicKey: anyNamed('recipientPublicKey'),
-            chatId: anyNamed('chatId'),
-            priority: anyNamed('priority'),
-          ),
+        stubSecureInnerProtocolMessage(
+          recipientKey: 'some-key',
+          content: 'test',
+        );
+       when(
+         mockRelayCoordinator.sendRelayMessage(
+           innerProtocolMessage: anyNamed('innerProtocolMessage'),
+          recipientPublicKey: anyNamed('recipientPublicKey'),
+          chatId: anyNamed('chatId'),
+          priority: anyNamed('priority'),
+        ),
         ).thenThrow(Exception('relay failed'));
 
         final result = await service.sendMeshMessage(

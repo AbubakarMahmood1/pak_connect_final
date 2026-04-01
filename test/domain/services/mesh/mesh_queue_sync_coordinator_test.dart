@@ -454,6 +454,9 @@ class _TestMeshBleService implements IConnectionService {
   }) async => _canSend;
 
   @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async => _canSend;
+
+  @override
   Future<String> sendBinaryMedia({
     required Uint8List data,
     required String recipientId,

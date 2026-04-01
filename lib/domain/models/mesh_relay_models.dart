@@ -256,6 +256,9 @@ class MeshRelayMessage {
   /// Optional: Encrypted payload if message requires encryption
   final String? encryptedPayload;
 
+  /// Payload that is safe to forward across relay hops.
+  String? get relayPayload => encryptedPayload;
+
   /// PHASE 2: Original message type (for relay policy filtering)
   final ProtocolMessageType? originalMessageType;
 
@@ -327,7 +330,10 @@ class MeshRelayMessage {
 
   /// Get message size for bandwidth management
   int get messageSize {
-    final payload = encryptedPayload ?? originalContent;
+    final payload = relayPayload;
+    if (payload == null || payload.isEmpty) {
+      return 0;
+    }
     return utf8.encode(payload).length;
   }
 

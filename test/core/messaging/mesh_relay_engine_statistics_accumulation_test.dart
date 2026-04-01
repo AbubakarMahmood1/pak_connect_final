@@ -249,7 +249,7 @@ void main() {
  availableNextHops: ['n1', 'n2'],
 );
 
- expect(delivered, 'Hello mesh');
+ expect(delivered, _relayPayload());
  // Should have attempted to relay/broadcast
  expect(r.type,
  anyOf(RelayProcessingType.relayed, RelayProcessingType.dropped),
@@ -273,7 +273,7 @@ void main() {
  availableNextHops: [],
 );
 
- expect(delivered, 'Hello mesh');
+ expect(delivered, _relayPayload());
  expect(r.type, RelayProcessingType.dropped);
  expect(r.reason, contains('No neighbors'));
  });
@@ -357,6 +357,7 @@ void main() {
  originalContent: 'content',
  finalRecipientPublicKey: 'pk',
  originalMessageType: type,
+ encryptedPayload: _relayPayload('content'),
 );
  expect(r, isNull, reason: '$type should be non-relay-eligible');
  }
@@ -370,6 +371,7 @@ void main() {
  originalContent: 'hello',
  finalRecipientPublicKey: 'pk',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('hello'),
 );
  expect(r, isNotNull);
  expect(r!.originalMessageType, ProtocolMessageType.textMessage);
@@ -382,6 +384,7 @@ void main() {
  final r = await engine.createOutgoingRelay(originalMessageId: 'msg_null_type',
  originalContent: 'hello',
  finalRecipientPublicKey: 'pk',
+ encryptedPayload: _relayPayload('hello'),
 );
  expect(r, isNotNull);
  });
@@ -394,6 +397,7 @@ void main() {
  originalContent: 'urgent!',
  finalRecipientPublicKey: 'pk',
  priority: MessagePriority.urgent,
+ encryptedPayload: _relayPayload('urgent!'),
 );
  expect(r, isNotNull);
  expect(r!.relayMetadata.priority, MessagePriority.urgent);
@@ -423,6 +427,7 @@ void main() {
  final relay = await engine.createOutgoingRelay(originalMessageId: 'msg_alias',
  originalContent: 'hello',
  finalRecipientPublicKey: 'recipient-persistent',
+ encryptedPayload: _relayPayload('hello'),
 );
 
  expect(relay, isNotNull);
@@ -545,7 +550,7 @@ void main() {
  fromNodeId: 'sender',
 );
 
- expect(selfContent, 'Hello mesh');
+ expect(selfContent, _relayPayload());
  expect(selfId, isNotNull);
  expect(selfId!.value, 'msg_001');
  });
@@ -574,7 +579,7 @@ void main() {
 );
 
  expect(result.type, RelayProcessingType.deliveredToSelf);
- expect(delivered, 'Hello mesh');
+ expect(delivered, _relayPayload());
  MeshRelayEngine.clearDependencyResolvers();
  },
 );
@@ -700,12 +705,15 @@ MeshRelayMessage _relay({
  finalRecipient: recipient,
 );
  return MeshRelayMessage(originalMessageId: msgId,
- originalContent: 'Hello mesh',
+ originalContent: '',
  relayMetadata: metadata,
  relayNodeId: 'origin',
  relayedAt: DateTime.now(),
+ encryptedPayload: _relayPayload(),
 );
 }
+
+String _relayPayload([String label = 'Hello mesh']) => 'ciphertext::$label';
 
 // ─── Fakes ───────────────────────────────────────────────────────────────────
 

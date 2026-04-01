@@ -8,7 +8,6 @@ import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
-import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
@@ -167,16 +166,22 @@ class MeshRelayHandler {
       }
 
       final metadata = RelayMetadata.fromJson(relayMetadata);
-      final originalContent = originalPayload['content'] as String? ?? '';
-      final encryptedPayload = originalPayload['encrypted'] as String?;
+      final innerProtocolMessage =
+          originalPayload['innerProtocolMessage'] as String?;
+      if (innerProtocolMessage == null || innerProtocolMessage.isEmpty) {
+        _logger.warning(
+          '🔀 MESH RELAY: Unsupported legacy plaintext relay payload dropped',
+        );
+        return null;
+      }
 
       final relayMessage = MeshRelayMessage(
         originalMessageId: originalMessageId,
-        originalContent: originalContent,
+        originalContent: '',
         relayMetadata: metadata,
         relayNodeId: senderPublicKey,
         relayedAt: DateTime.now(),
-        encryptedPayload: encryptedPayload,
+        encryptedPayload: innerProtocolMessage,
         originalMessageType: originalMessageType,
       );
 
@@ -189,26 +194,13 @@ class MeshRelayHandler {
 
       switch (result.type) {
         case RelayProcessingType.deliveredToSelf:
-          // Phase 5: If sealed sender, extract real sender from payload
-          var deliveredContent = result.content;
-          if (metadata.sealedSender) {
-            final sealedData = SealedSenderPayload.unpack(
-              deliveredContent ?? originalContent,
-            );
-            if (sealedData != null) {
-              _logger.info(
-                '🔀 MESH RELAY: Unsealed sender: ${_preview(sealedData.senderPublicKey, 8)}',
-              );
-              deliveredContent = sealedData.content;
-            }
-          }
           _logger.info('🔀 MESH RELAY: Message delivered to self');
           await _sendRelayAck(
             originalMessageId: relayMessage.originalMessageId,
             relayMetadata: relayMessage.relayMetadata,
             delivered: true,
           );
-          return deliveredContent;
+          return result.content;
         case RelayProcessingType.relayed:
           _logger.info(
             '🔀 MESH RELAY: Message relayed to ${_preview(result.nextHopNodeId ?? 'unknown', 8)}',
@@ -317,6 +309,7 @@ class MeshRelayHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) async {
     try {
       if (_relayEngine == null) {
@@ -329,6 +322,7 @@ class MeshRelayHandler {
         originalContent: originalContent,
         finalRecipientPublicKey: finalRecipientPublicKey,
         priority: priority,
+        encryptedPayload: relayPayload,
       );
     } catch (e) {
       _logger.severe('Failed to create outgoing relay: $e');
@@ -341,11 +335,13 @@ class MeshRelayHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) => createOutgoingRelay(
     originalMessageId: originalMessageId.value,
     originalContent: originalContent,
     finalRecipientPublicKey: finalRecipientPublicKey,
     priority: priority,
+    relayPayload: relayPayload,
   );
 
   Future<bool> shouldAttemptDecryption({
@@ -431,12 +427,8 @@ class MeshRelayHandler {
         finalRecipient: message.relayMetadata.finalRecipient,
         relayMetadata: message.relayMetadata.toJson(),
         originalPayload: {
-          // Only carry plaintext when no encrypted payload exists.
-          // Prevents leaking cleartext to intermediate relay hops.
-          if (message.encryptedPayload == null)
-            'content': message.originalContent,
-          if (message.encryptedPayload != null)
-            'encrypted': message.encryptedPayload,
+          if (message.relayPayload != null)
+            'innerProtocolMessage': message.relayPayload,
         },
         useEphemeralAddressing: false,
         originalMessageType: message.originalMessageType,

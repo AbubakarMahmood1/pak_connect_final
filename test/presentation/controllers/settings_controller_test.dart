@@ -5,6 +5,7 @@ import 'package:pak_connect/domain/entities/preference_keys.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
@@ -122,6 +123,17 @@ class _FakeDatabaseProvider extends Fake implements IDatabaseProvider {
       throw UnimplementedError('database not needed in this test suite');
     }
     return _database;
+  }
+}
+
+class _FakePanicWipeService extends Fake implements IPanicWipeService {
+  PanicWipeOrigin? lastOrigin;
+  PanicWipeResult result = PanicWipeResult(success: true);
+
+  @override
+  Future<PanicWipeResult> execute({required PanicWipeOrigin origin}) async {
+    lastOrigin = origin;
+    return result;
   }
 }
 
@@ -543,6 +555,67 @@ void main() {
       final result = await controller.manualAutoArchiveCheck();
 
       expect(result, 0);
+    });
+
+    test('panicWipe delegates to injected service', () async {
+      final panicWipeService = _FakePanicWipeService();
+      final controller = SettingsController(
+        preferencesRepository: _FakePreferencesRepository(),
+        contactRepository: _FakeContactRepository(),
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{}),
+        panicWipeService: panicWipeService,
+      );
+
+      final result = await controller.panicWipe(
+        origin: PanicWipeOrigin.hiddenAboutVersion,
+      );
+
+      expect(result.success, isTrue);
+      expect(panicWipeService.lastOrigin, PanicWipeOrigin.hiddenAboutVersion);
+    });
+
+    test('panicWipe returns failure when controller is disposed', () async {
+      final controller = SettingsController(
+        preferencesRepository: _FakePreferencesRepository(),
+        contactRepository: _FakeContactRepository(),
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{}),
+        panicWipeService: _FakePanicWipeService(),
+      );
+
+      controller.dispose();
+      final result = await controller.panicWipe(
+        origin: PanicWipeOrigin.settings,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.failures, contains('settings controller disposed'));
+    });
+
+    test('panicWipe surfaces failure result from service', () async {
+      final panicWipeService = _FakePanicWipeService()
+        ..result = PanicWipeResult(
+          success: false,
+          failures: <String>['delete database file failed: boom'],
+        );
+      final controller = SettingsController(
+        preferencesRepository: _FakePreferencesRepository(),
+        contactRepository: _FakeContactRepository(),
+        chatsRepository: _FakeChatsRepository(),
+        userPreferences: _FakeUserPreferences(),
+        databaseProvider: _FakeDatabaseProvider(<String, dynamic>{}),
+        panicWipeService: panicWipeService,
+      );
+
+      final result = await controller.panicWipe(
+        origin: PanicWipeOrigin.settings,
+      );
+
+      expect(result.success, isFalse);
+      expect(result.failures, contains('delete database file failed: boom'));
     });
   });
 }

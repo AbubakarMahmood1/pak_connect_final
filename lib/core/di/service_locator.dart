@@ -16,6 +16,7 @@ import '../../domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
@@ -69,7 +70,8 @@ class _ServiceRegistration {
 class ServiceRegistry implements IServiceRegistry {
   ServiceRegistry._();
 
-  static final ServiceRegistry instance = ServiceRegistry._();
+  static final ServiceRegistry shared = ServiceRegistry._();
+  static ServiceRegistry get instance => shared;
 
   final Map<Type, _ServiceRegistration> _registrations =
       <Type, _ServiceRegistration>{};
@@ -121,7 +123,7 @@ class ServiceRegistry implements IServiceRegistry {
 }
 
 /// Shared service registry instance.
-final serviceRegistry = ServiceRegistry.instance;
+final serviceRegistry = ServiceRegistry.shared;
 
 /// Bootstrap feature flag for the shared service registry.
 const bool useDi = true;
@@ -298,6 +300,7 @@ AppBootstrapServices resolveAppBootstrapServices() {
         .resolve<ISharedMessageQueueProvider>(),
     databaseProvider: _registry.resolve<IDatabaseProvider>(),
     seenMessageStore: _registry.resolve<ISeenMessageStore>(),
+    panicWipeService: _registry.resolve<IPanicWipeService>(),
     bleServiceFacadeFactory: _registry.resolve<IBLEServiceFacadeFactory>(),
     meshRelayEngineFactory: _registry.resolve<IMeshRelayEngineFactory>(),
     bleServiceFacade: _registry.maybeResolve<IBLEServiceFacade>(),

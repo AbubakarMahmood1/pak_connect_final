@@ -13,6 +13,7 @@ import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/config/kill_switches.dart';
 
@@ -402,7 +403,9 @@ class MeshQueueSyncCoordinator {
         return;
       }
 
-      final success = _bleService.hasPeripheralConnection
+      final success = message.isRelayMessage
+          ? await _sendRelayMessage(message)
+          : _bleService.hasPeripheralConnection
           ? await _bleService.sendPeripheralMessage(
               message.content,
               messageId: messageId,
@@ -438,6 +441,35 @@ class MeshQueueSyncCoordinator {
       _logger.severe('Error sending message $truncatedId...: $e');
       await _messageQueue?.markMessageFailed(messageId, 'Send error: $e');
     }
+  }
+
+  Future<bool> _sendRelayMessage(QueuedMessage message) async {
+    final relayMetadata = message.relayMetadata;
+    final originalMessageId = message.originalMessageId;
+    final relayPayload = message.content.trim();
+    if (relayMetadata == null || originalMessageId == null) {
+      _logger.warning(
+        'Relay queue item missing metadata/original message ID: ${message.id.shortId()}...',
+      );
+      return false;
+    }
+    if (relayPayload.isEmpty) {
+      _logger.warning(
+        'Relay queue item missing inner protocol payload: ${message.id.shortId()}...',
+      );
+      return false;
+    }
+
+    final protocolMessage = ProtocolMessage.meshRelay(
+      originalMessageId: originalMessageId,
+      originalSender: relayMetadata.originalSender,
+      finalRecipient: relayMetadata.finalRecipient,
+      relayMetadata: relayMetadata.toJson(),
+      originalPayload: {'innerProtocolMessage': relayPayload},
+      useEphemeralAddressing: false,
+      originalMessageType: ProtocolMessageType.textMessage,
+    );
+    return _bleService.sendProtocolMessage(protocolMessage);
   }
 
   /// Returns true when the currently connected BLE peer matches the

@@ -274,54 +274,16 @@ class _MeshNetworkingRuntimeHelper {
     return 'fallback_${timestamp}_$random';
   }
 
-  Future<void> waitForBluetoothReady({
-    Duration timeout = const Duration(seconds: 25),
-  }) async {
-    if (_owner._bleService.isBluetoothReady) return;
-
-    final completer = Completer<void>();
-    late StreamSubscription<BluetoothStateInfo> sub;
-    sub = _owner._bleService.bluetoothStateStream.listen((info) {
-      if (info.isReady || info.state == BluetoothLowEnergyState.poweredOn) {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }
-    }, onError: (_) {});
-
-    try {
-      await completer.future.timeout(timeout);
-    } on TimeoutException {
-      MeshNetworkingService._logger.warning(
-        '⚠️ Bluetooth not ready within ${timeout.inSeconds}s; proceeding with fallback',
-      );
-      rethrow;
-    } finally {
-      await sub.cancel();
-    }
-  }
-
   Future<void> setupBleIntegrationWithFallback() async {
     try {
-      await _owner._waitForBluetoothReady();
-
       _owner._integrationCancelled = false;
-      await _owner._setupBLEIntegration().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {
-          _owner._integrationCancelled = true;
-          throw TimeoutException(
-            'BLE integration timeout',
-            Duration(seconds: 25),
-          );
-        },
-      );
+      await _owner._setupBLEIntegration();
       MeshNetworkingService._logger.info(
-        '✅ BLE integration set up successfully',
+        '✅ BLE integration wiring set up successfully',
       );
     } catch (e) {
       MeshNetworkingService._logger.warning(
-        '⚠️ BLE integration failed (${e.toString()}), continuing without BLE integration',
+        '⚠️ BLE integration wiring failed (${e.toString()}), continuing without BLE transport wiring',
       );
       _owner._setupMinimalBLEIntegration();
     }

@@ -7,10 +7,12 @@ import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/presentation/controllers/settings_controller.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
+import 'package:pak_connect/presentation/providers/theme_provider.dart';
 import 'package:pak_connect/presentation/screens/settings_screen.dart';
 import '../../test_helpers/mocks/mock_connection_service.dart';
 
@@ -58,6 +60,8 @@ class _TestSettingsScreenController extends SettingsController {
 
   int initializeCalls = 0;
   bool? lastOnlineStatus;
+  PanicWipeOrigin? lastPanicWipeOrigin;
+  PanicWipeResult panicWipeResult = PanicWipeResult(success: true);
 
   @override
   Future<void> initialize() async {
@@ -77,19 +81,32 @@ class _TestSettingsScreenController extends SettingsController {
     lastOnlineStatus = value;
     notifyListeners();
   }
+
+  @override
+  Future<PanicWipeResult> panicWipe({required PanicWipeOrigin origin}) async {
+    lastPanicWipeOrigin = origin;
+    return panicWipeResult;
+  }
 }
 
 Future<void> _pumpSettingsScreen(
   WidgetTester tester, {
   required _TestSettingsScreenController controller,
   required IConnectionService connectionService,
+  WidgetBuilder? postPanicWipeDestinationBuilder,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         connectionServiceProvider.overrideWithValue(connectionService),
+        themeModeProvider.overrideWith(() => _TestThemeModeNotifier()),
       ],
-      child: MaterialApp(home: SettingsScreen(controller: controller)),
+      child: MaterialApp(
+        home: SettingsScreen(
+          controller: controller,
+          postPanicWipeDestinationBuilder: postPanicWipeDestinationBuilder,
+        ),
+      ),
     ),
   );
   await tester.pump();
@@ -168,6 +185,7 @@ void main() {
           tester,
           controller: controller,
           connectionService: connectionService,
+          postPanicWipeDestinationBuilder: (_) => const _ResetTargetScreen(),
         );
         await tester.pumpAndSettle();
 
@@ -206,5 +224,102 @@ void main() {
       expect(controller.lastOnlineStatus, isFalse);
       expect(connectionService.refreshAdvertisingCalls, isEmpty);
     });
+
+    testWidgets(
+      'panic wipe success path routes to permission screen after hold confirm',
+      (tester) async {
+        final controller = _TestSettingsScreenController()
+          ..panicWipeResult = PanicWipeResult(success: true);
+
+        await _pumpSettingsScreen(
+          tester,
+          controller: controller,
+          connectionService: connectionService,
+          postPanicWipeDestinationBuilder: (_) => const _ResetTargetScreen(),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollUntilTextVisible(tester, 'Panic Wipe');
+        final panicWipeTile = find.widgetWithText(ListTile, 'Panic Wipe');
+        await tester.ensureVisible(panicWipeTile);
+        await tester.pumpAndSettle();
+        await tester.tap(panicWipeTile);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('panicWipePhraseField')),
+          'WIPE',
+        );
+        await tester.pump();
+
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('panicWipeHoldButton'))),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        expect(controller.lastPanicWipeOrigin, PanicWipeOrigin.settings);
+        expect(find.byType(_ResetTargetScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'panic wipe failure path shows error and stays on settings screen',
+      (tester) async {
+        final controller = _TestSettingsScreenController()
+          ..panicWipeResult = PanicWipeResult(
+            success: false,
+            failures: <String>['delete database file failed: boom'],
+          );
+
+        await _pumpSettingsScreen(
+          tester,
+          controller: controller,
+          connectionService: connectionService,
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollUntilTextVisible(tester, 'Panic Wipe');
+        final panicWipeTile = find.widgetWithText(ListTile, 'Panic Wipe');
+        await tester.ensureVisible(panicWipeTile);
+        await tester.pumpAndSettle();
+        await tester.tap(panicWipeTile);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('panicWipePhraseField')),
+          'WIPE',
+        );
+        await tester.pump();
+
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byKey(const Key('panicWipeHoldButton'))),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await gesture.up();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining('Panic wipe may be incomplete'),
+          findsOneWidget,
+        );
+        expect(find.byType(SettingsScreen), findsOneWidget);
+      },
+    );
   });
+}
+
+class _TestThemeModeNotifier extends ThemeModeNotifier {
+  @override
+  ThemeMode build() => ThemeMode.system;
+}
+
+class _ResetTargetScreen extends StatelessWidget {
+  const _ResetTargetScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Text('Reset Target'));
+  }
 }

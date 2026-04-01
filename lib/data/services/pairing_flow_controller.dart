@@ -61,7 +61,7 @@ class PairingFlowController {
         pairingService ??
         PairingService(
           getMyPersistentId: _getMyPersistentId,
-          getTheirSessionId: () => _theirPersistentKey ?? _currentSessionId,
+          getTheirSessionId: () => _currentSessionId,
           getTheirDisplayName: _otherUserName,
           onVerificationComplete: (theirId, sharedSecret, displayName) =>
               _handleVerificationSuccess(
@@ -115,8 +115,11 @@ class PairingFlowController {
   String? get _currentSessionId => _identityState.currentSessionId;
   String? get _theirEphemeralId => _identityState.theirEphemeralId;
   String? get _theirPersistentKey => _identityState.theirPersistentKey;
+  String? get _claimedPersistentKey => _identityState.claimedPersistentKey;
   set _theirPersistentKey(String? value) =>
       _identityState.theirPersistentKey = value;
+  set _claimedPersistentKey(String? value) =>
+      _identityState.claimedPersistentKey = value;
 
   PairingInfo? get currentPairing => _pairingService.currentPairing;
   bool get isPaired => _theirPersistentKey != null;
@@ -157,8 +160,10 @@ class PairingFlowController {
       previousPairing: _pairingState,
       currentSessionId: _currentSessionId,
       theirPersistentKey: _theirPersistentKey,
+      claimedPersistentKey: _claimedPersistentKey,
       setPairingState: _setPairingState,
       setTheirPersistentKey: (value) => _theirPersistentKey = value,
+      setClaimedPersistentKey: (value) => _claimedPersistentKey = value,
       onPairingCancelled: onPairingCancelled,
       identityState: _identityState,
       pairingService: _pairingService,
@@ -405,6 +410,7 @@ class PairingFlowController {
 
   void clearPairing() {
     _pairingService.clearPairing();
+    _claimedPersistentKey = null;
     _logger.info('Pairing state cleared');
   }
 
@@ -423,6 +429,7 @@ class PairingFlowController {
       onSendPairingCancel: onSendPairingCancel,
       onPairingCancelled: onPairingCancelled,
       unregisterIdentityMapping: (key) {
+        _claimedPersistentKey = null;
         _theirPersistentKey = null;
       },
     );
@@ -443,10 +450,10 @@ class PairingFlowController {
         '🔒 Pairing verified contact identity without caching the pairing-code secret',
       );
 
-      if (_theirEphemeralId != null && _theirPersistentKey != null) {
+      if (_theirEphemeralId != null && _claimedPersistentKey != null) {
         await _pairingLifecycle.upgradeContactToMediumSecurity(
           theirEphemeralId: _theirEphemeralId,
-          theirPersistentKey: _theirPersistentKey!,
+          theirPersistentKey: _claimedPersistentKey!,
           displayName: displayName ?? _otherUserName(),
         );
       }

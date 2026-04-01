@@ -13,6 +13,7 @@ class IdentitySessionState {
   String? currentSessionId;
   String? theirEphemeralId;
   String? theirPersistentKey;
+  String? claimedPersistentKey;
   String? lastKnownDisplayName;
   final Map<String, String> ephemeralToPersistent = {};
 
@@ -35,7 +36,18 @@ class IdentitySessionState {
   void setTheirPersistentKey(String persistentKey) {
     _logger.fine('Storing their persistent key: ${_truncateId(persistentKey)}');
     theirPersistentKey = persistentKey;
-    currentSessionId ??= persistentKey;
+    currentSessionId = persistentKey;
+  }
+
+  void setClaimedPersistentKey(String persistentKey) {
+    _logger.fine(
+      'Storing claimed persistent key: ${_truncateId(persistentKey)}',
+    );
+    claimedPersistentKey = persistentKey;
+  }
+
+  void clearClaimedPersistentKey() {
+    claimedPersistentKey = null;
   }
 
   void setTheirPersistentUserId(UserId persistentId) =>
@@ -46,6 +58,7 @@ class IdentitySessionState {
     String? ephemeralId,
   }) {
     setTheirPersistentKey(persistentKey);
+    clearClaimedPersistentKey();
     if (ephemeralId != null && ephemeralId.isNotEmpty) {
       mapEphemeralToPersistent(ephemeralId, persistentKey);
     }
@@ -95,6 +108,7 @@ class IdentitySessionState {
     if (!preservePersistentId) {
       currentSessionId = null;
       theirPersistentKey = null;
+      claimedPersistentKey = null;
       lastKnownDisplayName = null;
     }
     theirEphemeralId = null;

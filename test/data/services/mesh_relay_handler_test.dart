@@ -155,23 +155,41 @@ RelayMetadata _metadata() => RelayMetadata(
   finalRecipient: 'recipient-key',
 );
 
+String _innerRelayPayload({String messageId = 'inner-msg-1', String content = 'hello'}) {
+  final message = ProtocolMessage(
+    type: ProtocolMessageType.textMessage,
+    version: 2,
+    payload: {
+      'messageId': messageId,
+      'content': content,
+      'encrypted': true,
+      'recipientId': 'recipient-key',
+      'useEphemeralAddressing': false,
+    },
+    timestamp: DateTime.fromMillisecondsSinceEpoch(1500),
+  );
+  return base64.encode(message.toBytes(enableCompression: false));
+}
+
 ProtocolMessage _relayProtocolMessage({
-  Map<String, dynamic> originalPayload = const {'content': 'hello'},
+  Map<String, dynamic>? originalPayload,
 }) => ProtocolMessage.meshRelay(
   originalMessageId: 'relay-msg-1',
   originalSender: 'sender-key',
   finalRecipient: 'recipient-key',
   relayMetadata: _metadata().toJson(),
-  originalPayload: originalPayload,
+  originalPayload:
+      originalPayload ?? {'innerProtocolMessage': _innerRelayPayload()},
   originalMessageType: ProtocolMessageType.textMessage,
 );
 
 MeshRelayMessage _relayMessage() => MeshRelayMessage(
   originalMessageId: 'relay-msg-1',
-  originalContent: 'hello',
+  originalContent: '',
   relayMetadata: _metadata(),
   relayNodeId: 'relay-node',
   relayedAt: DateTime.fromMillisecondsSinceEpoch(2000),
+  encryptedPayload: _innerRelayPayload(),
   originalMessageType: ProtocolMessageType.textMessage,
 );
 
@@ -365,21 +383,39 @@ void main() {
       );
 
       engine.incomingResult = RelayProcessingResult.deliveredToSelf('ciphertext');
+      final relayPayload = _innerRelayPayload(content: 'ciphertext');
 
       final content = await handler.handleIncomingRelay(
         protocolMessage: _relayProtocolMessage(
-          originalPayload: const {'encrypted': 'ciphertext'},
+          originalPayload: {'innerProtocolMessage': relayPayload},
         ),
         senderPublicKey: 'sender-key',
       );
 
       expect(content, 'ciphertext');
-      expect(engine.lastIncomingMessage?.encryptedPayload, 'ciphertext');
+      expect(engine.lastIncomingMessage?.encryptedPayload, relayPayload);
       expect(
         engine.lastIncomingMessage?.messageSize,
-        utf8.encode('ciphertext').length,
+        utf8.encode(relayPayload).length,
       );
       expect(ackMessage, isNotNull);
+    });
+
+    test('handleIncomingRelay drops unsupported legacy plaintext relay payloads', () async {
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      final content = await handler.handleIncomingRelay(
+        protocolMessage: _relayProtocolMessage(
+          originalPayload: const {'content': 'legacy-plaintext'},
+        ),
+        senderPublicKey: 'sender-key',
+      );
+
+      expect(content, isNull);
+      expect(engine.lastIncomingMessage, isNull);
     });
 
     test('handleIncomingRelay returns null for relayed, dropped, blocked and error results', () async {

@@ -1074,6 +1074,25 @@ class MockIBLEMessageHandlerFacade extends _i1.Mock
           as _i13.Future<bool>);
 
   @override
+  _i13.Future<_i21.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String? recipientKey,
+    required String? content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#buildSecureTextProtocolMessage, [], {
+              #recipientKey: recipientKey,
+              #content: content,
+              #messageId: messageId,
+              #originalIntendedRecipient: originalIntendedRecipient,
+            }),
+            returnValue: _i13.Future<_i21.ProtocolMessage?>.value(),
+            returnValueForMissingStub: _i13.Future<_i21.ProtocolMessage?>.value(),
+          )
+          as _i13.Future<_i21.ProtocolMessage?>);
+
+  @override
   _i13.Future<_i3.RelayStatistics> getRelayStatistics() =>
       (super.noSuchMethod(
             Invocation.method(#getRelayStatistics, []),
@@ -1319,14 +1338,14 @@ class MockMeshRelayCoordinator extends _i1.Mock
 
   @override
   _i13.Future<_i7.MeshSendResult> sendRelayMessage({
-    required String? content,
+    required _i21.ProtocolMessage? innerProtocolMessage,
     required String? recipientPublicKey,
     required String? chatId,
     _i6.MessagePriority? priority = _i6.MessagePriority.normal,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#sendRelayMessage, [], {
-              #content: content,
+              #innerProtocolMessage: innerProtocolMessage,
               #recipientPublicKey: recipientPublicKey,
               #chatId: chatId,
               #priority: priority,
@@ -1335,7 +1354,7 @@ class MockMeshRelayCoordinator extends _i1.Mock
               _FakeMeshSendResult_5(
                 this,
                 Invocation.method(#sendRelayMessage, [], {
-                  #content: content,
+                  #innerProtocolMessage: innerProtocolMessage,
                   #recipientPublicKey: recipientPublicKey,
                   #chatId: chatId,
                   #priority: priority,
@@ -1346,7 +1365,7 @@ class MockMeshRelayCoordinator extends _i1.Mock
               _FakeMeshSendResult_5(
                 this,
                 Invocation.method(#sendRelayMessage, [], {
-                  #content: content,
+                  #innerProtocolMessage: innerProtocolMessage,
                   #recipientPublicKey: recipientPublicKey,
                   #chatId: chatId,
                   #priority: priority,

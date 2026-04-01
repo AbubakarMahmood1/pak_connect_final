@@ -90,11 +90,20 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   /// Trigger immediate burst scan (manual override)
   Future<void> _startScanning() async {
     try {
-      final burstOperations = ref.read(burstScanningOperationsProvider);
-      if (burstOperations != null) {
-        _logger.info('🔥 MANUAL: User requested immediate scan');
-        await burstOperations.triggerManualScan();
+      final burstStatus = ref.read(burstScanningStatusProvider).value;
+      if (burstStatus?.isBurstActive ?? false) {
+        _logger.info('🔥 MANUAL: User requested early burst stop');
+        final controller = await ref.read(
+          burstScanningControllerProvider.future,
+        );
+        await controller.endActiveBurstNow();
+        return;
       }
+
+      _logger.info('🔥 MANUAL: User requested discovery recovery');
+      await ref
+          .read(discoveryScannerRecoveryProvider)
+          .recover(forceWakeIfReady: true);
     } catch (e) {
       _logger.warning('Failed to trigger immediate scan: $e');
       _showError('Failed to start scanning');

@@ -345,6 +345,20 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     }
   }
 
+  @override
+  Future<domain_models.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) async {
+    _ensureInitialized();
+    _logger.warning(
+      '⚠️ buildSecureTextProtocolMessage is unavailable on the split facade',
+    );
+    return null;
+  }
+
   /// Sends message from peripheral role
   @override
   Future<bool> sendPeripheralMessage({

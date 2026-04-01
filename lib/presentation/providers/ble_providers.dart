@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'dart:async';
 import '../../domain/models/connection_info.dart';
 import '../../domain/models/spy_mode_info.dart';
@@ -96,7 +97,7 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
   @override
   Future<BleRuntimeState> build() async {
     // Ensure AppCore bootstraps before wiring BLE state.
-    await ref.watch(appBootstrapProvider.future);
+    await ref.watch(appBootstrapReadyProvider.future);
 
     final connectionService = ref.watch(connectionServiceProvider);
     await _awaitInitialization(connectionService);
@@ -477,12 +478,12 @@ final connectionServiceProvider = Provider<IConnectionService>((ref) {
 final bleServiceInitializedProvider = FutureProvider<IConnectionService>((
   ref,
 ) async {
-  final service = ref.watch(bleServiceProvider);
-
-  final bootstrapState = await ref.watch(appBootstrapProvider.future);
+  final bootstrapState = await ref.watch(appBootstrapReadyProvider.future);
   if (!bootstrapState.isReady) {
     throw StateError('App bootstrap not ready (${bootstrapState.status.name})');
   }
+
+  final service = ref.watch(bleServiceProvider);
 
   bool isInitialized = true;
   try {
@@ -650,6 +651,7 @@ final deduplicatedDevicesProvider =
 final burstScanningControllerProvider = FutureProvider<BurstScanningController>(
   (ref) async {
     final controller = BurstScanningController();
+    _logger.info('🔧 [BurstProvider] Initializing burst scanning controller');
     // ✅ Wait for initialized service (which waits for AppCore)
     final bleService = await ref.watch(bleServiceInitializedProvider.future);
 
@@ -658,12 +660,16 @@ final burstScanningControllerProvider = FutureProvider<BurstScanningController>(
 
       // 🔥 AUTO-START: Immediately begin adaptive burst scanning
       await controller.startBurstScanning();
+      _logger.info('✅ [BurstProvider] Burst scanning controller ready');
 
       ref.onDispose(() {
         controller.dispose();
       });
       return controller;
     } catch (e) {
+      _logger.warning(
+        '❌ [BurstProvider] Failed to initialize burst controller: $e',
+      );
       controller.dispose();
       rethrow;
     }
@@ -674,7 +680,9 @@ final burstScanningControllerProvider = FutureProvider<BurstScanningController>(
 final eagerBurstScanningProvider = FutureProvider<bool>((ref) async {
   // This provider eagerly initializes burst scanning by watching the controller
   // The act of watching ensures the controller is initialized, even if we don't use it directly
+  _logger.info('🔧 [BurstProvider] Eager burst initialization requested');
   await ref.watch(burstScanningControllerProvider.future);
+  _logger.info('✅ [BurstProvider] Eager burst initialization complete');
   return true; // Return success flag indicating initialization completed
 });
 
@@ -751,6 +759,160 @@ final burstScanningOperationsProvider = Provider<BurstScanningOperations?>((
     error: (error, stack) => null,
   );
 });
+
+enum DiscoveryScannerUiPhase {
+  warmingUp,
+  countdown,
+  scanning,
+  bluetoothOff,
+  permissionsRequired,
+  error,
+}
+
+class DiscoveryScannerUiState {
+  const DiscoveryScannerUiState({
+    required this.phase,
+    required this.message,
+    this.secondsRemaining,
+    this.burstStatus,
+  });
+
+  final DiscoveryScannerUiPhase phase;
+  final String message;
+  final int? secondsRemaining;
+  final BurstScanningStatus? burstStatus;
+
+  bool get isInteractive =>
+      phase == DiscoveryScannerUiPhase.countdown ||
+      phase == DiscoveryScannerUiPhase.scanning;
+}
+
+final discoveryScannerUiStateProvider = Provider<DiscoveryScannerUiState>((
+  ref,
+) {
+  final runtimeAsync = ref.watch(bleRuntimeProvider);
+  final bluetoothStateAsync = ref.watch(bleBluetoothStateStreamProvider);
+  final permissionsAsync = ref.watch(blePermissionsGrantedProvider);
+  final controllerAsync = ref.watch(burstScanningControllerProvider);
+  final burstStatusAsync = ref.watch(burstScanningStatusProvider);
+  final runtimeState = runtimeAsync.asData?.value;
+  final bluetoothState =
+      bluetoothStateAsync.asData?.value ?? runtimeState?.bluetoothState;
+  final cachedBluetoothReady =
+      runtimeState?.isBluetoothReady ??
+      ref.read(connectionServiceProvider).isBluetoothReady;
+
+  if ((bluetoothStateAsync.hasError && bluetoothState == null) ||
+      runtimeAsync.hasError ||
+      permissionsAsync.hasError ||
+      controllerAsync.hasError ||
+      burstStatusAsync.hasError) {
+    return const DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.error,
+      message: 'Scanner unavailable. Retry to recover BLE.',
+    );
+  }
+
+  final hasPermissions = permissionsAsync.asData?.value;
+  final burstStatus = burstStatusAsync.asData?.value;
+  final controllerReady = controllerAsync.hasValue;
+  final availabilityPhase =
+      bluetoothState?.availabilityPhase ??
+      (cachedBluetoothReady
+          ? BluetoothAvailabilityPhase.ready
+          : BluetoothAvailabilityPhase.warmingUp);
+
+  if (availabilityPhase == BluetoothAvailabilityPhase.disabled) {
+    return const DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.bluetoothOff,
+      message: 'Bluetooth is off. Turn it back on to resume scanning.',
+    );
+  }
+
+  if (availabilityPhase == BluetoothAvailabilityPhase.permissionsRequired ||
+      hasPermissions == false) {
+    return const DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.permissionsRequired,
+      message:
+          'Nearby Devices permission is required before scanning can start.',
+    );
+  }
+
+  if (availabilityPhase == BluetoothAvailabilityPhase.unsupported ||
+      availabilityPhase == BluetoothAvailabilityPhase.error) {
+    return const DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.error,
+      message: 'Scanner unavailable on this device right now.',
+    );
+  }
+
+  if (!controllerReady ||
+      burstStatus == null ||
+      availabilityPhase == BluetoothAvailabilityPhase.warmingUp) {
+    return const DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.warmingUp,
+      message: 'Preparing scanner...',
+    );
+  }
+
+  if (burstStatus.isBurstActive) {
+    return DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.scanning,
+      message: 'Searching for nearby devices...',
+      secondsRemaining: burstStatus.burstTimeRemaining,
+      burstStatus: burstStatus,
+    );
+  }
+
+  final secondsUntilNextScan = burstStatus.secondsUntilNextScan;
+  if (secondsUntilNextScan != null && secondsUntilNextScan > 0) {
+    return DiscoveryScannerUiState(
+      phase: DiscoveryScannerUiPhase.countdown,
+      message: 'Next scan starts soon.',
+      secondsRemaining: secondsUntilNextScan,
+      burstStatus: burstStatus,
+    );
+  }
+
+  return DiscoveryScannerUiState(
+    phase: DiscoveryScannerUiPhase.countdown,
+    message: 'Scanner is ready. Waiting for the next burst window.',
+    secondsRemaining: 0,
+    burstStatus: burstStatus,
+  );
+});
+
+abstract interface class IDiscoveryScannerRecoveryController {
+  Future<void> recover({bool forceWakeIfReady = true});
+}
+
+class DiscoveryScannerRecoveryController
+    implements IDiscoveryScannerRecoveryController {
+  const DiscoveryScannerRecoveryController(this._ref);
+
+  final Ref _ref;
+
+  @override
+  Future<void> recover({bool forceWakeIfReady = true}) async {
+    _ref.invalidate(blePermissionsGrantedProvider);
+    try {
+      await _ref.read(blePermissionsGrantedProvider.future);
+    } catch (_) {
+      // Permission checks are best effort; monitor refresh below still runs.
+    }
+
+    final bluetoothMonitor = BluetoothStateMonitor();
+    await bluetoothMonitor.refreshState();
+    await _ref.read(bleServiceInitializedProvider.future);
+    final controller = await _ref.read(burstScanningControllerProvider.future);
+    await controller.recoverScannerRuntime(forceWakeIfReady: forceWakeIfReady);
+  }
+}
+
+final discoveryScannerRecoveryProvider =
+    Provider<IDiscoveryScannerRecoveryController>((ref) {
+      return DiscoveryScannerRecoveryController(ref);
+    });
 
 // =============================================================================
 // MESH NETWORKING INTEGRATION WITH BLE PROVIDERS

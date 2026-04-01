@@ -1,21 +1,34 @@
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 
+/// Stabilized availability phase derived from raw central/peripheral state.
+enum BluetoothAvailabilityPhase {
+  warmingUp,
+  ready,
+  disabled,
+  permissionsRequired,
+  unsupported,
+  error,
+}
+
 /// Information about current Bluetooth state.
 class BluetoothStateInfo {
   final BluetoothLowEnergyState state;
   final BluetoothLowEnergyState? previousState;
   final bool isReady;
+  final BluetoothAvailabilityPhase availabilityPhase;
   final DateTime timestamp;
 
   const BluetoothStateInfo({
     required this.state,
     this.previousState,
     required this.isReady,
+    this.availabilityPhase = BluetoothAvailabilityPhase.warmingUp,
     required this.timestamp,
   });
 
   @override
-  String toString() => 'BluetoothStateInfo(state: $state, ready: $isReady)';
+  String toString() =>
+      'BluetoothStateInfo(state: $state, phase: $availabilityPhase, ready: $isReady)';
 }
 
 /// User-friendly Bluetooth status messages.

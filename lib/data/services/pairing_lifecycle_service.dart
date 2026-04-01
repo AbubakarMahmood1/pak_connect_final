@@ -170,6 +170,17 @@ class PairingLifecycleService {
       '   persistentPublicKey (now set): ${theirPersistentKey.shortId()}...',
     );
 
+    _identityState.setPersistentAssociation(
+      persistentKey: theirPersistentKey,
+      ephemeralId: theirEphemeralId,
+    );
+    _identityState.setCurrentSessionId(theirPersistentKey);
+    _identityManager?.setTheirPersistentKey(
+      theirPersistentKey,
+      ephemeralId: theirEphemeralId,
+    );
+    _identityManager?.setCurrentSessionId(theirPersistentKey);
+
     _resolvedSecurityService.registerIdentityMapping(
       persistentPublicKey: theirPersistentKey,
       ephemeralID: theirEphemeralId,
@@ -196,22 +207,9 @@ class PairingLifecycleService {
       return;
     }
 
-    _identityState.setPersistentAssociation(
-      persistentKey: theirPersistentKey,
-      ephemeralId: theirEphemeralId,
-    );
-    _identityManager?.setTheirPersistentKey(
-      theirPersistentKey,
-      ephemeralId: theirEphemeralId,
-    );
-    _identityManager?.setCurrentSessionId(theirPersistentKey);
-
-    _resolvedSecurityService.registerIdentityMapping(
-      persistentPublicKey: theirPersistentKey,
-      ephemeralID: theirEphemeralId,
-    );
+    _identityState.setClaimedPersistentKey(theirPersistentKey);
     _logger.info(
-      '🔐 Persistent key identity mapping registered: ${_truncateId(theirEphemeralId)} ↔ ${_truncateId(theirPersistentKey)}',
+      '🔐 Deferred persistent identity binding until pairing verification succeeds',
     );
 
     await _contactRepository.saveContactWithSecurity(
@@ -241,7 +239,7 @@ class PairingLifecycleService {
     await _identityState.detectSpyMode(
       persistentKey: theirPersistentKey,
       getContactDisplayName: (pk) async {
-        final contact = await _contactRepository.getContact(pk);
+        final contact = await _contactRepository.getContactByAnyId(pk);
         return contact?.displayName;
       },
       hintsEnabledFetcher: () async {

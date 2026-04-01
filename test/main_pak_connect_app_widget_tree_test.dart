@@ -11,6 +11,7 @@ import 'package:pak_connect/main.dart';
 import 'package:pak_connect/domain/interfaces/i_shared_message_queue_provider.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/theme_provider.dart';
 
@@ -88,6 +89,9 @@ void main() {
       bleServiceProvider.overrideWithValue(ble),
       bleStateProvider.overrideWith(
         (ref) => const AsyncValue.data(BluetoothLowEnergyState.poweredOff),
+      ),
+      blePermissionsGrantedProvider.overrideWith(
+        (ref) async => false,
       ),
       eagerBurstScanningProvider.overrideWith((ref) async => true),
       spyModeDetectedProvider.overrideWith(

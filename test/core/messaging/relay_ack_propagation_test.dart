@@ -151,6 +151,7 @@ void main() {
         originalContent: 'Test ACK propagation',
         finalRecipientPublicKey: abubakar,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Test ACK propagation'),
       );
 
       expect(aliMessage, isNotNull);
@@ -184,7 +185,10 @@ void main() {
       );
 
       expect(abubakarResult.isDelivered, isTrue);
-      expect(abubakarResult.content, equals('Test ACK propagation'));
+      expect(
+        abubakarResult.content,
+        equals(_relayPayload('Test ACK propagation')),
+      );
 
       // Step 4: Verify ACK routing path
       final finalMetadata = forwardedMessage.relayMetadata;
@@ -203,6 +207,7 @@ void main() {
         originalMessageId: 'relay_node_test',
         originalContent: 'Test relay node',
         finalRecipientPublicKey: abubakar,
+        encryptedPayload: _relayPayload('Test relay node'),
       );
 
       expect(message, isNotNull);
@@ -273,12 +278,14 @@ void main() {
         originalMessageId: 'multi_ack_001',
         originalContent: 'First message',
         finalRecipientPublicKey: abubakar,
+        encryptedPayload: _relayPayload('First message'),
       );
 
       final message2 = await aliEngine.createOutgoingRelay(
         originalMessageId: 'multi_ack_002',
         originalContent: 'Second message',
         finalRecipientPublicKey: abubakar,
+        encryptedPayload: _relayPayload('Second message'),
       );
 
       expect(message1, isNotNull);
@@ -319,6 +326,8 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';
 
 // Extension to help with testing
 extension RelayMetadataTest on RelayMetadata {

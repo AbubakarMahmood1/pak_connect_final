@@ -128,6 +128,16 @@ class MockConnectionService implements IConnectionService {
   }
 
   @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    sentMessages.add({
+      'protocolMessage': message,
+      'messageId': message.textMessageId,
+      'recipient': message.recipientId,
+    });
+    return true;
+  }
+
+  @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
     queueSyncMessages.add(queueMessage);
     if (_queueSyncHandler != null) {

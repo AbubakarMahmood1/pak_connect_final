@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
-import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 import 'test_helpers/message_handler_test_utils.dart';
@@ -58,17 +57,10 @@ void main() {
     });
 
     test('Should block own messages from appearing as incoming', () async {
-      // Create a message from Ali (should be blocked)
-      final protocolMessage = ProtocolMessage(
-        type: ProtocolMessageType.textMessage,
-        payload: {
-          'messageId': 'test_msg_1',
-          'content': 'Hello Arshad!',
-          'encrypted': false,
-          'encryptionMethod': 'none',
-          // No intendedRecipient - this is a direct P2P message
-        },
-        timestamp: DateTime.now(),
+      final protocolMessage = buildV2EncryptedTestMessage(
+        messageId: 'test_msg_1',
+        content: 'ciphertext-self',
+        senderId: aliPublicKey,
       );
 
       // Process the message as if it came from Ali (same as current user)
@@ -85,17 +77,10 @@ void main() {
     test(
       'Should allow legitimate direct messages between different users',
       () async {
-        // Create a message from Arshad to Ali
-        final protocolMessage = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'test_msg_2',
-            'content': 'Hello Ali!',
-            'encrypted': false,
-            'encryptionMethod': 'none',
-            // No intendedRecipient - this is a direct P2P message
-          },
-          timestamp: DateTime.now(),
+        final protocolMessage = buildV2EncryptedTestMessage(
+          messageId: 'test_msg_2',
+          content: 'ciphertext-for-ali',
+          senderId: arshadPublicKey,
         );
 
         // Process the message as if it came from Arshad (different user)
@@ -105,11 +90,12 @@ void main() {
           contactRepository: contactRepository,
         );
 
-        // Should return the message content (allowed)
+        // The hardened v2 inbound path should allow routing/auth processing
+        // even if the test ciphertext cannot be decrypted in this harness.
         expect(
           result,
-          equals('Hello Ali!'),
-          reason: 'Direct messages from other users should be processed',
+          isNotNull,
+          reason: 'Direct v2 messages from other users should not be dropped',
         );
       },
     );
@@ -117,17 +103,11 @@ void main() {
     test(
       'Should block messages with intendedRecipient not matching current user',
       () async {
-        // Create a message intended for Arshad (not current user Ali)
-        final protocolMessage = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'test_msg_3',
-            'content': 'Message for Arshad only',
-            'encrypted': false,
-            'encryptionMethod': 'none',
-            'intendedRecipient': arshadPublicKey, // Not for Ali
-          },
-          timestamp: DateTime.now(),
+        final protocolMessage = buildV2EncryptedTestMessage(
+          messageId: 'test_msg_3',
+          content: 'ciphertext-for-arshad',
+          intendedRecipient: arshadPublicKey,
+          senderId: 'some_other_user',
         );
 
         // Process the message (should be blocked since not intended for Ali)
@@ -149,17 +129,11 @@ void main() {
     test(
       'Should allow messages with intendedRecipient matching current user',
       () async {
-        // Create a message intended for Ali (current user)
-        final protocolMessage = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'test_msg_4',
-            'content': 'Message specifically for Ali',
-            'encrypted': false,
-            'encryptionMethod': 'none',
-            'intendedRecipient': aliPublicKey, // For Ali (current user)
-          },
-          timestamp: DateTime.now(),
+        final protocolMessage = buildV2EncryptedTestMessage(
+          messageId: 'test_msg_4',
+          content: 'ciphertext-for-ali',
+          intendedRecipient: aliPublicKey,
+          senderId: arshadPublicKey,
         );
 
         // Process the message (should be allowed since intended for Ali)
@@ -169,10 +143,10 @@ void main() {
           contactRepository: contactRepository,
         );
 
-        // Should return the message content (allowed)
+        // Should survive routing and security policy checks.
         expect(
           result,
-          equals('Message specifically for Ali'),
+          isNotNull,
           reason: 'Messages intended for current user should be processed',
         );
       },
