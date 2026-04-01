@@ -470,7 +470,9 @@ class _FakeConnectionService implements IConnectionService {
   }
 }
 
-class _StubSharedQueueProvider implements ISharedMessageQueueProvider {
+class _StubSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   final InMemoryOfflineMessageQueue _queue = InMemoryOfflineMessageQueue();
 
   @override

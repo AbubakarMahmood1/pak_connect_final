@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
@@ -22,8 +24,17 @@ final chatConnectionManagerProvider =
                 ),
             dependencyName: 'IChatConnectionManagerFactory',
           ).create(bleService: ref.watch(connectionServiceProvider));
+      unawaited(
+        manager.initialize().catchError((error, stackTrace) {
+          _logger.severe(
+            '❌ ChatConnectionManager provider initialization failed: $error',
+            error,
+            stackTrace,
+          );
+        }),
+      );
       ref.onDispose(() {
-        manager.dispose();
+        unawaited(manager.dispose());
       });
       _logger.fine('✅ ChatConnectionManager provider created');
       return manager;
@@ -35,6 +46,7 @@ final chatConnectionManagerProvider =
 final chatConnectionStatusStreamProvider =
     StreamProvider.autoDispose<ConnectionStatus>((ref) async* {
       final manager = ref.watch(chatConnectionManagerProvider);
+      await manager.initialize();
       yield ConnectionStatus.offline; // Initial state for late subscribers
       yield* manager.connectionStatusStream;
     });

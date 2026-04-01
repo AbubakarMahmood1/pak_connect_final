@@ -60,7 +60,7 @@ class _MeshNetworkingRuntimeHelper {
     if (!_owner._sharedQueueProvider.isInitialized) {
       if (_owner._sharedQueueProvider.isInitializing) {
         MeshNetworkingService._logger.info(
-          'Shared queue host initialization in progress; reusing queue without re-entry',
+          'Shared queue host initialization in progress; waiting for queue readiness',
         );
       } else {
         MeshNetworkingService._logger.warning(
@@ -70,7 +70,7 @@ class _MeshNetworkingRuntimeHelper {
       }
     }
 
-    final sharedQueue = _owner._sharedQueueProvider.messageQueue;
+    final sharedQueue = await _owner._sharedQueueProvider.waitForMessageQueue();
     MeshNetworkingService._logger.info(
       '✅ Connected to shared message queue with ${sharedQueue.getStatistics().pendingMessages} pending messages',
     );
@@ -120,9 +120,9 @@ class _MeshNetworkingRuntimeHelper {
             );
             for (final message in messages) {
               unawaited(
-                _owner._queueCoordinator
-                    .retryMessage(message.id)
-                    .catchError((e) {
+                _owner._queueCoordinator.retryMessage(message.id).catchError((
+                  e,
+                ) {
                   MeshNetworkingService._logger.warning(
                     'Gossip sync delivery failed for ${message.id.shortId(8)}...: $e',
                   );

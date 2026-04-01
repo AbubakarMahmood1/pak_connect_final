@@ -62,7 +62,7 @@ class GossipSyncManager {
   /// Callback to send excess queued messages to a peer during sync.
   /// Bridges the QueuedMessage → wire-send gap (Phase 1 bidirectional sync).
   Function(List<QueuedMessage> messages, String toPeerId)?
-      onSendQueuedMessagesToPeer;
+  onSendQueuedMessagesToPeer;
 
   /// Phase 2: Change_log sync service for live P2P DB synchronization.
   ChangeLogSyncService? changeLogSyncService;
@@ -329,12 +329,16 @@ class GossipSyncManager {
 
   /// Hash ID to 64-bit integer (same as GCS filter internal hash)
   int _hashToInt64(Uint8List id) {
+    // Web compiles to JavaScript numbers, so keep the hash inside a 53-bit
+    // positive integer while preserving deterministic cross-platform output.
+    const jsSafePositiveMask = 0x1FFFFFFFFFFFFF;
     final digest = sha256.convert(id).bytes;
     var x = 0;
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 6; i++) {
       x = (x << 8) | (digest[i] & 0xFF);
     }
-    return x & 0x7FFFFFFFFFFFFFFF;
+    x = (x << 5) | ((digest[6] & 0xF8) >> 3);
+    return x & jsSafePositiveMask;
   }
 
   /// Remove announcement for a specific peer (when peer leaves)

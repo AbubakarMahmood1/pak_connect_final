@@ -226,5 +226,25 @@ void main() {
       expect(report.uniqueQueries, 1);
       expect(report.cacheHitRate, greaterThan(0.9));
     });
+
+    test(
+      'normalizes corrupt persisted totals and avoids divide by zero',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'archive_search_analytics_v2':
+              '{"totalSearches":0,"queryAnalytics":{"query":{"query":"query","searchCount":2,"totalResults":4,"totalSearchTime":50,"cacheHits":1,"lastSearched":1700000000000}}}',
+        });
+
+        final tracker = SearchAnalyticsTracker();
+        await tracker.initialize();
+
+        expect(tracker.totalSearches, 2);
+        expect(
+          tracker.getAverageSearchTime(),
+          const Duration(milliseconds: 25),
+        );
+        expect(tracker.getAnalyticsStats()['averageSearchTime'], 25);
+      },
+    );
   });
 }

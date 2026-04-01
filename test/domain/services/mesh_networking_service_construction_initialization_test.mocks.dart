@@ -1088,7 +1088,8 @@ class MockIBLEMessageHandlerFacade extends _i1.Mock
               #originalIntendedRecipient: originalIntendedRecipient,
             }),
             returnValue: _i13.Future<_i21.ProtocolMessage?>.value(),
-            returnValueForMissingStub: _i13.Future<_i21.ProtocolMessage?>.value(),
+            returnValueForMissingStub:
+                _i13.Future<_i21.ProtocolMessage?>.value(),
           )
           as _i13.Future<_i21.ProtocolMessage?>);
 
@@ -1210,6 +1211,26 @@ class MockISharedMessageQueueProvider extends _i1.Mock
             returnValueForMissingStub: _i13.Future<void>.value(),
           )
           as _i13.Future<void>);
+
+  @override
+  _i13.Future<_i6.OfflineMessageQueueContract> waitForMessageQueue() =>
+      (super.noSuchMethod(
+            Invocation.method(#waitForMessageQueue, []),
+            returnValue: _i13.Future<_i6.OfflineMessageQueueContract>.value(
+              _FakeOfflineMessageQueueContract_4(
+                this,
+                Invocation.method(#waitForMessageQueue, []),
+              ),
+            ),
+            returnValueForMissingStub:
+                _i13.Future<_i6.OfflineMessageQueueContract>.value(
+                  _FakeOfflineMessageQueueContract_4(
+                    this,
+                    Invocation.method(#waitForMessageQueue, []),
+                  ),
+                ),
+          )
+          as _i13.Future<_i6.OfflineMessageQueueContract>);
 }
 
 /// A class which mocks [IMessageRepository].

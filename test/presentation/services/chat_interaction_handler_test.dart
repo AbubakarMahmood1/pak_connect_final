@@ -319,7 +319,9 @@ class _FakeChatManagementService implements ChatManagementService {
       throw UnimplementedError('Unexpected management call: $invocation');
 }
 
-class _FakeSharedQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedQueueProvider({required OfflineMessageQueueContract queue})
     : _queue = queue;
 

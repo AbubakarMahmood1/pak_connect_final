@@ -70,6 +70,9 @@ void main() {
   void stubForInitialize() {
     when(mockSharedQueueProvider.isInitialized).thenReturn(true);
     when(mockSharedQueueProvider.messageQueue).thenReturn(mockMessageQueue);
+    when(
+      mockSharedQueueProvider.waitForMessageQueue(),
+    ).thenAnswer((_) async => mockMessageQueue);
     when(mockMessageQueue.getStatistics()).thenReturn(_emptyQueueStats);
     when(
       mockQueueCoordinator.initialize(
@@ -643,13 +646,13 @@ void main() {
           recipientKey: 'some-key',
           content: 'test',
         );
-       when(
-         mockRelayCoordinator.sendRelayMessage(
-           innerProtocolMessage: anyNamed('innerProtocolMessage'),
-          recipientPublicKey: anyNamed('recipientPublicKey'),
-          chatId: anyNamed('chatId'),
-          priority: anyNamed('priority'),
-        ),
+        when(
+          mockRelayCoordinator.sendRelayMessage(
+            innerProtocolMessage: anyNamed('innerProtocolMessage'),
+            recipientPublicKey: anyNamed('recipientPublicKey'),
+            chatId: anyNamed('chatId'),
+            priority: anyNamed('priority'),
+          ),
         ).thenThrow(Exception('relay failed'));
 
         final result = await service.sendMeshMessage(

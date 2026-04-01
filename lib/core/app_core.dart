@@ -48,6 +48,7 @@ import '../domain/interfaces/i_repository_provider.dart';
 import '../domain/interfaces/i_security_service.dart';
 import '../domain/interfaces/i_shared_message_queue_provider.dart';
 import '../domain/interfaces/i_user_preferences.dart';
+import '../domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/services/message_router.dart';
 import 'di/app_services.dart';
@@ -55,8 +56,6 @@ import 'di/service_locator.dart';
 import '../domain/interfaces/i_connection_service.dart';
 
 import '../domain/values/id_types.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
 import 'package:pak_connect/domain/models/change_log_entry.dart';
 import 'package:pak_connect/domain/services/change_log_sync_service.dart'
     show ChangeLogReplayResult;
@@ -95,8 +94,10 @@ class AppCore {
 
   // State
   bool _isInitialized = false;
+  bool _isMessageQueueReady = false;
   bool _disposeRequested = false;
   Completer<void>? _initializationCompleter;
+  Completer<OfflineMessageQueueContract>? _messageQueueReadyCompleter;
   DateTime? _initializationTime;
   AppStatus _currentStatus = AppStatus.initializing;
   Stream<AppStatus>? _statusStream;
@@ -172,6 +173,26 @@ class AppCore {
     return _statusStream!;
   }
 
+  Future<OfflineMessageQueueContract> waitForMessageQueueReady() async {
+    if (_isMessageQueueReady) {
+      return messageQueue;
+    }
+
+    if (_messageQueueReadyCompleter == null) {
+      await initialize();
+    }
+
+    if (_isMessageQueueReady) {
+      return messageQueue;
+    }
+
+    final completer = _messageQueueReadyCompleter;
+    if (completer == null) {
+      throw StateError('Message queue readiness is unavailable.');
+    }
+    return completer.future;
+  }
+
   /// Initialize the entire application core
   Future<void> initialize() async {
     PanicWipeRuntimeBridge.configure(
@@ -200,6 +221,11 @@ class AppCore {
     // Prevent unhandled asynchronous error warnings when initialization fails
     // before another caller awaits the shared completer.
     _initializationCompleter!.future.catchError((_) {});
+    _isMessageQueueReady = false;
+    _messageQueueReadyCompleter = Completer<OfflineMessageQueueContract>();
+    unawaited(
+      _messageQueueReadyCompleter!.future.then<void>((_) {}, onError: (_) {}),
+    );
 
     try {
       _logger.info('🚀 Starting application core initialization...');
@@ -217,6 +243,13 @@ class AppCore {
       // outcomes without exercising the full stack.
       if (initializationOverride != null) {
         await initializationOverride!();
+        if (!_isMessageQueueReady) {
+          _completeMessageQueueReadyError(
+            StateError(
+              'Message queue was not initialized by AppCore.initializationOverride.',
+            ),
+          );
+        }
         if (_shouldAbortInitialization('initialization override')) return;
         _isInitialized = true;
         _initializationTime = DateTime.now();
@@ -383,6 +416,8 @@ class AppCore {
       _logger.severe('❌ Failed to initialize app core: $e');
       _logger.severe('Stack trace: $stackTrace');
       _emitStatus(AppStatus.error);
+      _isMessageQueueReady = false;
+      _completeMessageQueueReadyError(e, stackTrace);
       final appCoreError = AppCoreException('Initialization failed: $e');
       if (_initializationCompleter != null &&
           !_initializationCompleter!.isCompleted) {
@@ -807,7 +842,7 @@ class AppCore {
         final rows = await db.query(
           'queue_sync_state',
           columns: ['last_synced_changelog_id'],
-          where: 'peer_id = ?',
+          where: 'device_id = ?',
           whereArgs: [peerId],
           limit: 1,
         );
@@ -816,18 +851,20 @@ class AppCore {
       },
       onSetLastSyncedCursorForPeer: (String peerId, int cursorId) async {
         final db = await databaseProvider.database;
+        final updatedAt = DateTime.now().millisecondsSinceEpoch;
         // Upsert: update if row exists, else insert
         final updated = await db.update(
           'queue_sync_state',
-          {'last_synced_changelog_id': cursorId},
-          where: 'peer_id = ?',
+          {'last_synced_changelog_id': cursorId, 'updated_at': updatedAt},
+          where: 'device_id = ?',
           whereArgs: [peerId],
         );
         if (updated == 0) {
           // No existing row for this peer — insert one
           await db.insert('queue_sync_state', {
-            'peer_id': peerId,
+            'device_id': peerId,
             'last_synced_changelog_id': cursorId,
+            'updated_at': updatedAt,
           });
         }
       },
@@ -875,6 +912,11 @@ class AppCore {
       onConnectivityCheck: _checkConnectivity,
     );
     messageQueue = messageQueueFacade.queue;
+    _isMessageQueueReady = true;
+    final completer = _messageQueueReadyCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(messageQueue);
+    }
 
     final queueStats = messageQueue.getStatistics();
     final totalQueued =
@@ -1145,11 +1187,23 @@ class AppCore {
     }
 
     _logger.info('Initialization cancelled during $phase');
+    _isMessageQueueReady = false;
+    _completeMessageQueueReadyError(
+      StateError('Message queue initialization cancelled during $phase.'),
+    );
     final completer = _initializationCompleter;
     if (completer != null && !completer.isCompleted) {
       completer.complete();
     }
     return true;
+  }
+
+  void _completeMessageQueueReadyError(Object error, [StackTrace? stackTrace]) {
+    final completer = _messageQueueReadyCompleter;
+    if (completer == null || completer.isCompleted) {
+      return;
+    }
+    completer.completeError(error, stackTrace);
   }
 
   /// Dispose of all resources
@@ -1224,8 +1278,10 @@ class AppCore {
       _statusListeners.clear();
       _services = null;
       _initializationCompleter = null;
+      _messageQueueReadyCompleter = null;
       _initializationTime = null;
       _isInitialized = false;
+      _isMessageQueueReady = false;
       _currentStatus = AppStatus.initializing;
 
       _logger.info('App core disposed');
