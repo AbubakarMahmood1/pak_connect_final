@@ -110,5 +110,30 @@ void main() {
       );
       expect(result.isForMe, isTrue);
     });
+
+    test('generate rejects low-order recipient scan keys', () {
+      expect(
+        () => StealthAddress.generate(
+          recipientScanKey: Uint8List(DHState.keyLength),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('check rejects low-order ephemeral public keys', () {
+      final envelope = StealthEnvelope(
+        ephemeralPublicKey: Uint8List(DHState.keyLength),
+        viewTag: 0,
+        stealthAddress: Uint8List(32),
+      );
+
+      expect(
+        () => StealthAddress.check(
+          scanPrivateKey: recipientPrivateKey,
+          envelope: envelope,
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 }

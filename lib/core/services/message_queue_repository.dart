@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:pak_connect/domain/entities/queue_enums.dart';
@@ -7,6 +8,7 @@ import '../../domain/values/id_types.dart';
 import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Repository for offline message queue database operations
@@ -76,6 +78,18 @@ class MessageQueueRepository implements IMessageQueueRepository {
       for (final row in results) {
         try {
           final message = queuedMessageFromDb(row);
+          if (message.isRelayMessage &&
+              !_isSupportedRelayPayload(message.content)) {
+            await _markLegacyRelayPayloadFailed(
+              db,
+              message.id,
+              reason: 'Unsupported plaintext relay payload from older build',
+            );
+            _logger.warning(
+              'Dropped legacy relay payload from queue: ${message.id.shortId()}...',
+            );
+            continue;
+          }
           if (message.isRelayMessage) {
             relayMessageQueue.add(message);
           } else {
@@ -392,6 +406,40 @@ class MessageQueueRepository implements IMessageQueueRepository {
       relayNodeId: row['relay_node_id'] as String?,
       messageHash: row['message_hash'] as String?,
       senderRateCount: row['sender_rate_count'] as int? ?? 0,
+    );
+  }
+
+  bool _isSupportedRelayPayload(String payload) {
+    if (payload.isEmpty) {
+      return false;
+    }
+
+    try {
+      final protocolBytes = Uint8List.fromList(base64.decode(payload));
+      final protocolMessage = ProtocolMessage.fromBytes(protocolBytes);
+      return protocolMessage.type == ProtocolMessageType.textMessage &&
+          protocolMessage.version >= 2;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _markLegacyRelayPayloadFailed(
+    Database db,
+    String messageId, {
+    required String reason,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'offline_message_queue',
+      {
+        'status': QueuedMessageStatus.failed.index,
+        'failed_at': now,
+        'failure_reason': reason,
+        'updated_at': now,
+      },
+      where: 'message_id = ?',
+      whereArgs: [messageId],
     );
   }
 }

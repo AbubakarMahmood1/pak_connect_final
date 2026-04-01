@@ -24,6 +24,9 @@ class SecurityManager implements ISecurityService {
 
   factory SecurityManager() => _instance;
   static SecurityManager get instance => _instance;
+  static Future<void> shutdownSingleton() async {
+    _instance.shutdown();
+  }
 
   static final _logger = Logger('SecurityManager');
   NoiseEncryptionService? _noiseService;

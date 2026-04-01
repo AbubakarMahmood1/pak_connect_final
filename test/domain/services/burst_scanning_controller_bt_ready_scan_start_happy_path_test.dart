@@ -1,7 +1,7 @@
 /// BurstScanningController deep callback coverage
 /// Targets uncovered lines inside _handleBurstScanStart, _handleBurstScanStop,
 /// _handleHealthCheck, _handleStatsUpdate, statusStream listener callback,
-/// cooldown enforcement, max-connections skip (with BT ready), scan failure,
+/// adaptive next-scan timing, max-connections skip (with BT ready), scan failure,
 /// triggerManualScan during active burst, forceBurstScanNow, and the full
 /// report-connection paths.
 library;
@@ -120,10 +120,10 @@ void main() {
  });
 
  // =========================================================================
- // Cooldown enforcement
+ // Adaptive scheduling
  // =========================================================================
- group('BT ready – cooldown enforcement', () {
- test('second scan start blocked by cooldown', () async {
+ group('BT ready – adaptive scheduling', () {
+ test('idle countdown comes from adaptive scheduler instead of a fixed cooldown', () async {
  final (controller, ble) = await initReady();
  fakeAsync((async) {
  // Start first burst
@@ -131,15 +131,35 @@ void main() {
  async.flushMicrotasks();
  expect(ble.startCalls, 1);
 
- // Let it auto-stop (20s) and the reschedule timer fire (~20s too).
- // The rescheduled _handleBurstScanStart hits the cooldown gate.
+ // Let the first burst finish so the controller transitions back to idle.
  async.elapse(const Duration(seconds: 22));
  async.flushMicrotasks();
- expect(controller.getCurrentStatus().isBurstActive, isFalse);
+ final status = controller.getCurrentStatus();
 
- // BLE.startScanning should NOT have been called a second time
- // because the cooldown gate returned early.
+ expect(status.isBurstActive, isFalse);
+ expect(status.secondsUntilNextScan, isNotNull);
+ expect(status.secondsUntilNextScan, inInclusiveRange(0, 120));
+ expect(status.scheduledCountdownDuration, isNotNull);
+ expect(status.scheduledCountdownDuration!.inMinutes, lessThan(10));
+ expect(status.powerStats.nextScheduledScanTime, isNotNull);
+
+ unawaited(controller.stopBurstScanning());
+ async.flushMicrotasks();
+ });
+ controller.dispose();
+ });
+
+ test('next burst resumes on adaptive cadence without a fake ten-minute block', () async {
+ final (controller, ble) = await initReady();
+ fakeAsync((async) {
+ unawaited(controller.startBurstScanning());
+ async.flushMicrotasks();
  expect(ble.startCalls, 1);
+
+ async.elapse(const Duration(seconds: 95));
+ async.flushMicrotasks();
+
+ expect(ble.startCalls, greaterThanOrEqualTo(2));
 
  unawaited(controller.stopBurstScanning());
  async.flushMicrotasks();
@@ -345,10 +365,10 @@ void main() {
  });
  });
 
- // =========================================================================
- // triggerManualScan during active burst
- // =========================================================================
- group('BT ready – triggerManualScan during active burst', () {
+// =========================================================================
+// triggerManualScan during active burst
+// =========================================================================
+group('BT ready – triggerManualScan during active burst', () {
  test('shortens active burst to given delay', () async {
  final (controller, _) = await initReady();
  fakeAsync((async) {
@@ -371,12 +391,40 @@ void main() {
  async.flushMicrotasks();
  });
  controller.dispose();
- });
- });
+});
+});
 
- // =========================================================================
- // triggerManualScan when not scanning
- // =========================================================================
+// =========================================================================
+// endActiveBurstNow
+// =========================================================================
+group('BT ready – endActiveBurstNow', () {
+test('stops the active burst immediately and returns to adaptive cooldown',
+() async {
+final (controller, ble) = await initReady();
+fakeAsync((async) {
+ unawaited(controller.startBurstScanning());
+ async.flushMicrotasks();
+ expect(controller.getCurrentStatus().isBurstActive, isTrue);
+
+ unawaited(controller.endActiveBurstNow());
+ async.flushMicrotasks();
+
+ final status = controller.getCurrentStatus();
+ expect(status.isBurstActive, isFalse);
+ expect(status.secondsUntilNextScan, isNotNull);
+ expect(status.secondsUntilNextScan, inInclusiveRange(0, 120));
+ expect(ble.stopCalls, greaterThanOrEqualTo(1));
+
+ unawaited(controller.stopBurstScanning());
+ async.flushMicrotasks();
+});
+controller.dispose();
+});
+});
+
+// =========================================================================
+// triggerManualScan when not scanning
+// =========================================================================
  group('BT ready – triggerManualScan when idle', () {
  test('schedules next scan via power manager', () async {
  final (controller, ble) = await initReady();
@@ -401,10 +449,10 @@ void main() {
  // =========================================================================
  // forceBurstScanNow with BT ready
  // =========================================================================
- group('BT ready – forceBurstScanNow', () {
- test('triggers immediate scan', () async {
- final (controller, ble) = await initReady();
- fakeAsync((async) {
+group('BT ready – forceBurstScanNow', () {
+test('triggers immediate scan', () async {
+final (controller, ble) = await initReady();
+fakeAsync((async) {
  unawaited(controller.forceBurstScanNow());
  async.flushMicrotasks();
 
@@ -436,6 +484,58 @@ void main() {
  async.flushMicrotasks();
 
  expect(controller.getCurrentStatus().isBurstActive, isFalse);
+
+ unawaited(controller.stopBurstScanning());
+ async.flushMicrotasks();
+ });
+controller.dispose();
+ });
+ });
+
+ // =========================================================================
+ // Recovery after Bluetooth restore
+ // =========================================================================
+ group('BT restore recovery', () {
+ test('recoverScannerRuntime keeps the resumed burst active after bluetooth returns',
+ () async {
+ final (controller, ble) = await initReady();
+ fakeAsync((async) {
+ unawaited(controller.startBurstScanning());
+ async.flushMicrotasks();
+ expect(ble.startCalls, 1);
+
+ BluetoothStateMonitor.overrideCurrentState(BluetoothLowEnergyState.poweredOff);
+ unawaited(controller.recoverScannerRuntime());
+ async.flushMicrotasks();
+ expect(ble.startCalls, 1);
+ expect(controller.getCurrentStatus().isBurstActive, isFalse);
+
+ BluetoothStateMonitor.overrideCurrentState(BluetoothLowEnergyState.poweredOn);
+ unawaited(controller.recoverScannerRuntime());
+ async.flushMicrotasks();
+ async.elapse(Duration.zero);
+ async.flushMicrotasks();
+
+ expect(ble.startCalls, 2);
+ expect(controller.getCurrentStatus().isBurstActive, isTrue);
+ expect(
+ logRecords.any((r) => r.message.contains('shortening to 1s')),
+ isFalse,
+ );
+
+ async.elapse(const Duration(seconds: 2));
+ async.flushMicrotasks();
+
+ expect(controller.getCurrentStatus().isBurstActive, isTrue);
+ expect(
+ logRecords.any(
+ (r) =>
+ r.message.contains(
+ 'Scanner runtime recovery skipped extra wake-up because a burst is already active',
+ ),
+ ),
+ isTrue,
+ );
 
  unawaited(controller.stopBurstScanning());
  async.flushMicrotasks();

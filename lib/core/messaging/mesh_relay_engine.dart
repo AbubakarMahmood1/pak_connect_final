@@ -362,7 +362,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         // For point-to-point messages, stop here (message reached destination)
         if (!isBroadcast) {
           return RelayProcessingResult.deliveredToSelf(
-            relayMessage.encryptedPayload ?? relayMessage.originalContent,
+            relayMessage.relayPayload ?? '',
           );
         }
         // Broadcast: Continue to Step 3 to forward to all neighbors
@@ -529,10 +529,17 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         return null;
       }
 
+      if (encryptedPayload == null || encryptedPayload.isEmpty) {
+        _logger.warning(
+          'Cannot create relay: encrypted inner protocol payload is required',
+        );
+        return null;
+      }
+
       // Spam prevention check for outgoing relays
       final canCreateRelay = await _spamPrevention.checkOutgoingRelay(
         senderNodeId: _currentNodeId,
-        messageSize: originalContent.length,
+        messageSize: encryptedPayload.length,
       );
 
       if (!canCreateRelay.allowed) {
@@ -542,7 +549,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
       // Phase 5: sealed sender requires a pre-encrypted payload.
       // Never fall back to packing plaintext sender+content.
-      final effectiveSealedSender = sealedSender && encryptedPayload != null;
+      final effectiveSealedSender = sealedSender;
       if (sealedSender && !effectiveSealedSender) {
         _logger.warning(
           'Sealed sender requested without encryptedPayload; '
@@ -569,7 +576,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
       // Create relay metadata
       final baseMetadata = RelayMetadata.create(
-        originalMessageContent: originalContent,
+        originalMessageContent: encryptedPayload,
         priority: priority,
         originalSender: wireSender,
         finalRecipient: wireRecipient,
@@ -625,7 +632,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       // PHASE 2: Create relay message with message type
       final relayMessage = MeshRelayMessage.createRelay(
         originalMessageId: originalMessageId,
-        originalContent: originalContent,
+        originalContent: '',
         metadata: effectiveSealedSender
             ? RelayMetadata(
                 ttl: relayMetadata.ttl,
@@ -749,7 +756,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
       // Extract original content
       final originalContent =
-          relayMessage.encryptedPayload ?? relayMessage.originalContent;
+          relayMessage.relayPayload ?? '';
       final originalSender = relayMessage.relayMetadata.originalSender;
       final messageId = relayMessage.originalMessageIdValue;
 

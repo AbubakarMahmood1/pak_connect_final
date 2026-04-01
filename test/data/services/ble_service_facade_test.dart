@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:bluetooth_low_energy_platform_interface/bluetooth_low_energy_platform_interface.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_role_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
@@ -730,6 +731,43 @@ void main() {
       });
     });
 
+    group('Strict TDM Delegation', () {
+      late _FakeBleRoleScheduler strictScheduler;
+
+      setUp(() async {
+        await facade.dispose();
+        strictScheduler = _FakeBleRoleScheduler();
+        facade = BLEServiceFacade(
+          platformHost: platformHost,
+          messagingService: messagingStub,
+          advertisingService: advertisingStub,
+          handshakeService: handshakeStub,
+          strictTdmEnabled: true,
+          bleRoleScheduler: strictScheduler,
+        );
+      });
+
+      test('scan and advertise entry points route through scheduler', () async {
+        await facade.startScanning();
+        await facade.startScanningWithValidation();
+        await facade.startAsPeripheral();
+        await facade.startAsPeripheralWithValidation();
+        await facade.startAdvertising();
+
+        expect(strictScheduler.startCalls, 5);
+      });
+
+      test('connectToDevice routes outbound dial through scheduler', () async {
+        final device = _FakePeripheral(
+          UUID.fromString('00000000-0000-0000-0000-00000000c0de'),
+        );
+
+        await facade.connectToDevice(device);
+
+        expect(strictScheduler.requestedPeerIds, [device.uuid.toString()]);
+      });
+    });
+
     // ========================================================================
     // ADVERTISING SERVICE DELEGATION TESTS
     // ========================================================================
@@ -1077,6 +1115,12 @@ final class _StubMessagingService implements IBLEMessagingService {
   }
 
   @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    _lastMessageId = message.textMessageId ?? 'stub-protocol';
+    return true;
+  }
+
+  @override
   Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {}
 
   @override
@@ -1303,6 +1347,59 @@ final class _StubHandshakeService implements IBLEHandshakeService {
     _identityController.close();
     _phaseController.close();
   }
+}
+
+final class _FakeBleRoleScheduler implements IBleRoleScheduler {
+  int startCalls = 0;
+  int stopCalls = 0;
+  final List<String> requestedPeerIds = <String>[];
+  final List<String> inboundPeerIds = <String>[];
+  final List<String> handshakeReadyPeerIds = <String>[];
+
+  @override
+  BleRoleSchedulerSnapshot get snapshot => BleRoleSchedulerSnapshot(
+    state: BleRoleSchedulerState.idle,
+    isRunning: startCalls > stopCalls,
+    lastTransitionAt: DateTime.now(),
+    nextWindowIsScan: true,
+  );
+
+  @override
+  Future<void> start() async {
+    startCalls++;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls++;
+  }
+
+  @override
+  Future<void> requestOutboundConnect(Peripheral peer) async {
+    requestedPeerIds.add(peer.uuid.toString());
+  }
+
+  @override
+  void reportDisconnect(String address, String reason) {}
+
+  @override
+  void reportHandshakeReady(String address) {
+    handshakeReadyPeerIds.add(address);
+  }
+
+  @override
+  void reportHandshakeStarted(String address) {}
+
+  @override
+  void reportInboundConnected(String address) {
+    inboundPeerIds.add(address);
+  }
+
+  @override
+  void reportMtuReady(String address, int mtu) {}
+
+  @override
+  void reportNotifySubscribed(String address) {}
 }
 
 final class _FakeBlePlatformHost implements IBLEPlatformHost {

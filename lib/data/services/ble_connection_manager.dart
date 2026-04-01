@@ -113,6 +113,10 @@ class BLEConnectionManager {
       StreamController<List<BLEServerConnection>>.broadcast();
   Stream<List<BLEServerConnection>> get serverConnectionsStream =>
       _serverConnectionsController.stream;
+  Future<void> Function(Peripheral device)? outboundConnectCoordinator;
+  void Function(String? peerId)? onReconnectAttemptStarted;
+  void Function(String? peerId, bool success)? onReconnectAttemptFinished;
+  bool _bypassingOutboundConnectCoordinator = false;
 
   BLEConnectionManager({
     required this.centralManager,
@@ -147,6 +151,10 @@ class BLEConnectionManager {
       hasViableRelayConnection: _hasViableRelayConnection,
       onMonitoringChanged: onMonitoringChanged,
       onReconnectionFlagChanged: (value) => _isReconnection = value,
+      onReconnectionAttemptStarted: (peerId) =>
+          onReconnectAttemptStarted?.call(peerId),
+      onReconnectionAttemptFinished: (peerId, success) =>
+          onReconnectAttemptFinished?.call(peerId, success),
       // Treat any active link (client or server) as connected so reconnection
       // suppression works during inbound-only sessions.
       hasActiveClientLink: () =>
@@ -595,8 +603,23 @@ class BLEConnectionManager {
   /// Phase 4: RSSI-based connection filtering
   /// - Optional [rssi] parameter allows filtering weak signals in low power modes
   /// - Threshold varies by power mode: -95 (performance) to -65 (ultra low)
-  Future<void> connectToDevice(Peripheral device, {int? rssi}) =>
-      _runtimeConnectToDevice(device, rssi: rssi);
+  Future<void> connectToDevice(Peripheral device, {int? rssi}) {
+    final coordinator = outboundConnectCoordinator;
+    if (coordinator != null && !_bypassingOutboundConnectCoordinator) {
+      return coordinator(device);
+    }
+    return _runtimeConnectToDevice(device, rssi: rssi);
+  }
+
+  Future<void> connectToDeviceDirect(Peripheral device, {int? rssi}) async {
+    final previousValue = _bypassingOutboundConnectCoordinator;
+    _bypassingOutboundConnectCoordinator = true;
+    try {
+      await _runtimeConnectToDevice(device, rssi: rssi);
+    } finally {
+      _bypassingOutboundConnectCoordinator = previousValue;
+    }
+  }
 
   void setMessageOperationInProgress(bool inProgress) {
     _healthMonitor.setMessageOperationInProgress(inProgress);

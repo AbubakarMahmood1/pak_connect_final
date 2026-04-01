@@ -58,6 +58,9 @@ abstract class IBLEMessagingService {
   ///   StateError if not connected or handshake not complete
   Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage);
 
+  /// Send a prebuilt protocol message without wrapping it as a chat text send.
+  Future<bool> sendProtocolMessage(covariant ProtocolMessage message);
+
   /// Send binary/media payload; returns transferId for retry tracking.
   /// Implementation attempts Noise encryption when a session is available.
   Future<String> sendBinaryMedia({

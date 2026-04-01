@@ -75,7 +75,7 @@ class MeshRuntimeState {
 class MeshRuntimeNotifier extends AsyncNotifier<MeshRuntimeState> {
   @override
   Future<MeshRuntimeState> build() async {
-    await ref.watch(appBootstrapProvider.future);
+    await ref.watch(appBootstrapReadyProvider.future);
 
     final service = ref.watch(meshNetworkingServiceProvider);
     final initialState = MeshRuntimeState.initial();

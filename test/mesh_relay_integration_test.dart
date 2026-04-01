@@ -260,18 +260,21 @@ void main() {
     });
 
     test('QueuedMessage relay functionality', () {
+      const relayPayload = 'ZW5jcnlwdGVkLXJlbGF5LXBheWxvYWQ=';
+
       // Create a relay message
       final meshRelayMsg = MeshRelayMessage.createRelay(
         originalMessageId: 'orig-123',
-        originalContent: 'Relay test message',
+        originalContent: '',
         metadata: RelayMetadata.create(
-          originalMessageContent: 'Relay test message',
+          originalMessageContent: relayPayload,
           priority: MessagePriority.high,
           originalSender: 'sender',
           finalRecipient: 'recipient',
           currentNodeId: 'relay1',
         ),
         relayNodeId: 'relay1',
+        encryptedPayload: relayPayload,
       );
 
       final queuedRelay = QueuedMessage.fromRelayMessage(
@@ -284,6 +287,7 @@ void main() {
       expect(queuedRelay.canRelay, true);
       expect(queuedRelay.relayHopCount, 1);
       expect(queuedRelay.originalMessageId, 'orig-123');
+      expect(queuedRelay.content, relayPayload);
 
       // Test creating next hop
       final nextHopQueued = queuedRelay.createNextHopRelay('relay2');

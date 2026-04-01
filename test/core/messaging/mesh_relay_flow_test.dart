@@ -124,6 +124,7 @@ void main() {
         originalContent: content,
         finalRecipientPublicKey: finalRecipient,
         priority: priority,
+        encryptedPayload: _relayPayload(content),
       );
       tempQueue.dispose();
       tempSpam.dispose();
@@ -196,7 +197,10 @@ void main() {
       );
 
       expect(deliveryResult.isDelivered, isTrue);
-      expect(deliveryResult.content, equals('Hello from A to C via B!'));
+      expect(
+        deliveryResult.content,
+        equals(_relayPayload('Hello from A to C via B!')),
+      );
     });
 
     test('Spam Prevention - Rate Limiting', () async {
@@ -283,10 +287,11 @@ void main() {
 
       final loopRelay = MeshRelayMessage(
         originalMessageId: 'loop_test',
-        originalContent: 'Loop test message',
+        originalContent: '',
         relayMetadata: metadata,
         relayNodeId: nodeA,
         relayedAt: DateTime.now(),
+        encryptedPayload: _relayPayload('Loop test message'),
       );
 
       final result = await relayEngine.processIncomingRelay(
@@ -397,6 +402,7 @@ void main() {
         originalContent: 'Urgent message',
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.urgent,
+        encryptedPayload: _relayPayload('Urgent message'),
       );
       expect(urgentRelay!.relayMetadata.ttl, equals(5));
 
@@ -405,6 +411,7 @@ void main() {
         originalContent: 'High priority message',
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.high,
+        encryptedPayload: _relayPayload('High priority message'),
       );
       expect(highRelay!.relayMetadata.ttl, equals(5));
 
@@ -413,6 +420,7 @@ void main() {
         originalContent: 'Normal message',
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Normal message'),
       );
       expect(normalRelay!.relayMetadata.ttl, equals(4));
 
@@ -421,6 +429,7 @@ void main() {
         originalContent: 'Low priority message',
         finalRecipientPublicKey: nodeC,
         priority: MessagePriority.low,
+        encryptedPayload: _relayPayload('Low priority message'),
       );
       expect(lowRelay!.relayMetadata.ttl, equals(3));
     });
@@ -493,7 +502,7 @@ void main() {
       );
 
       expect(deliveryResult.isDelivered, isTrue);
-      expect(deliveryResult.content, equals('Hello from A to C!'));
+      expect(deliveryResult.content, equals(_relayPayload('Hello from A to C!')));
 
       // Verify hop count increased correctly
       expect(nextHopMessage.relayMetadata.hopCount, equals(2));
@@ -553,6 +562,7 @@ void main() {
         originalMessageId: 'integration_test',
         originalContent: 'Integration test message',
         finalRecipientPublicKey: nodeC,
+        relayPayload: _relayPayload('Integration test message'),
       );
 
       expect(relay, isNotNull);
@@ -575,3 +585,5 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';

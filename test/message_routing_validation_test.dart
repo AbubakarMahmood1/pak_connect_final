@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 
 import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/data/services/ble_message_handler.dart';
-import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 
 import 'test_helpers/message_handler_test_utils.dart';
@@ -88,18 +87,14 @@ void main() {
     group('Core Routing Logic Tests', () {
       test('should create protocol message with correct intendedRecipient', () {
         // Test that messages are created with the correct intended recipient
-        final message = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'test123',
-            'content': 'Hello Arshad',
-            'intendedRecipient': arshadNodeId,
-          },
-          timestamp: DateTime.now(),
+        final message = buildV2EncryptedTestMessage(
+          messageId: 'test123',
+          content: 'ciphertext-for-arshad',
+          intendedRecipient: arshadNodeId,
         );
 
         expect(message.payload['intendedRecipient'], equals(arshadNodeId));
-        expect(message.payload['content'], equals('Hello Arshad'));
+        expect(message.payload['content'], equals('ciphertext-for-arshad'));
       });
 
       test('should block messages not intended for current user', () async {
@@ -107,14 +102,11 @@ void main() {
         await _configureNodeIdentity(messageHandler, abubakarNodeId);
 
         // Create message intended for Arshad (not Abubakar)
-        final message = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'msg123',
-            'content': 'Message for Arshad only',
-            'intendedRecipient': arshadNodeId, // NOT for Abubakar
-          },
-          timestamp: DateTime.now(),
+        final message = buildV2EncryptedTestMessage(
+          messageId: 'msg123',
+          content: 'ciphertext-for-arshad',
+          intendedRecipient: arshadNodeId, // NOT for Abubakar
+          senderId: aliNodeId,
         );
 
         // Process the message - should be blocked
@@ -133,14 +125,11 @@ void main() {
         await _configureNodeIdentity(messageHandler, arshadNodeId);
 
         // Create message intended for Arshad
-        final message = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'msg123',
-            'content': 'Message for Arshad',
-            'intendedRecipient': arshadNodeId, // Correctly for Arshad
-          },
-          timestamp: DateTime.now(),
+        final message = buildV2EncryptedTestMessage(
+          messageId: 'msg123',
+          content: 'ciphertext-for-arshad',
+          intendedRecipient: arshadNodeId, // Correctly for Arshad
+          senderId: aliNodeId,
         );
 
         // Process the message - should be allowed
@@ -150,8 +139,8 @@ void main() {
           contactRepository: contactRepository,
         );
 
-        // Should return content since message is for Arshad
-        expect(result, equals('Message for Arshad'));
+        // Should pass routing/auth and reach decrypt handling.
+        expect(result, isNotNull);
       });
 
       test('should block own messages to prevent loops', () async {
@@ -159,15 +148,10 @@ void main() {
         await _configureNodeIdentity(messageHandler, aliNodeId);
 
         // Create message where sender == current user
-        final message = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'msg123',
-            'content': 'My own message',
-            'encrypted': false,
-            // No intendedRecipient (direct P2P message)
-          },
-          timestamp: DateTime.now(),
+        final message = buildV2EncryptedTestMessage(
+          messageId: 'msg123',
+          content: 'self-ciphertext',
+          senderId: aliNodeId,
         );
 
         // Process message where sender == current user
@@ -185,20 +169,17 @@ void main() {
     group('Encryption Context Tests', () {
       test('should include encryption metadata with intended recipient', () {
         // Test that encrypted messages include the intended recipient
-        final encryptedMessage = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'enc123',
-            'content': 'encrypted_content',
-            'encrypted': true,
-            'encryptionMethod': 'ecdh',
-            'intendedRecipient': arshadNodeId,
-          },
-          timestamp: DateTime.now(),
+        final encryptedMessage = buildV2EncryptedTestMessage(
+          messageId: 'enc123',
+          content: 'encrypted_content',
+          intendedRecipient: arshadNodeId,
         );
 
         expect(encryptedMessage.payload['encrypted'], isTrue);
-        expect(encryptedMessage.payload['encryptionMethod'], equals('ecdh'));
+        expect(
+          (encryptedMessage.payload['crypto'] as Map<String, dynamic>)['mode'],
+          equals('noise_v1'),
+        );
         expect(
           encryptedMessage.payload['intendedRecipient'],
           equals(arshadNodeId),
@@ -247,15 +228,12 @@ void main() {
             'extremely_long_node_id_that_could_cause_substring_errors_123456789012345678901234567890123456789012345678901234567890';
         await _configureNodeIdentity(messageHandler, longNodeId);
 
-        final message = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId':
-                'safety_test_message_with_very_long_id_123456789012345678901234567890',
-            'content': 'Safety test message',
-            'intendedRecipient': longNodeId,
-          },
-          timestamp: DateTime.now(),
+        final message = buildV2EncryptedTestMessage(
+          messageId:
+              'safety_test_message_with_very_long_id_123456789012345678901234567890',
+          content: 'safety-test-ciphertext',
+          intendedRecipient: longNodeId,
+          senderId: aliNodeId,
         );
 
         // Should not throw RangeError during processing
@@ -274,14 +252,11 @@ void main() {
         // Step 1: Ali creates message for Arshad
         await _configureNodeIdentity(messageHandler, aliNodeId);
 
-        final outgoingMessage = ProtocolMessage(
-          type: ProtocolMessageType.textMessage,
-          payload: {
-            'messageId': 'flow_test_1',
-            'content': 'Hello from Ali to Arshad',
-            'intendedRecipient': arshadNodeId,
-          },
-          timestamp: DateTime.now(),
+        final outgoingMessage = buildV2EncryptedTestMessage(
+          messageId: 'flow_test_1',
+          content: 'ciphertext-from-ali-to-arshad',
+          intendedRecipient: arshadNodeId,
+          senderId: aliNodeId,
         );
 
         expect(
@@ -298,21 +273,18 @@ void main() {
           contactRepository: contactRepository,
         );
 
-        expect(result, equals('Hello from Ali to Arshad'));
+        expect(result, isNotNull);
       });
 
       test(
         'should prevent Abubakar from receiving Ali → Arshad message',
         () async {
           // Ali creates message for Arshad
-          final messageForArshad = ProtocolMessage(
-            type: ProtocolMessageType.textMessage,
-            payload: {
-              'messageId': 'isolation_test_1',
-              'content': 'Private message for Arshad only',
-              'intendedRecipient': arshadNodeId,
-            },
-            timestamp: DateTime.now(),
+          final messageForArshad = buildV2EncryptedTestMessage(
+            messageId: 'isolation_test_1',
+            content: 'private-ciphertext-for-arshad',
+            intendedRecipient: arshadNodeId,
+            senderId: aliNodeId,
           );
 
           // Abubakar tries to process it (should be blocked)

@@ -38,7 +38,7 @@ void main() {
     });
 
     test(
-      'uses declared sender identity for v2 decrypt when transport sender is relay',
+      'uses transport sender identity for pre-auth v2 decrypt when transport sender is relay',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -61,7 +61,7 @@ void main() {
         expect(result.content, equals('typed:ciphertext'));
         expect(result.shouldAck, isTrue);
         expect(securityService.decryptMessageByTypeCalls, equals(1));
-        expect(securityService.lastDecryptPublicKey, equals('crypto-sender'));
+        expect(securityService.lastDecryptPublicKey, equals('relay-node'));
       },
     );
 
@@ -437,7 +437,7 @@ void main() {
     });
 
     test(
-      'legacy v1 plaintext keeps transport sender for attribution',
+      'rejects legacy v1 plaintext live text traffic',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -457,14 +457,13 @@ void main() {
           senderPublicKey: 'transport-sender',
         );
 
-        expect(result.content, equals('hello-v1'));
-        expect(result.shouldAck, isTrue);
-        expect(result.resolvedSenderKey, equals('transport-sender'));
+        expect(result.content, isNull);
+        expect(result.shouldAck, isFalse);
       },
     );
 
     test(
-      'legacy v1 encrypted messages decrypt with transport sender first',
+      'rejects legacy v1 encrypted live text traffic',
       () async {
         final message = ProtocolMessage(
           type: ProtocolMessageType.textMessage,
@@ -484,10 +483,9 @@ void main() {
           senderPublicKey: 'transport-sender',
         );
 
-        expect(result.content, equals('legacy:ciphertext-v1'));
-        expect(result.shouldAck, isTrue);
-        expect(result.resolvedSenderKey, equals('transport-sender'));
-        expect(securityService.lastDecryptPublicKey, equals('transport-sender'));
+        expect(result.content, isNull);
+        expect(result.shouldAck, isFalse);
+        expect(securityService.lastDecryptPublicKey, isNull);
       },
     );
 
@@ -730,10 +728,42 @@ void main() {
 
         expect(firstResult.content, equals('typed:ciphertext-unsigned'));
         expect(firstResult.shouldAck, isTrue);
-        expect(secondResult.content, equals('hello-v1'));
-        expect(secondResult.shouldAck, isTrue);
+        expect(secondResult.content, isNull);
+        expect(secondResult.shouldAck, isFalse);
         expect(securityService.decryptMessageCalls, equals(0));
         expect(securityService.decryptMessageByTypeCalls, equals(1));
+      },
+    );
+
+    test(
+      'rejects v2 ephemeral-signed message when ephemeral signing key is missing',
+      () async {
+        final message = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'msg-v2-missing-ephemeral-signing-key',
+            'content': 'ciphertext',
+            'encrypted': true,
+            'senderId': 'crypto-sender',
+            'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
+          },
+          timestamp: DateTime.now(),
+          signature: 'placeholder-sig',
+          useEphemeralSigning: true,
+          ephemeralSigningKey: null,
+        );
+
+        final result = await processor.process(
+          protocolMessage: message,
+          senderPublicKey: 'relay-node',
+        );
+
+        expect(
+          result.content,
+          equals('[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]'),
+        );
+        expect(result.shouldAck, isFalse);
       },
     );
 

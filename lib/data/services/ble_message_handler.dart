@@ -366,6 +366,32 @@ class BLEMessageHandler {
     );
   }
 
+  Future<ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+    required BLEStateManager stateManager,
+  }) async {
+    try {
+      _outboundSender.setCurrentNodeId(_currentNodeId);
+      final isPaired = stateManager.isPaired;
+      return await _outboundSender.buildSecureTextProtocolMessage(
+        message: content,
+        messageId: messageId,
+        contactPublicKey: isPaired ? recipientKey : null,
+        recipientId: recipientKey,
+        useEphemeralAddressing: !isPaired,
+        originalIntendedRecipient: originalIntendedRecipient,
+        contactRepository: _contactRepository,
+        stateManager: stateManager,
+      );
+    } catch (e) {
+      _logger.warning('Failed to build secure text protocol message: $e');
+      return null;
+    }
+  }
+
   bool _looksLikeChunkString(Uint8List bytes) {
     final max = bytes.length < 128 ? bytes.length : 128;
     int pipes = 0;
@@ -761,12 +787,14 @@ class BLEMessageHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) async {
     return await _meshRelayHandler.createOutgoingRelay(
       originalMessageId: originalMessageId,
       originalContent: originalContent,
       finalRecipientPublicKey: finalRecipientPublicKey,
       priority: priority,
+      relayPayload: relayPayload,
     );
   }
 

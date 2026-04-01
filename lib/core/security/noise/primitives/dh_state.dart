@@ -118,6 +118,36 @@ class DHState {
     return returnValue;
   }
 
+  /// Calculate a shared secret and reject attacker-controlled low-order
+  /// public keys that collapse X25519 to the all-zero result.
+  ///
+  /// This must only be used on surfaces that consume untrusted public keys.
+  /// Noise handshake code keeps using [calculate] so protocol semantics remain
+  /// unchanged in this pass.
+  static Uint8List calculateChecked(
+    Uint8List privateKey,
+    Uint8List publicKey, {
+    String? contextLabel,
+  }) {
+    final result = calculate(privateKey, publicKey);
+    if (_isAllZero(result)) {
+      throw ArgumentError(
+        'Invalid X25519 public key produced all-zero shared secret'
+        '${contextLabel == null ? "" : " ($contextLabel)"}',
+      );
+    }
+    return result;
+  }
+
+  static bool _isAllZero(Uint8List value) {
+    for (final byte in value) {
+      if (byte != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// Clear sensitive key material from memory
   ///
   /// Overwrites keys with zeros for forward secrecy.

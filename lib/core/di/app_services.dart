@@ -15,6 +15,7 @@ import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
@@ -45,6 +46,7 @@ class AppBootstrapServices {
     required this.sharedMessageQueueProvider,
     required this.databaseProvider,
     required this.seenMessageStore,
+    required this.panicWipeService,
     required this.bleServiceFacadeFactory,
     required this.meshRelayEngineFactory,
     this.bleServiceFacade,
@@ -67,6 +69,7 @@ class AppBootstrapServices {
   final ISharedMessageQueueProvider sharedMessageQueueProvider;
   final IDatabaseProvider databaseProvider;
   final ISeenMessageStore seenMessageStore;
+  final IPanicWipeService panicWipeService;
   final IBLEServiceFacadeFactory bleServiceFacadeFactory;
   final IMeshRelayEngineFactory meshRelayEngineFactory;
   final IBLEServiceFacade? bleServiceFacade;
@@ -101,6 +104,7 @@ class AppBootstrapServices {
       meshNetworkingService: meshNetworkingService,
       meshNetworkHealthMonitor: meshNetworkHealthMonitor,
       securityService: securityService,
+      panicWipeService: panicWipeService,
       contactManagementService: contactManagementService,
       chatManagementService: chatManagementService,
       archiveManagementService: archiveManagementService,
@@ -168,6 +172,7 @@ class AppServices {
     required this.meshNetworkingService,
     required this.meshNetworkHealthMonitor,
     required this.securityService,
+    required this.panicWipeService,
     required this.contactManagementService,
     required this.chatManagementService,
     required this.archiveManagementService,
@@ -194,6 +199,7 @@ class AppServices {
   final IMeshNetworkingService meshNetworkingService;
   final MeshNetworkHealthMonitor meshNetworkHealthMonitor;
   final ISecurityService securityService;
+  final IPanicWipeService panicWipeService;
   final ContactManagementService contactManagementService;
   final ChatManagementService chatManagementService;
   final ArchiveManagementService archiveManagementService;
@@ -221,6 +227,7 @@ class AppServices {
     yield meshNetworkingService;
     yield meshNetworkHealthMonitor;
     yield securityService;
+    yield panicWipeService;
     yield contactManagementService;
     yield chatManagementService;
     yield archiveManagementService;

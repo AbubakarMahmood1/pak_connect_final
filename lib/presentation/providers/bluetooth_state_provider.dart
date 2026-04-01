@@ -20,6 +20,7 @@ final bluetoothStateStreamProvider =
         state: monitor.currentState,
         previousState: monitor.currentState,
         isReady: monitor.isBluetoothReady,
+        availabilityPhase: monitor.availabilityPhase,
         timestamp: DateTime.now(),
       );
       yield* monitor.stateStream;

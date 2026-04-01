@@ -310,7 +310,7 @@ void main() {
  expect(contactRepo.savedContacts, isEmpty);
  });
 
- test('sets persistent key on identity state when ephemeral available',
+ test('stores claimed persistent key without binding identity before verification',
  () async {
  identityState.setTheirEphemeralId('their-eph-id');
 
@@ -325,12 +325,15 @@ void main() {
  // EphemeralKeyManager not initialized is expected in unit tests
  }
 
- // Before the EphemeralKeyManager call, these should have been set
- expect(identityManager.lastPersistentKey, 'their-persistent-key');
- expect(identityManager.lastSessionId, 'their-persistent-key');
+ // Pre-verification persistent claims stay transient
+ expect(identityState.claimedPersistentKey, 'their-persistent-key');
+ expect(identityState.theirPersistentKey, isNull);
+ expect(identityState.currentSessionId, 'their-eph-id');
+ expect(identityManager.lastPersistentKey, isNull);
+ expect(identityManager.lastSessionId, isNull);
 
- // Security service mapping registered
- expect(securityService.registeredMappings, hasLength(1));
+ // Security service mapping must not be registered yet
+ expect(securityService.registeredMappings, isEmpty);
 
  // Contact saved (happens before generateMyEphemeralKey call)
  expect(contactRepo.savedContacts, contains('their-eph-id'));

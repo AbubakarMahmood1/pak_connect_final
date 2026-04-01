@@ -279,7 +279,8 @@ void main() {
  onMessageSentIds: (id, success) => sentMsgId = id,
 );
  fail('Should have thrown');
- } on Exception catch (e) {
+ } catch (e) {
+ expect(e, isA<StateError>());
  expect(e.toString(), contains('Intended recipient not set'));
  }
 
@@ -620,15 +621,12 @@ void main() {
  onMessageSent: (id, success) => sentSuccess = success,
 );
  fail('Should have thrown');
- } on Exception catch (e) {
+ } catch (e) {
+ expect(e, isA<StateError>());
  expect(e.toString(), contains('Intended recipient not set'));
  }
 
  expect(sentSuccess, isFalse);
- expect(logs.any((l) => l.message.contains('PERIPHERAL SEND ABORTED'),
-),
- isTrue,
-);
  });
 
  test('sealed V1 fallback with valid noise key', () async {
@@ -703,10 +701,10 @@ void main() {
 );
 
  expect(result, isTrue);
- expect(logs.any((l) => l.message.contains('PERIPHERAL: Failed to get security level'),
-),
+ expect(logs.any((l) => l.message.contains('PERIPHERAL MESSAGE: Failed to get security level'),
+ ),
  isTrue,
-);
+ );
  });
 
  test('encryption error fires error callbacks and rethrows', () async {

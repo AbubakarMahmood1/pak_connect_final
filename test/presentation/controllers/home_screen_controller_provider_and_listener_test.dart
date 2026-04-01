@@ -353,6 +353,8 @@ class _FakeConnectionService implements IConnectionService {
  Future<bool> sendMessage(String message,
  {String? messageId, String? originalIntendedRecipient}) async => false;
  @override
+ Future<bool> sendProtocolMessage(ProtocolMessage message) async => false;
+ @override
  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
  @override
  Future<void> startScanning({ScanningSource source = ScanningSource.system}) async {}

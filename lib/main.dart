@@ -1,20 +1,23 @@
 // Enhanced main.dart with comprehensive feature integration and proper initialization
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // Added for kDebugMode
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 
 import 'core/app_core.dart';
 import 'core/di/service_locator.dart' show configureDataLayerRegistrar;
 import 'data/di/data_layer_service_registrar.dart';
+import 'domain/interfaces/i_chats_repository.dart';
 import 'domain/utils/app_logger.dart';
 import 'core/services/navigation_service.dart';
 import 'domain/values/id_types.dart';
 import 'domain/services/notification_navigation_service.dart';
 import 'presentation/theme/app_theme.dart';
-import 'presentation/screens/permission_screen.dart';
+import 'presentation/providers/di_providers.dart';
 import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/group_list_screen.dart';
 import 'presentation/screens/create_group_screen.dart';
@@ -27,12 +30,36 @@ import 'presentation/widgets/spy_mode_listener.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _configurePreferredOrientations();
 
   // Setup logging with AppLogger (handles debug/release modes automatically)
   AppLogger.initialize();
   configureDataLayerRegistrar(registerDataLayerServices);
 
   runApp(const ProviderScope(child: PakConnectApp()));
+}
+
+Future<void> _configurePreferredOrientations() async {
+  if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) {
+    return;
+  }
+
+  final views = WidgetsBinding.instance.platformDispatcher.views;
+  if (views.isEmpty) {
+    return;
+  }
+
+  final primaryView = views.first;
+  final logicalShortestSide =
+      primaryView.physicalSize.shortestSide / primaryView.devicePixelRatio;
+
+  if (logicalShortestSide < 600) {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+  } else {
+    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+  }
 }
 
 class PakConnectApp extends ConsumerWidget {
@@ -197,8 +224,9 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
           case AppStatus.error:
             return _buildErrorScreen(theme);
           case AppStatus.ready:
+            return _buildAppShell();
           case AppStatus.running:
-            return _buildAppWithBurstScanning();
+            return _buildAppShell();
           case AppStatus.disposing:
             return _buildDisposingScreen(theme);
         }
@@ -365,29 +393,24 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
     );
   }
 
-  /// Build app with burst scanning eagerly initialized and smart navigation
-  Widget _buildAppWithBurstScanning() {
+  /// Build the main application shell.
+  ///
+  /// The app shell becomes available at `AppStatus.ready`; Bluetooth/mesh can
+  /// continue warming in the background and surface status inside Home.
+  Widget _buildAppShell() {
     return SpyModeListener(
       child: Consumer(
         builder: (context, ref, child) {
-          // Eagerly initialize burst scanning
+          final hasShellDependencies =
+              maybeResolveAppServices() != null ||
+              isRegisteredInServiceLocator<IChatsRepository>();
+          if (!hasShellDependencies) {
+            return _buildLoadingScreen(Theme.of(context));
+          }
+
           ref.watch(eagerBurstScanningProvider);
 
-          // Check BLE state to determine initial screen
-          final bleStateAsync = ref.watch(bleStateProvider);
-
-          return bleStateAsync.when(
-            data: (state) {
-              // If Bluetooth is already ready, skip permission screen
-              if (state == BluetoothLowEnergyState.poweredOn) {
-                return const HomeScreen();
-              }
-              // Otherwise show permission screen
-              return const PermissionScreen();
-            },
-            loading: () => _buildLoadingScreen(Theme.of(context)),
-            error: (error, stack) => const PermissionScreen(),
-          );
+          return const HomeScreen();
         },
       ),
     );

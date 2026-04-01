@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_experiment_metrics_recorder.dart';
 import '../../domain/constants/ble_constants.dart';
 import '../../domain/services/device_deduplication_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
@@ -23,6 +24,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   final CentralManager centralManager;
   final IBLEStateManagerFacade stateManager;
   final HintScannerService hintScanner;
+  final IBleExperimentMetricsRecorder? metricsRecorder;
 
   // Callback to update connection info in facade
   final Function({
@@ -62,6 +64,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
     required this.onUpdateConnectionInfo,
     required this.isAdvertising,
     required this.isConnected,
+    this.metricsRecorder,
   });
 
   // ============================================================================
@@ -110,6 +113,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
         _discoveryData[deviceId] = event;
         _notifyDiscoveryData(Map.from(_discoveryData));
         DeviceDeduplicationManager.processDiscoveredDevice(event);
+        metricsRecorder?.recordPeerDiscovered(deviceId);
       } catch (e, stackTrace) {
         _logger.warning(
           '⚠️ Error processing discovered device: $e',
@@ -214,6 +218,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
       _logger.info(
         '🔍 ${source.name.toUpperCase()} discovery started successfully',
       );
+      metricsRecorder?.recordScanStarted();
 
       // 🔧 FIX P2: Confirm dual-role operation (advertising + scanning simultaneously)
       if (isAdvertising() && stateManager.isPeripheralMode) {
@@ -241,6 +246,7 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   Future<void> stopScanning() async {
     final currentSource = _currentScanningSource?.name ?? 'unknown';
     _logger.info('🔍 Stopping $currentSource BLE scan...');
+    final wasDiscoveryActive = _isDiscoveryActive;
 
     if (_isDiscoveryActive) {
       try {
@@ -254,6 +260,10 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
         _isDiscoveryActive = false;
         _currentScanningSource = null;
       }
+    }
+
+    if (wasDiscoveryActive) {
+      metricsRecorder?.recordScanStopped();
     }
 
     onUpdateConnectionInfo(

@@ -73,7 +73,9 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       _chatManagementService.initialize(),
       _homeScreenFacade.initialize(),
     ]);
+    if (!mounted) return;
     await loadChats(reset: true);
+    if (!mounted) return;
     _setupPeripheralConnectionListener();
     _setupDiscoveryListener();
     _setupUnreadCountStream();
@@ -82,6 +84,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   }
 
   Future<void> loadChats({bool reset = true}) async {
+    if (!mounted) return;
     _performanceMonitor.startOperation('home_load_chats');
     if (state.isLoading || reset) {
       _updateState(state.copyWith(isLoading: true));
@@ -94,6 +97,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
     }
 
     final nearbyDevices = await _getNearbyDevices();
+    if (!mounted) return;
     final discoveryDataAsync = _ref.read(discoveryDataProvider);
     final discoveryData = discoveryDataAsync.maybeWhen(
       data: (data) => data,
@@ -112,6 +116,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
         limit: effectiveLimit,
         offset: effectiveOffset,
       );
+      if (!mounted) return;
       _performanceMonitor.endOperation('home_load_chats', success: true);
 
       final merged = _listController.mergeChats(
@@ -171,6 +176,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   Future<void> updateSingleChatItem() async {
     try {
       final nearbyDevices = await _getNearbyDevices();
+      if (!mounted) return;
       final discoveryDataAsync = _ref.read(discoveryDataProvider);
       final discoveryData = discoveryDataAsync.maybeWhen(
         data: (data) => data,
@@ -184,6 +190,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
         limit: _searchQuery.trim().isEmpty ? _pageSize : null,
         offset: 0,
       );
+      if (!mounted) return;
       if (updatedChats.isEmpty) return;
 
       final mostRecentChat = updatedChats.first;
@@ -244,10 +251,12 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   void _setupGlobalMessageListener() {
     _ref.listen<AsyncValue<String>>(receivedMessagesProvider, (previous, next) {
       next.whenData((_) async {
+        if (!mounted) return;
         _logger.info(
           'Global listener: New message received - updating chat list',
         );
         await updateSingleChatItem();
+        if (!mounted) return;
         _refreshUnreadCount();
       });
     });
@@ -268,6 +277,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       peripheralConnectionChangesProvider,
       (previous, next) {
         next.whenData((event) {
+          if (!mounted) return;
           final bleService = _ref.read(connectionServiceProvider);
           final isConnected =
               event.state == ble.ConnectionState.connected &&
@@ -284,6 +294,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       previous,
       next,
     ) {
+      if (!mounted) return;
       if (next.hasValue) {
         _refreshUnreadCount();
       }
@@ -295,13 +306,12 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       discoveryDataProvider,
       (previous, next) {
         next.whenData((_) {
-          if (!state.isLoading) {
-            scheduleMicrotask(() {
-              if (mounted) {
-                unawaited(loadChats());
-              }
-            });
-          }
+          if (!mounted || state.isLoading) return;
+          scheduleMicrotask(() {
+            if (mounted) {
+              unawaited(loadChats());
+            }
+          });
         });
       },
     );
@@ -309,7 +319,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
 
   void _handleIncomingPeripheralConnection(Central central) {
     _logger.fine('Incoming peripheral connection: ${central.uuid}');
-    loadChats();
+    unawaited(loadChats());
   }
 
   void _setupUnreadCountStream() {
@@ -326,8 +336,10 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       next,
     ) {
       next.whenData((event) async {
+        if (!mounted) return;
         _logger.fine('Chat update received: $event');
         await updateSingleChatItem();
+        if (!mounted) return;
         _refreshUnreadCount();
       });
     });
@@ -337,8 +349,10 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
       next,
     ) {
       next.whenData((event) async {
+        if (!mounted) return;
         _logger.fine('Message update received: $event');
         await updateSingleChatItem();
+        if (!mounted) return;
         _refreshUnreadCount();
       });
     });
@@ -388,6 +402,7 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
   }
 
   void _updateState(HomeScreenState newState) {
+    if (!mounted) return;
     state = newState;
   }
 }

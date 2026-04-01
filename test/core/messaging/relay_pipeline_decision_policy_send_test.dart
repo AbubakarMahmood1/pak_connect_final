@@ -444,6 +444,7 @@ MeshRelayMessage _buildRelay({
  int hopCount = 1,
  List<String>? routingPath,
 }) {
+ final relayPayload = _relayPayload('Hello mesh');
  final metadata = RelayMetadata(ttl: ttl,
  hopCount: hopCount,
  routingPath: routingPath ?? const ['origin_node'],
@@ -454,12 +455,15 @@ MeshRelayMessage _buildRelay({
  finalRecipient: recipient,
 );
  return MeshRelayMessage(originalMessageId: msgId,
- originalContent: 'Hello mesh',
+ originalContent: '',
  relayMetadata: metadata,
  relayNodeId: 'origin_node',
  relayedAt: DateTime.now(),
+ encryptedPayload: relayPayload,
 );
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';
 
 QueuedMessage _buildQueuedMessage(String recipientKey,
  QueuedMessageStatus status,

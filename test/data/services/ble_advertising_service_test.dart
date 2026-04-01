@@ -43,6 +43,9 @@ void main() {
 
     when(mockAdvertisingManager.isAdvertising).thenReturn(false);
     when(
+      mockPeripheralManager.state,
+    ).thenReturn(BluetoothLowEnergyState.poweredOn);
+    when(
       mockPeripheralInitializer.safelyAddService(
         any,
         timeout: anyNamed('timeout'),

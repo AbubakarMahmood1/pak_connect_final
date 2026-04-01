@@ -239,6 +239,7 @@ void main() {
             originalContent: 'Analysis test message $i',
             finalRecipientPublicKey: abubakar,
             priority: MessagePriority.normal,
+            encryptedPayload: _relayPayload('Analysis test message $i'),
           ),
         );
       }
@@ -301,6 +302,7 @@ void main() {
         originalMessageId: 'validation_test',
         originalContent: 'Message from Ali to Abubakar',
         finalRecipientPublicKey: abubakar,
+        encryptedPayload: _relayPayload('Message from Ali to Abubakar'),
       );
 
       expect(message, isNotNull);
@@ -350,3 +352,5 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';

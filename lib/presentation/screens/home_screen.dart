@@ -3,16 +3,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
+import '../providers/app_permission_providers.dart';
 import '../providers/ble_providers.dart';
 import '../providers/mesh_networking_provider.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
 import '../../domain/entities/chat_list_item.dart';
+import '../../domain/models/bluetooth_state_models.dart';
 import '../../domain/models/connection_status.dart';
 import '../widgets/discovery_overlay.dart';
 import '../widgets/relay_queue_widget.dart';
+import '../widgets/import_dialog.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../providers/home_screen_providers.dart';
 import '../models/home_screen_state.dart';
@@ -56,6 +60,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Stream<int>? _unreadCountStream(HomeScreenState state) =>
       state.unreadCountStream;
   bool _showDiscoveryOverlay = false;
+  bool _isBleRecoveryInProgress = false;
 
   @override
   void initState() {
@@ -106,9 +111,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final viewModel = ref.read(
       homeScreenViewModelProvider(_viewModelArgs).notifier,
     );
-    final bleStateAsync = ref.watch(bleStateProvider);
+    final bluetoothStateInfoAsync = ref.watch(bluetoothStateProvider);
+    final blePermissionsAsync = ref.watch(blePermissionsGrantedProvider);
+    final bluetoothMessageAsync = ref.watch(bluetoothStatusMessageProvider);
     ref.watch(connectionInfoProvider);
     ref.watch(discoveredDevicesProvider);
+    final canUseBleActions =
+        bluetoothStateInfoAsync.maybeWhen(
+          data: (info) =>
+              info.availabilityPhase == BluetoothAvailabilityPhase.ready,
+          orElse: () => false,
+        ) &&
+        blePermissionsAsync.maybeWhen(
+          data: (granted) => granted,
+          orElse: () => false,
+        );
+    final bleStatusMessage = _resolveBleBannerMessage(
+      state: bluetoothStateInfoAsync.asData?.value.state,
+      availabilityPhase:
+          bluetoothStateInfoAsync.asData?.value.availabilityPhase,
+      hasBlePermissions: blePermissionsAsync.asData?.value,
+      runtimeMessage: bluetoothMessageAsync.asData?.value,
+      isLoading:
+          bluetoothStateInfoAsync.isLoading ||
+          blePermissionsAsync.isLoading ||
+          bluetoothMessageAsync.isLoading,
+    );
 
     return Stack(
       children: [
@@ -150,6 +178,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               },
             ),
             SizedBox(width: 8), */
+              if (bleStatusMessage != null)
+                _buildBleStatusAction(
+                  statusMessage: bleStatusMessage,
+                  state: bluetoothStateInfoAsync.asData?.value.state,
+                  hasBlePermissions: blePermissionsAsync.asData?.value,
+                ),
               Stack(
                 children: [
                   IconButton(
@@ -246,31 +280,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ],
             ),
           ),
-          body: Column(
+          body: TabBarView(
+            controller: _tabController,
             children: [
-              _buildBLEStatusBanner(bleStateAsync),
+              // Tab 1: Chats (existing functionality)
+              _buildChatsTab(state, viewModel),
 
-              // 🎯 NEW: Tab bar view with chats and relay queue
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    // Tab 1: Chats (existing functionality)
-                    _buildChatsTab(state, viewModel),
-
-                    // Tab 2: Relay Queue (new functionality)
-                    _buildRelayQueueTab(),
-                  ],
-                ),
-              ),
+              // Tab 2: Relay Queue (new functionality)
+              _buildRelayQueueTab(),
             ],
           ),
           floatingActionButton:
               _tabController.index ==
                   0 // Only show FAB on Chats tab
               ? FloatingActionButton(
-                  onPressed: () => setState(() => _showDiscoveryOverlay = true),
-                  tooltip: 'Discover nearby devices',
+                  onPressed: canUseBleActions
+                      ? () => setState(() => _showDiscoveryOverlay = true)
+                      : null,
+                  tooltip: canUseBleActions
+                      ? 'Discover nearby devices'
+                      : 'Bluetooth mesh is unavailable',
                   child: Icon(Icons.bluetooth_searching),
                 )
               : null,
@@ -292,6 +321,60 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildBleStatusAction({
+    required BluetoothStatusMessage statusMessage,
+    required BluetoothLowEnergyState? state,
+    required bool? hasBlePermissions,
+  }) {
+    return IconButton(
+      key: const Key('bleStatusAction'),
+      tooltip: statusMessage.message,
+      onPressed: () => _showBleStatusSheet(
+        statusMessage: statusMessage,
+        state: state,
+        hasBlePermissions: hasBlePermissions,
+      ),
+      icon: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          if (statusMessage.type == BluetoothMessageType.initializing)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  _colorForBleStatus(statusMessage),
+                ),
+              ),
+            )
+          else
+            Icon(
+              _iconForBleStatus(statusMessage),
+              color: _colorForBleStatus(statusMessage),
+            ),
+          Positioned(
+            right: -1,
+            top: -1,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: _colorForBleStatus(statusMessage),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.surface,
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -624,8 +707,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
 
     return Center(
-      child: Padding(
-        padding: EdgeInsets.only(bottom: 80), // Account for FAB visual weight
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 80),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
@@ -637,19 +720,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 context,
               ).colorScheme.onSurfaceVariant.withValues(),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
             Text(
               hasNearbyDevices
                   ? 'Connect to a nearby device first.'
                   : 'No conversations yet',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
               'Tap Bluetooth button below to scan/broadcast.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: _showImportDialog,
+              icon: const Icon(Icons.upload_file_rounded),
+              label: const Text('Import Backup'),
             ),
           ],
         ),
@@ -657,29 +747,304 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Widget _buildBLEStatusBanner(
-    AsyncValue<BluetoothLowEnergyState> bleStateAsync,
-  ) {
-    return bleStateAsync.when(
-      data: (state) {
-        if (state != BluetoothLowEnergyState.poweredOn) {
-          return Container(
-            padding: EdgeInsets.all(12),
-            color: Theme.of(context).colorScheme.errorContainer,
-            child: Row(
+  BluetoothStatusMessage? _resolveBleBannerMessage({
+    required BluetoothLowEnergyState? state,
+    required BluetoothAvailabilityPhase? availabilityPhase,
+    required bool? hasBlePermissions,
+    required BluetoothStatusMessage? runtimeMessage,
+    required bool isLoading,
+  }) {
+    if (availabilityPhase == BluetoothAvailabilityPhase.ready &&
+        hasBlePermissions == true &&
+        (runtimeMessage == null ||
+            runtimeMessage.type == BluetoothMessageType.ready)) {
+      return null;
+    }
+
+    if (availabilityPhase == BluetoothAvailabilityPhase.ready &&
+        hasBlePermissions == false) {
+      return BluetoothStatusMessage.unauthorized(
+        'Nearby Devices permission is still required before mesh features can wake up.',
+      );
+    }
+
+    if (availabilityPhase == BluetoothAvailabilityPhase.disabled) {
+      return BluetoothStatusMessage.disabled(
+        'Bluetooth is off. PakConnect stays usable, but nearby discovery and mesh delivery are sleeping.',
+      );
+    }
+
+    if (availabilityPhase == BluetoothAvailabilityPhase.permissionsRequired ||
+        state == BluetoothLowEnergyState.unauthorized) {
+      if (hasBlePermissions == true) {
+        return BluetoothStatusMessage.initializing(
+          'Bluetooth is re-checking availability in the background. You can keep using the app while mesh wakes up.',
+        );
+      }
+      return BluetoothStatusMessage.unauthorized(
+        'Bluetooth access is blocked. Grant Nearby Devices access to restore mesh features.',
+      );
+    }
+
+    if (availabilityPhase == BluetoothAvailabilityPhase.unsupported ||
+        state == BluetoothLowEnergyState.unsupported) {
+      return BluetoothStatusMessage.unsupported(
+        'Bluetooth Low Energy is unavailable on this device, so mesh features cannot start.',
+      );
+    }
+
+    if (runtimeMessage != null &&
+        runtimeMessage.type != BluetoothMessageType.ready) {
+      return runtimeMessage;
+    }
+
+    if (isLoading ||
+        availabilityPhase == BluetoothAvailabilityPhase.warmingUp ||
+        state == null ||
+        state == BluetoothLowEnergyState.unknown) {
+      return BluetoothStatusMessage.initializing(
+        'Mesh is initializing in the background. You can browse the app while Bluetooth wakes up.',
+      );
+    }
+
+    return null;
+  }
+
+  Future<void> _showBleStatusSheet({
+    required BluetoothStatusMessage statusMessage,
+    required BluetoothLowEnergyState? state,
+    required bool? hasBlePermissions,
+  }) async {
+    final needsPermissionGrant =
+        state == BluetoothLowEnergyState.poweredOn &&
+        hasBlePermissions == false;
+    final canOpenSettings =
+        statusMessage.type == BluetoothMessageType.unauthorized;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.bluetooth_disabled),
-                SizedBox(width: 8),
-                Text('Bluetooth ${state.name} - Allow Permission!'),
+                Row(
+                  children: [
+                    Icon(
+                      _iconForBleStatus(statusMessage),
+                      color: _colorForBleStatus(statusMessage),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _titleForBleStatus(statusMessage),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  statusMessage.message,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                ),
+                if (statusMessage.actionHint != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    statusMessage.actionHint!,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _isBleRecoveryInProgress
+                          ? null
+                          : () {
+                              Navigator.of(sheetContext).pop();
+                              _refreshBleRuntime();
+                            },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                    if (needsPermissionGrant)
+                      FilledButton.icon(
+                        onPressed: _isBleRecoveryInProgress
+                            ? null
+                            : () {
+                                Navigator.of(sheetContext).pop();
+                                _requestBlePermissionsFromHome();
+                              },
+                        icon: const Icon(Icons.bluetooth_searching),
+                        label: const Text('Grant permissions'),
+                      ),
+                    if (canOpenSettings)
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.of(sheetContext).pop();
+                          _openSystemSettings();
+                        },
+                        icon: const Icon(Icons.settings),
+                        label: const Text('Open settings'),
+                      ),
+                  ],
+                ),
               ],
             ),
-          );
-        }
-        return SizedBox.shrink();
+          ),
+        );
       },
-      loading: () => SizedBox.shrink(),
-      error: (err, stack) => SizedBox.shrink(),
     );
+  }
+
+  IconData _iconForBleStatus(BluetoothStatusMessage statusMessage) {
+    switch (statusMessage.type) {
+      case BluetoothMessageType.ready:
+        return Icons.bluetooth_connected;
+      case BluetoothMessageType.disabled:
+        return Icons.bluetooth_disabled;
+      case BluetoothMessageType.unauthorized:
+        return Icons.bluetooth_searching;
+      case BluetoothMessageType.unsupported:
+        return Icons.bluetooth_disabled_outlined;
+      case BluetoothMessageType.unknown:
+        return Icons.help_outline;
+      case BluetoothMessageType.initializing:
+        return Icons.sync;
+      case BluetoothMessageType.error:
+        return Icons.error_outline;
+    }
+  }
+
+  Color _colorForBleStatus(BluetoothStatusMessage statusMessage) {
+    switch (statusMessage.type) {
+      case BluetoothMessageType.ready:
+        return Colors.green;
+      case BluetoothMessageType.disabled:
+      case BluetoothMessageType.unauthorized:
+      case BluetoothMessageType.unsupported:
+        return Colors.orange;
+      case BluetoothMessageType.unknown:
+      case BluetoothMessageType.initializing:
+        return Theme.of(context).colorScheme.primary;
+      case BluetoothMessageType.error:
+        return Theme.of(context).colorScheme.error;
+    }
+  }
+
+  String _titleForBleStatus(BluetoothStatusMessage statusMessage) {
+    switch (statusMessage.type) {
+      case BluetoothMessageType.ready:
+        return 'Mesh ready';
+      case BluetoothMessageType.disabled:
+        return 'Bluetooth off';
+      case BluetoothMessageType.unauthorized:
+        return 'Mesh permission needed';
+      case BluetoothMessageType.unsupported:
+        return 'Mesh unavailable';
+      case BluetoothMessageType.unknown:
+      case BluetoothMessageType.initializing:
+        return 'Mesh waking up';
+      case BluetoothMessageType.error:
+        return 'Mesh issue';
+    }
+  }
+
+  Future<void> _refreshBleRuntime() async {
+    if (_isBleRecoveryInProgress) {
+      return;
+    }
+
+    setState(() => _isBleRecoveryInProgress = true);
+    try {
+      ref.invalidate(bleRuntimeProvider);
+      ref.invalidate(bluetoothStateProvider);
+      ref.invalidate(bluetoothStatusMessageProvider);
+      await ref
+          .read(discoveryScannerRecoveryProvider)
+          .recover(forceWakeIfReady: false)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Best-effort refresh only.
+    } finally {
+      if (mounted) {
+        setState(() => _isBleRecoveryInProgress = false);
+      }
+    }
+  }
+
+  Future<void> _requestBlePermissionsFromHome() async {
+    if (_isBleRecoveryInProgress) {
+      return;
+    }
+
+    setState(() => _isBleRecoveryInProgress = true);
+    try {
+      final permissionService = ref.read(appPermissionServiceProvider);
+      final statuses = await permissionService.requestRequiredBlePermissions();
+      ref.invalidate(blePermissionsGrantedProvider);
+
+      final allGranted = statuses.values.every((status) => status.isGranted);
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            allGranted
+                ? 'Nearby Devices permission granted.'
+                : 'Some Bluetooth permissions are still missing.',
+          ),
+        ),
+      );
+
+      if (allGranted) {
+        await _refreshBleRuntime();
+      }
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not request Bluetooth permissions: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isBleRecoveryInProgress = false);
+      }
+    }
+  }
+
+  Future<void> _openSystemSettings() async {
+    await openAppSettings();
+  }
+
+  Future<void> _showImportDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => const ImportDialog(),
+    );
+
+    if (result == true && mounted) {
+      await _loadChats(_viewModel);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Backup imported successfully.')),
+      );
+    }
   }
 
   Widget _buildSearchBar(HomeScreenViewModel viewModel) {

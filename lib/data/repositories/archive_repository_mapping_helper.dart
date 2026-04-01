@@ -159,6 +159,7 @@ class _ArchiveRepositoryMappingHelper {
   }
 
   ArchivedMessage mapToArchivedMessage(Map<String, dynamic> row) {
+    final recordId = row['id'] as String;
     final decryptedContent = ArchiveCrypto.decryptField(
       row['content'] as String,
     );
@@ -193,6 +194,46 @@ class _ArchiveRepositoryMappingHelper {
     final decryptedPreservedStateJson = preservedStateJson != null
         ? ArchiveCrypto.decryptField(preservedStateJson)
         : null;
+    final decodedMetadata = _decodeJsonObject(
+      decryptedMetadataJson,
+      fieldName: 'metadata_json',
+      recordId: recordId,
+    );
+    final decodedDeliveryReceipt = _decodeJsonObject(
+      decryptedDeliveryReceiptJson,
+      fieldName: 'delivery_receipt_json',
+      recordId: recordId,
+    );
+    final decodedReadReceipt = _decodeJsonObject(
+      decryptedReadReceiptJson,
+      fieldName: 'read_receipt_json',
+      recordId: recordId,
+    );
+    final decodedReactions = _decodeJsonList(
+      decryptedReactionsJson,
+      fieldName: 'reactions_json',
+      recordId: recordId,
+    );
+    final decodedAttachments = _decodeJsonList(
+      decryptedAttachmentsJson,
+      fieldName: 'attachments_json',
+      recordId: recordId,
+    );
+    final decodedEncryptionInfo = _decodeJsonObject(
+      row['encryption_info_json'] as String?,
+      fieldName: 'encryption_info_json',
+      recordId: recordId,
+    );
+    final decodedArchiveMetadata = _decodeJsonObject(
+      decryptedArchiveMetadataJson,
+      fieldName: 'archive_metadata_json',
+      recordId: recordId,
+    );
+    final decodedPreservedState = _decodeJsonObject(
+      decryptedPreservedStateJson,
+      fieldName: 'preserved_state_json',
+      recordId: recordId,
+    );
 
     return ArchivedMessage(
       // Message base fields
@@ -208,21 +249,15 @@ class _ArchiveRepositoryMappingHelper {
           ? MessageId(row['reply_to_message_id'] as String)
           : null,
       threadId: row['thread_id'] as String?,
-      metadata: decryptedMetadataJson != null
-          ? Map<String, dynamic>.from(jsonDecode(decryptedMetadataJson))
+      metadata: decodedMetadata,
+      deliveryReceipt: decodedDeliveryReceipt != null
+          ? MessageDeliveryReceipt.fromJson(decodedDeliveryReceipt)
           : null,
-      deliveryReceipt: decryptedDeliveryReceiptJson != null
-          ? MessageDeliveryReceipt.fromJson(
-              jsonDecode(decryptedDeliveryReceiptJson),
-            )
+      readReceipt: decodedReadReceipt != null
+          ? MessageReadReceipt.fromJson(decodedReadReceipt)
           : null,
-      readReceipt: decryptedReadReceiptJson != null
-          ? MessageReadReceipt.fromJson(jsonDecode(decryptedReadReceiptJson))
-          : null,
-      reactions: decryptedReactionsJson != null
-          ? (jsonDecode(decryptedReactionsJson) as List)
-                .map((r) => MessageReaction.fromJson(r))
-                .toList()
+      reactions: decodedReactions != null
+          ? decodedReactions.map((r) => MessageReaction.fromJson(r)).toList()
           : const [],
       isStarred: (row['is_starred'] as int? ?? 0) == 1,
       isForwarded: (row['is_forwarded'] as int? ?? 0) == 1,
@@ -231,15 +266,13 @@ class _ArchiveRepositoryMappingHelper {
           ? DateTime.fromMillisecondsSinceEpoch(row['edited_at'] as int)
           : null,
       originalContent: decryptedOriginalContent,
-      attachments: decryptedAttachmentsJson != null
-          ? (jsonDecode(decryptedAttachmentsJson) as List)
+      attachments: decodedAttachments != null
+          ? decodedAttachments
                 .map((a) => MessageAttachment.fromJson(a))
                 .toList()
           : const [],
-      encryptionInfo: row['encryption_info_json'] != null
-          ? MessageEncryptionInfo.fromJson(
-              jsonDecode(row['encryption_info_json'] as String),
-            )
+      encryptionInfo: decodedEncryptionInfo != null
+          ? MessageEncryptionInfo.fromJson(decodedEncryptionInfo)
           : null,
 
       // ArchivedMessage specific fields
@@ -250,10 +283,8 @@ class _ArchiveRepositoryMappingHelper {
         row['original_timestamp'] as int,
       ),
       archiveId: ArchiveId(row['archive_id'] as String),
-      archiveMetadata: decryptedArchiveMetadataJson != null
-          ? ArchiveMessageMetadata.fromJson(
-              jsonDecode(decryptedArchiveMetadataJson),
-            )
+      archiveMetadata: decodedArchiveMetadata != null
+          ? ArchiveMessageMetadata.fromJson(decodedArchiveMetadata)
           : ArchiveMessageMetadata(
               archiveVersion: '1.0',
               preservationLevel: ArchivePreservationLevel.complete,
@@ -263,9 +294,7 @@ class _ArchiveRepositoryMappingHelper {
               additionalData: {},
             ),
       originalSearchableText: row['searchable_text'] as String?,
-      preservedState: decryptedPreservedStateJson != null
-          ? Map<String, dynamic>.from(jsonDecode(decryptedPreservedStateJson))
-          : null,
+      preservedState: decodedPreservedState,
     );
   }
 
@@ -292,6 +321,7 @@ class _ArchiveRepositoryMappingHelper {
     Map<String, dynamic> archiveRow,
     List<ArchivedMessage> messages,
   ) {
+    final archiveId = archiveRow['archive_id'] as String;
     final compressionInfoJson = archiveRow['compression_info_json'] as String?;
     final metadataJson = archiveRow['metadata_json'] as String?;
     final decryptedMetadataJson = metadataJson != null
@@ -305,9 +335,24 @@ class _ArchiveRepositoryMappingHelper {
     final decryptedCustomDataJson = customDataJson != null
         ? ArchiveCrypto.decryptField(customDataJson)
         : null;
+    final decodedArchiveMetadata = _decodeJsonObject(
+      decryptedMetadataJson,
+      fieldName: 'metadata_json',
+      recordId: archiveId,
+    );
+    final decodedCompressionInfo = _decodeJsonObject(
+      compressionInfoJson,
+      fieldName: 'compression_info_json',
+      recordId: archiveId,
+    );
+    final decodedCustomData = _decodeJsonObject(
+      decryptedCustomDataJson,
+      fieldName: 'custom_data_json',
+      recordId: archiveId,
+    );
 
     return ArchivedChat(
-      id: ArchiveId(archiveRow['archive_id'] as String),
+      id: ArchiveId(archiveId),
       originalChatId: ChatId(archiveRow['original_chat_id'] as String),
       contactName: archiveRow['contact_name'] as String,
       contactPublicKey: archiveRow['contact_public_key'] as String?,
@@ -321,8 +366,8 @@ class _ArchiveRepositoryMappingHelper {
             )
           : null,
       messageCount: archiveRow['message_count'] as int,
-      metadata: decryptedMetadataJson != null
-          ? ArchiveMetadata.fromJson(jsonDecode(decryptedMetadataJson))
+      metadata: decodedArchiveMetadata != null
+          ? ArchiveMetadata.fromJson(decodedArchiveMetadata)
           : ArchiveMetadata(
               version: '1.0',
               reason: decryptedReason ?? archiveReasonRaw ?? 'Unknown',
@@ -334,12 +379,86 @@ class _ArchiveRepositoryMappingHelper {
               tags: [],
               hasSearchIndex: true,
             ),
-      compressionInfo: compressionInfoJson != null
-          ? ArchiveCompressionInfo.fromJson(jsonDecode(compressionInfoJson))
+      compressionInfo: decodedCompressionInfo != null
+          ? ArchiveCompressionInfo.fromJson(decodedCompressionInfo)
           : null,
-      customData: decryptedCustomDataJson != null
-          ? Map<String, dynamic>.from(jsonDecode(decryptedCustomDataJson))
-          : null,
+      customData: decodedCustomData,
     );
+  }
+
+  Map<String, dynamic>? _decodeJsonObject(
+    String? value, {
+    required String fieldName,
+    required String recordId,
+  }) {
+    final decoded = _decodeJson(
+      value,
+      fieldName: fieldName,
+      recordId: recordId,
+    );
+    if (decoded == null) {
+      return null;
+    }
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+    ArchiveRepository._logger.warning(
+      'Skipping archive field $fieldName for $recordId: expected JSON object but found ${decoded.runtimeType}',
+    );
+    return null;
+  }
+
+  List<dynamic>? _decodeJsonList(
+    String? value, {
+    required String fieldName,
+    required String recordId,
+  }) {
+    final decoded = _decodeJson(
+      value,
+      fieldName: fieldName,
+      recordId: recordId,
+    );
+    if (decoded == null) {
+      return null;
+    }
+    if (decoded is List<dynamic>) {
+      return decoded;
+    }
+    if (decoded is List) {
+      return List<dynamic>.from(decoded);
+    }
+    ArchiveRepository._logger.warning(
+      'Skipping archive field $fieldName for $recordId: expected JSON list but found ${decoded.runtimeType}',
+    );
+    return null;
+  }
+
+  dynamic _decodeJson(
+    String? value, {
+    required String fieldName,
+    required String recordId,
+  }) {
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    if (ArchiveCrypto.isUnsupportedLegacyCiphertext(value)) {
+      ArchiveRepository._logger.warning(
+        'Skipping unsupported legacy archive field $fieldName for $recordId',
+      );
+      return null;
+    }
+    try {
+      return jsonDecode(value);
+    } catch (e, stackTrace) {
+      ArchiveRepository._logger.warning(
+        'Skipping malformed archive field $fieldName for $recordId: $e',
+        e,
+        stackTrace,
+      );
+      return null;
+    }
   }
 }

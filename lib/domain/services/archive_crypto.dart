@@ -5,6 +5,8 @@ import '../../domain/entities/enhanced_message.dart';
 /// All archive data is stored in plaintext within the SQLCipher-encrypted
 /// database. Legacy field-level archive decrypt support has been removed.
 class ArchiveCrypto {
+  static const unsupportedLegacyPrefix = 'enc::archive::v1::';
+
   /// Store field as-is (database encryption handles at-rest security).
   static String encryptField(String value) {
     return value;
@@ -13,6 +15,10 @@ class ArchiveCrypto {
   /// Retrieve field as-is. Unsupported legacy archive prefixes are not decoded.
   static String decryptField(String value) {
     return value;
+  }
+
+  static bool isUnsupportedLegacyCiphertext(String value) {
+    return value.startsWith(unsupportedLegacyPrefix);
   }
 
   static MessageEncryptionInfo resolveEncryptionInfo(

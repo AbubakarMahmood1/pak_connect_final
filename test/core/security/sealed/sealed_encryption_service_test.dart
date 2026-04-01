@@ -113,6 +113,28 @@ void main() {
         throwsException,
       );
     });
+
+    test('encrypt rejects low-order recipient public keys', () async {
+      expect(
+        () => service.encrypt(
+          plaintext: Uint8List.fromList('low-order'.codeUnits),
+          recipientPublicKey: Uint8List(DHState.keyLength),
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('decrypt rejects low-order ephemeral public keys', () async {
+      expect(
+        () => service.decrypt(
+          ciphertext: Uint8List(16),
+          recipientPrivateKey: recipient.privateKey,
+          ephemeralPublicKey: Uint8List(DHState.keyLength),
+          nonce: Uint8List(12),
+        ),
+        throwsArgumentError,
+      );
+    });
   });
 }
 

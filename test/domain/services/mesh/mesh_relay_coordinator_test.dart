@@ -137,8 +137,21 @@ void main() {
           spamPrevention: spamManager,
         );
 
+        final innerMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'relay-empty',
+            'content': 'payload',
+            'encrypted': true,
+            'recipientId': 'recipient',
+            'useEphemeralAddressing': false,
+          },
+          timestamp: DateTime.now(),
+        );
+
         final result = await coordinator.sendRelayMessage(
-          content: 'payload',
+          innerProtocolMessage: innerMessage,
           recipientPublicKey: 'recipient',
           chatId: 'chat',
         );
@@ -170,8 +183,21 @@ void main() {
           spamPrevention: spamManager,
         );
 
+        final innerMessage = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': 'relay-success',
+            'content': 'message body',
+            'encrypted': true,
+            'recipientId': 'recipient-key',
+            'useEphemeralAddressing': false,
+          },
+          timestamp: DateTime.now(),
+        );
+
         final result = await coordinator.sendRelayMessage(
-          content: 'message body',
+          innerProtocolMessage: innerMessage,
           recipientPublicKey: 'recipient-key',
           chatId: 'chat-123',
           priority: MessagePriority.high,
@@ -724,6 +750,9 @@ class _FakeMeshBleService implements IConnectionService {
     String message, {
     String? messageId,
   }) async => true;
+
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async => true;
 
   @override
   Future<String> sendBinaryMedia({

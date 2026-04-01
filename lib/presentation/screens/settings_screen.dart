@@ -5,22 +5,31 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 
 import '../controllers/settings_controller.dart';
 import '../providers/ble_providers.dart';
+import '../providers/theme_provider.dart';
+import '../screens/permission_screen.dart';
 import '../widgets/settings/about_section.dart';
 import '../widgets/settings/appearance_section.dart';
 import '../widgets/settings/data_storage_section.dart';
 import '../widgets/settings/developer_tools_section.dart';
 import '../widgets/settings/notification_section.dart';
+import '../widgets/settings/panic_wipe_dialog.dart';
 import '../widgets/settings/privacy_section.dart';
 import '../widgets/settings/settings_section_header.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, this.controller});
+  const SettingsScreen({
+    super.key,
+    this.controller,
+    this.postPanicWipeDestinationBuilder,
+  });
 
   /// Optional controller injection seam for tests.
   final SettingsController? controller;
+  final WidgetBuilder? postPanicWipeDestinationBuilder;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -77,6 +86,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (bleService.isPeripheralMode) {
       await bleService.refreshAdvertising(showOnlineStatus: value);
     }
+  }
+
+  Future<void> _handlePanicWipeRequest(PanicWipeOrigin origin) async {
+    final confirmed = await showPanicWipeDialog(context);
+    if (!mounted || !confirmed) {
+      return;
+    }
+
+    _showSnack('Panic wipe in progress...');
+
+    final result = await _controller.panicWipe(origin: origin);
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (!result.success) {
+      final details = result.failures.isEmpty
+          ? 'unknown failure'
+          : result.failures.first;
+      _showError('Panic wipe may be incomplete: $details');
+      return;
+    }
+
+    ref.invalidate(themeModeProvider);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (routeContext) =>
+            widget.postPanicWipeDestinationBuilder?.call(routeContext) ??
+            const PermissionScreen(),
+      ),
+      (route) => false,
+    );
   }
 
   @override
@@ -142,12 +184,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Divider(height: 24),
 
                 const SettingsSectionHeader(title: 'Data & Storage'),
-                DataStorageSection(controller: _controller),
+                DataStorageSection(
+                  controller: _controller,
+                  onPanicWipeRequested: () =>
+                      _handlePanicWipeRequest(PanicWipeOrigin.settings),
+                ),
 
                 const Divider(height: 24),
 
                 const SettingsSectionHeader(title: 'About'),
-                AboutSection(controller: _controller),
+                AboutSection(
+                  controller: _controller,
+                  onPanicWipeRequested: () => _handlePanicWipeRequest(
+                    PanicWipeOrigin.hiddenAboutVersion,
+                  ),
+                ),
 
                 if (kDebugMode) ...[
                   const Divider(height: 24),

@@ -45,30 +45,18 @@ class _StubController extends DiscoveryOverlayController {
  }
 }
 
-// ---------------------------------------------------------------------------
-// Fake BurstScanningController for BurstScanningOperations
-// ---------------------------------------------------------------------------
-
-class _FakeBurstScanningController extends BurstScanningController {
- bool triggerManualScanCalled = false;
+class _FakeDiscoveryScannerRecoveryController
+    implements IDiscoveryScannerRecoveryController {
+ bool recoverCalled = false;
  bool shouldThrow = false;
 
  @override
- Future<void> triggerManualScan({
- Duration delay = const Duration(seconds: 1),
- }) async {
- triggerManualScanCalled = true;
+ Future<void> recover({bool forceWakeIfReady = true}) async {
+ recoverCalled = true;
  if (shouldThrow) {
  throw Exception('Scan failed');
  }
  }
-
- @override
- BurstScanningStatus getCurrentStatus() => BurstScanningStatus(isBurstActive: false,
- currentScanInterval: 60000,
- secondsUntilNextScan: 10,
- powerStats: _powerStats(),
-);
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +99,8 @@ Future<void> _pump(WidgetTester tester, {
  AsyncValue<ConnectionInfo>? connectionInfoAsync,
  Stream<Map<String, DiscoveredDevice>>? dedupStream,
  Stream<List<BLEServerConnection>>? serverConnectionsStream,
- BurstScanningOperations? burstOps,
+ IDiscoveryScannerRecoveryController? recoveryController,
+ DiscoveryScannerUiState? scannerUiState,
 }) async {
  final svc = service ?? MockConnectionService();
 
@@ -128,8 +117,18 @@ Future<void> _pump(WidgetTester tester, {
 ),
 ),
  burstScanningStatusProvider.overrideWith((ref) => Stream.value(_burstStatus()),
+ ),
+ discoveryScannerUiStateProvider.overrideWith((ref) =>
+ scannerUiState ??
+ DiscoveryScannerUiState(phase: DiscoveryScannerUiPhase.countdown,
+ message: 'Next scan starts soon.',
+ secondsRemaining: 10,
+ burstStatus: _burstStatus(),
 ),
- burstScanningOperationsProvider.overrideWith((ref) => burstOps),
+),
+ discoveryScannerRecoveryProvider.overrideWith((ref) =>
+ recoveryController ?? _FakeDiscoveryScannerRecoveryController(),
+),
  serverConnectionsStreamProvider.overrideWith((ref) =>
  serverConnectionsStream ??
  Stream.value(const <BLEServerConnection>[]),
@@ -260,21 +259,20 @@ void main() {
 
  group('DiscoveryOverlay _startScanning', () {
  testWidgets('tapping "Try Again" in error state triggers _startScanning', (tester,
-) async {
- final fakeBurstCtrl = _FakeBurstScanningController();
- final svc = MockConnectionService();
- final burstOps = BurstScanningOperations(controller: fakeBurstCtrl,
- connectionService: svc,
-);
+ ) async {
+ final recovery = _FakeDiscoveryScannerRecoveryController();
 
  await _pump(tester,
  controller: _StubController(DiscoveryOverlayState.initial()),
- service: svc,
  devicesAsync: AsyncValue.error(Exception('BLE error'),
  StackTrace.empty,
-),
- burstOps: burstOps,
-);
+ ),
+ recoveryController: recovery,
+ scannerUiState: const DiscoveryScannerUiState(
+ phase: DiscoveryScannerUiPhase.error,
+ message: 'Scanner unavailable. Retry to recover BLE.',
+ ),
+ );
  await tester.pumpAndSettle();
 
  expect(find.text('Try Again'), findsOneWidget);
@@ -282,18 +280,21 @@ void main() {
  await tester.tap(find.text('Try Again'));
  await tester.pumpAndSettle();
 
- expect(fakeBurstCtrl.triggerManualScanCalled, isTrue);
+ expect(recovery.recoverCalled, isTrue);
  });
 
- testWidgets('_startScanning with null burstOperations does not crash', (tester,
-) async {
+ testWidgets('_startScanning with default recovery controller does not crash', (tester,
+ ) async {
  await _pump(tester,
  controller: _StubController(DiscoveryOverlayState.initial()),
  devicesAsync: AsyncValue.error(Exception('BLE error'),
  StackTrace.empty,
-),
- burstOps: null,
-);
+ ),
+ scannerUiState: const DiscoveryScannerUiState(
+ phase: DiscoveryScannerUiPhase.error,
+ message: 'Scanner unavailable. Retry to recover BLE.',
+ ),
+ );
  await tester.pumpAndSettle();
 
  await tester.tap(find.text('Try Again'));
@@ -303,22 +304,20 @@ void main() {
  });
 
  testWidgets('_startScanning exception shows error snackbar', (tester,
-) async {
- final fakeBurstCtrl = _FakeBurstScanningController();
- fakeBurstCtrl.shouldThrow = true;
- final svc = MockConnectionService();
- final burstOps = BurstScanningOperations(controller: fakeBurstCtrl,
- connectionService: svc,
-);
+ ) async {
+ final recovery = _FakeDiscoveryScannerRecoveryController()..shouldThrow = true;
 
  await _pump(tester,
  controller: _StubController(DiscoveryOverlayState.initial()),
- service: svc,
  devicesAsync: AsyncValue.error(Exception('BLE error'),
  StackTrace.empty,
-),
- burstOps: burstOps,
-);
+ ),
+ recoveryController: recovery,
+ scannerUiState: const DiscoveryScannerUiState(
+ phase: DiscoveryScannerUiPhase.error,
+ message: 'Scanner unavailable. Retry to recover BLE.',
+ ),
+ );
  await tester.pumpAndSettle();
 
  await tester.tap(find.text('Try Again'));
@@ -592,22 +591,20 @@ void main() {
 
  group('DiscoveryOverlay _showError', () {
  testWidgets('_showError displays snackbar with correct styling', (tester,
-) async {
- final fakeBurstCtrl = _FakeBurstScanningController();
- fakeBurstCtrl.shouldThrow = true;
- final svc = MockConnectionService();
- final burstOps = BurstScanningOperations(controller: fakeBurstCtrl,
- connectionService: svc,
-);
+ ) async {
+ final recovery = _FakeDiscoveryScannerRecoveryController()..shouldThrow = true;
 
  await _pump(tester,
  controller: _StubController(DiscoveryOverlayState.initial()),
- service: svc,
  devicesAsync: AsyncValue.error(Exception('BLE error'),
  StackTrace.empty,
-),
- burstOps: burstOps,
-);
+ ),
+ recoveryController: recovery,
+ scannerUiState: const DiscoveryScannerUiState(
+ phase: DiscoveryScannerUiPhase.error,
+ message: 'Scanner unavailable. Retry to recover BLE.',
+ ),
+ );
  await tester.pumpAndSettle();
 
  await tester.tap(find.text('Try Again'));

@@ -80,6 +80,14 @@ abstract interface class IBLEMessageHandlerFacade {
     required List<String> messageIds,
   });
 
+  /// Builds a signed v2 text protocol message for end-to-end relay delivery.
+  Future<ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  });
+
   /// Gets relay statistics from underlying RelayCoordinator.
   Future<RelayStatistics> getRelayStatistics();
 

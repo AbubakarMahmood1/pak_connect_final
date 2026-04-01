@@ -54,13 +54,18 @@ class _TestPeripheralManager implements PeripheralManager {
   final bool throwOnStreams;
 
   final StreamController<CentralConnectionStateChangedEventArgs>
-  _connectionController = StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
+  _connectionController =
+      StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
   final StreamController<CentralMTUChangedEventArgs> _mtuController =
       StreamController<CentralMTUChangedEventArgs>.broadcast();
   final StreamController<GATTCharacteristicNotifyStateChangedEventArgs>
-  _notifyController = StreamController<GATTCharacteristicNotifyStateChangedEventArgs>.broadcast();
+  _notifyController =
+      StreamController<
+        GATTCharacteristicNotifyStateChangedEventArgs
+      >.broadcast();
   final StreamController<GATTCharacteristicWriteRequestedEventArgs>
-  _writeController = StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
+  _writeController =
+      StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
 
   int respondWriteCount = 0;
   int respondWriteErrorCount = 0;
@@ -128,7 +133,8 @@ class _TestCentralManager implements CentralManager {
   final bool throwOnNotifiedStream;
 
   final StreamController<GATTCharacteristicNotifiedEventArgs>
-  _notifiedController = StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
+  _notifiedController =
+      StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
 
   void emitNotified(GATTCharacteristicNotifiedEventArgs event) =>
       _notifiedController.add(event);
@@ -214,7 +220,8 @@ class _TestConnectionManager implements BLEConnectionManager {
   ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
   set serverConnectionCountValue(int value) => _serverConnectionCount = value;
-  set connectionStateValue(ChatConnectionState value) => _connectionState = value;
+  set connectionStateValue(ChatConnectionState value) =>
+      _connectionState = value;
 
   @override
   void setLocalHintProvider(Future<String?> Function()? provider) {
@@ -408,6 +415,11 @@ void main() {
   late _TestCentral central;
   late _TestPeripheral peripheral;
   late _TestCharacteristic characteristic;
+  late List<String> inboundEvents;
+  late List<String> notifyEvents;
+  late List<String> handshakeStartEvents;
+  late List<String> disconnectEvents;
+  late List<String> mtuEvents;
 
   setUp(() {
     centralManager = _TestCentralManager();
@@ -422,6 +434,11 @@ void main() {
     advertisingService = _TestAdvertisingService();
     messagingService = _TestMessagingService();
     handshakeService = _TestHandshakeService();
+    inboundEvents = <String>[];
+    notifyEvents = <String>[];
+    handshakeStartEvents = <String>[];
+    disconnectEvents = <String>[];
+    mtuEvents = <String>[];
     coordinator = BleLifecycleCoordinator(
       logger: Logger('test.lifecycle'),
       platformHost: platformHost,
@@ -431,8 +448,16 @@ void main() {
       getAdvertisingService: () => advertisingService,
       getMessagingService: () => messagingService,
       getHandshakeService: () => handshakeService,
+      onInboundConnected: inboundEvents.add,
+      onMtuReady: (address, mtu) => mtuEvents.add('$address:$mtu'),
+      onNotifySubscribed: notifyEvents.add,
+      onHandshakeStarted: handshakeStartEvents.add,
+      onPeerDisconnected: (address, reason) =>
+          disconnectEvents.add('$address:$reason'),
     );
-    central = _TestCentral(UUID.fromString('00000000-0000-0000-0000-000000000001'));
+    central = _TestCentral(
+      UUID.fromString('00000000-0000-0000-0000-000000000001'),
+    );
     peripheral = _TestPeripheral(
       UUID.fromString('00000000-0000-0000-0000-000000000002'),
     );
@@ -445,19 +470,22 @@ void main() {
     await peripheralManager.dispose();
   });
 
-  test('ensureConnectionServicePrepared is idempotent and wires callbacks', () async {
-    coordinator.ensureConnectionServicePrepared();
-    coordinator.ensureConnectionServicePrepared();
+  test(
+    'ensureConnectionServicePrepared is idempotent and wires callbacks',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      coordinator.ensureConnectionServicePrepared();
 
-    expect(connectionService.setupCalls, 1);
-    expect(connectionManager.localHintProvider, isNotNull);
-    expect(await connectionManager.localHintProvider!.call(), 'hint-local');
-    expect(handshakeService.buildHintCalls, 1);
+      expect(connectionService.setupCalls, 1);
+      expect(connectionManager.localHintProvider, isNotNull);
+      expect(await connectionManager.localHintProvider!.call(), 'hint-local');
+      expect(handshakeService.buildHintCalls, 1);
 
-    expect(connectionManager.onConnectionComplete, isNotNull);
-    await connectionManager.onConnectionComplete!.call();
-    expect(handshakeService.performCalls, [true]);
-  });
+      expect(connectionManager.onConnectionComplete, isNotNull);
+      await connectionManager.onConnectionComplete!.call();
+      expect(handshakeService.performCalls, [true]);
+    },
+  );
 
   test('ensureDiscoveryInitialized runs once', () async {
     await coordinator.ensureDiscoveryInitialized();
@@ -465,53 +493,61 @@ void main() {
     expect(discoveryService.initializeCalls, 1);
   });
 
-  test('peripheral connection, mtu, notify, and write events delegate correctly', () async {
-    coordinator.ensureConnectionServicePrepared();
-    connectionManager.serverConnectionCountValue = 1;
-    connectionManager.hasServerConnectionValue = true;
-    advertisingService.messageCharacteristicValue = characteristic;
-    handshakeService.handleIncomingResult = false;
+  test(
+    'peripheral connection, mtu, notify, and write events delegate correctly',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionManager.serverConnectionCountValue = 1;
+      connectionManager.hasServerConnectionValue = true;
+      advertisingService.messageCharacteristicValue = characteristic;
+      handshakeService.handleIncomingResult = false;
 
-    peripheralManager.emitConnection(
-      CentralConnectionStateChangedEventArgs(
-        central,
-        ConnectionState.connected,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.centralConnectedCalls, 1);
-    expect(connectionService.connectedCentral, central);
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.connected,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(connectionManager.centralConnectedCalls, 1);
+      expect(connectionService.connectedCentral, central);
+      expect(inboundEvents, [central.uuid.toString()]);
 
-    peripheralManager.emitMtu(CentralMTUChangedEventArgs(central, 185));
-    await Future<void>.delayed(Duration.zero);
-    expect(advertisingService.updateMtuCalls, 1);
-    expect(connectionManager.updateServerMtuCalls, 1);
-    expect(advertisingService.lastMtu, 185);
+      peripheralManager.emitMtu(CentralMTUChangedEventArgs(central, 185));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(advertisingService.updateMtuCalls, 1);
+      expect(connectionManager.updateServerMtuCalls, 1);
+      expect(advertisingService.lastMtu, 185);
+      expect(mtuEvents, ['${central.uuid}:185']);
 
-    peripheralManager.emitNotifyState(
-      GATTCharacteristicNotifyStateChangedEventArgs(
-        central,
-        characteristic,
-        true,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.subscribedCalls, 1);
-    expect(connectionService.connectedCharacteristic, characteristic);
+      peripheralManager.emitNotifyState(
+        GATTCharacteristicNotifyStateChangedEventArgs(
+          central,
+          characteristic,
+          true,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(connectionManager.subscribedCalls, 1);
+      expect(connectionService.connectedCharacteristic, characteristic);
+      expect(notifyEvents, [central.uuid.toString()]);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(handshakeStartEvents, contains(central.uuid.toString()));
 
-    final writeRequest = _TestWriteRequest(Uint8List.fromList([1, 2, 3]));
-    peripheralManager.emitWrite(
-      GATTCharacteristicWriteRequestedEventArgs(
-        central,
-        characteristic,
-        writeRequest,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(handshakeService.handleIncomingCalls, greaterThan(0));
-    expect(messagingService.processCalls, 1);
-    expect(peripheralManager.respondWriteCount, 1);
-  });
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([1, 2, 3]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(handshakeService.handleIncomingCalls, greaterThan(0));
+      expect(messagingService.processCalls, 1);
+      expect(peripheralManager.respondWriteCount, 1);
+    },
+  );
 
   test('write handler returns protocol error when processing throws', () async {
     coordinator.ensureConnectionServicePrepared();
@@ -529,87 +565,99 @@ void main() {
     expect(peripheralManager.respondWriteErrorCount, 1);
   });
 
-  test('disconnect events reset session and promote replacement server link', () async {
-    coordinator.ensureConnectionServicePrepared();
-    connectionService.connectedCentral = central;
-    connectionService.connectedCharacteristic = characteristic;
+  test(
+    'disconnect events reset session and promote replacement server link',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionService.connectedCentral = central;
+      connectionService.connectedCharacteristic = characteristic;
 
-    connectionManager.serverConnectionCountValue = 0;
-    peripheralManager.emitConnection(
-      CentralConnectionStateChangedEventArgs(
-        central,
-        ConnectionState.disconnected,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.centralDisconnectedCalls, 1);
-    expect(handshakeService.disposeCalls, 1);
-    expect(advertisingService.resetCalls, 1);
-    expect(connectionService.connectedCentral, isNull);
-    expect(connectionService.connectedCharacteristic, isNull);
+      connectionManager.serverConnectionCountValue = 0;
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.disconnected,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionManager.centralDisconnectedCalls, 1);
+      expect(handshakeService.disposeCalls, 1);
+      expect(advertisingService.resetCalls, 1);
+      expect(connectionService.connectedCentral, isNull);
+      expect(connectionService.connectedCharacteristic, isNull);
+      expect(
+        disconnectEvents,
+        contains('${central.uuid}:peripheral-connection-state-disconnected'),
+      );
 
-    final replacement = _TestCentral(
-      UUID.fromString('00000000-0000-0000-0000-0000000000AA'),
-    );
-    connectionService.connectedCentral = replacement;
-    connectionManager.serverConnectionCountValue = 1;
-    connectionManager.serverConnections = [
-      BLEServerConnection(
-        address: replacement.uuid.toString(),
-        central: replacement,
-        connectedAt: DateTime.now(),
-        subscribedCharacteristic: characteristic,
-      ),
-    ];
-    peripheralManager.emitConnection(
-      CentralConnectionStateChangedEventArgs(
-        replacement,
-        ConnectionState.disconnected,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionService.connectedCentral, replacement);
-    expect(connectionService.connectedCharacteristic, characteristic);
-  });
+      final replacement = _TestCentral(
+        UUID.fromString('00000000-0000-0000-0000-0000000000AA'),
+      );
+      connectionService.connectedCentral = replacement;
+      connectionManager.serverConnectionCountValue = 1;
+      connectionManager.serverConnections = [
+        BLEServerConnection(
+          address: replacement.uuid.toString(),
+          central: replacement,
+          connectedAt: DateTime.now(),
+          subscribedCharacteristic: characteristic,
+        ),
+      ];
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          replacement,
+          ConnectionState.disconnected,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionService.connectedCentral, replacement);
+      expect(connectionService.connectedCharacteristic, characteristic);
+    },
+  );
 
-  test('central notifications handle service-changed, handshake, and relay payloads', () async {
-    coordinator.ensureConnectionServicePrepared();
+  test(
+    'central notifications handle service-changed, handshake, and relay payloads',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
 
-    final serviceChanged = _TestCharacteristic(UUID.fromAddress(0x2A05));
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        serviceChanged,
-        Uint8List.fromList([0]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.disconnectClientCalls, [peripheral.uuid.toString()]);
+      final serviceChanged = _TestCharacteristic(UUID.fromAddress(0x2A05));
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          serviceChanged,
+          Uint8List.fromList([0]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionManager.disconnectClientCalls, [
+        peripheral.uuid.toString(),
+      ]);
 
-    final normal = _TestCharacteristic(UUID.fromAddress(0x2A19));
-    handshakeService.handleIncomingResult = true;
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        normal,
-        Uint8List.fromList([1]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(messagingService.processCalls, 0);
+      final normal = _TestCharacteristic(UUID.fromAddress(0x2A19));
+      handshakeService.handleIncomingResult = true;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          normal,
+          Uint8List.fromList([1]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 0);
 
-    handshakeService.handleIncomingResult = false;
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        normal,
-        Uint8List.fromList([2]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(messagingService.processCalls, 1);
-    expect(messagingService.lastSenderDeviceId, peripheral.uuid.toString());
-  });
+      handshakeService.handleIncomingResult = false;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          normal,
+          Uint8List.fromList([2]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 1);
+      expect(messagingService.lastSenderDeviceId, peripheral.uuid.toString());
+    },
+  );
 
   test('unsupported platform stream bindings are tolerated', () async {
     final unsupportedCoordinator = BleLifecycleCoordinator(
@@ -627,6 +675,9 @@ void main() {
     );
     addTearDown(unsupportedCoordinator.dispose);
 
-    expect(unsupportedCoordinator.ensureConnectionServicePrepared, returnsNormally);
+    expect(
+      unsupportedCoordinator.ensureConnectionServicePrepared,
+      returnsNormally,
+    );
   });
 }

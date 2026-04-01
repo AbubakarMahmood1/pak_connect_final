@@ -9,12 +9,14 @@ import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_chats_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
+import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/connection_status.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/chat_notification_providers.dart';
 import 'package:pak_connect/presentation/providers/home_screen_providers.dart';
@@ -311,22 +313,60 @@ ChatListItem _chat(String id, {
 );
 }
 
+BluetoothStateInfo _bluetoothStateInfoFor(
+ BluetoothLowEnergyState state, {
+ bool? hasBlePermissions,
+}) {
+ return BluetoothStateInfo(
+ state: state,
+ previousState: null,
+ isReady: state == BluetoothLowEnergyState.poweredOn && hasBlePermissions != false,
+ availabilityPhase: switch (state) {
+ BluetoothLowEnergyState.poweredOn => hasBlePermissions == false
+ ? BluetoothAvailabilityPhase.permissionsRequired
+ : BluetoothAvailabilityPhase.ready,
+ BluetoothLowEnergyState.poweredOff => BluetoothAvailabilityPhase.disabled,
+ BluetoothLowEnergyState.unauthorized =>
+ BluetoothAvailabilityPhase.permissionsRequired,
+ BluetoothLowEnergyState.unsupported => BluetoothAvailabilityPhase.unsupported,
+ BluetoothLowEnergyState.unknown => BluetoothAvailabilityPhase.warmingUp,
+ },
+ timestamp: DateTime.now(),
+ );
+}
+
 Future<void> _pumpHomeScreen(WidgetTester tester, {
  required _FakeChatsRepository repository,
  required _FakeChatManagementService chatManagementService,
  required _FakeHomeScreenFacade facade,
  required IMeshNetworkingService meshService,
  BluetoothLowEnergyState bleState = BluetoothLowEnergyState.poweredOn,
+ bool? hasBlePermissions,
+ BluetoothStatusMessage? bluetoothMessage,
  List<Peripheral> discoveredDevices = const <Peripheral>[],
  String username = 'Alice',
  UsernameNotifier? usernameNotifier,
 }) async {
+ final resolvedBlePermissions =
+ hasBlePermissions ?? bleState == BluetoothLowEnergyState.poweredOn;
+ final resolvedBluetoothMessage =
+ bluetoothMessage ??
+ (bleState == BluetoothLowEnergyState.poweredOn
+ ? BluetoothStatusMessage.ready('Bluetooth ready')
+ : BluetoothStatusMessage.disabled('Bluetooth is disabled'));
+
  await tester.pumpWidget(ProviderScope(overrides: [
  homeScreenFacadeProvider.overrideWith((ref, args) => facade),
  meshNetworkingServiceProvider.overrideWithValue(meshService),
  usernameProvider.overrideWith(() => usernameNotifier ?? _TestUsernameNotifier(username),
 ),
  bleStateProvider.overrideWith((ref) => AsyncValue.data(bleState)),
+ bluetoothStateProvider.overrideWith((ref) => AsyncValue.data(_bluetoothStateInfoFor(bleState,
+ hasBlePermissions: resolvedBlePermissions,
+)),
+),
+ blePermissionsGrantedProvider.overrideWith((ref) async => resolvedBlePermissions),
+ bluetoothStatusMessageProvider.overrideWith((ref) => AsyncValue.data(resolvedBluetoothMessage)),
  connectionInfoProvider.overrideWith((ref) => const AsyncValue.data(ConnectionInfo(isConnected: false,
  isReady: false,
  awaitingHandshake: false,
@@ -1160,8 +1200,11 @@ void main() {
  expect(find.byIcon(Icons.bluetooth_disabled), findsNothing);
  });
 
- testWidgets('BLE banner shows when Bluetooth is unauthorized', (tester,
-) async {
+ testWidgets(
+ 'compact BLE status action shows background re-check state when plugin reports unauthorized',
+ (
+  tester,
+ ) async {
  final repo = _FakeChatsRepository();
  final cms = _FakeChatManagementService();
  final facade = _FakeHomeScreenFacade();
@@ -1173,13 +1216,17 @@ void main() {
  facade: facade,
  meshService: mesh,
  bleState: BluetoothLowEnergyState.unauthorized,
+ hasBlePermissions: true,
+ bluetoothMessage: BluetoothStatusMessage.unauthorized(
+ 'Bluetooth permission required.',
+ ),
 );
- await tester.pumpAndSettle();
+ await tester.pump();
+ await tester.pump();
 
- expect(find.byIcon(Icons.bluetooth_disabled), findsOneWidget);
- expect(find.text('Bluetooth unauthorized - Allow Permission!'),
- findsOneWidget,
-);
+ expect(find.byTooltip(
+ 'Bluetooth is re-checking availability in the background. You can keep using the app while mesh wakes up.',
+ ), findsOneWidget);
  });
 
  // ========= Unread badge on search icon =========

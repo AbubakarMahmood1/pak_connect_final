@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart';
@@ -6,7 +8,7 @@ import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
-import 'package:pak_connect/domain/models/protocol_message_type.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 
 typedef RelayStatsCallback = void Function(RelayStatistics stats);
 typedef RelayDecisionCallback = void Function(RelayDecision decision);
@@ -73,7 +75,7 @@ class MeshRelayCoordinator {
 
   /// Route a message through the mesh network.
   Future<MeshSendResult> sendRelayMessage({
-    required String content,
+    required ProtocolMessage innerProtocolMessage,
     required String recipientPublicKey,
     required String chatId,
     MessagePriority priority = MessagePriority.normal,
@@ -83,8 +85,14 @@ class MeshRelayCoordinator {
     }
 
     try {
-      final originalMessageId = DateTime.now().millisecondsSinceEpoch
-          .toString();
+      final originalMessageId = innerProtocolMessage.textMessageId;
+      if (originalMessageId == null || originalMessageId.isEmpty) {
+        return MeshSendResult.error(
+          'Inner relay protocol message is missing a message ID',
+        );
+      }
+
+      final relayPayload = base64.encode(innerProtocolMessage.toBytes());
       final nextHops = await getAvailableNextHops();
       if (nextHops.isEmpty) {
         return MeshSendResult.error('No next hops available for relay');
@@ -92,9 +100,10 @@ class MeshRelayCoordinator {
 
       final relayMessage = await _relayEngine!.createOutgoingRelay(
         originalMessageId: originalMessageId,
-        originalContent: content,
+        originalContent: '',
         finalRecipientPublicKey: recipientPublicKey,
         priority: priority,
+        encryptedPayload: relayPayload,
         originalMessageType: ProtocolMessageType.textMessage,
       );
 

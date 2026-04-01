@@ -25,6 +25,11 @@ class BleLifecycleCoordinator {
     required IBLEAdvertisingService Function() getAdvertisingService,
     required IBLEMessagingService Function() getMessagingService,
     required IBLEHandshakeService Function() getHandshakeService,
+    void Function(String address)? onInboundConnected,
+    void Function(String address, int mtu)? onMtuReady,
+    void Function(String address)? onNotifySubscribed,
+    void Function(String address)? onHandshakeStarted,
+    void Function(String address, String reason)? onPeerDisconnected,
   }) : _logger = logger,
        _platformHost = platformHost,
        _connectionManager = connectionManager,
@@ -32,7 +37,12 @@ class BleLifecycleCoordinator {
        _getDiscoveryService = getDiscoveryService,
        _getAdvertisingService = getAdvertisingService,
        _getMessagingService = getMessagingService,
-       _getHandshakeService = getHandshakeService;
+       _getHandshakeService = getHandshakeService,
+       _onInboundConnected = onInboundConnected,
+       _onMtuReady = onMtuReady,
+       _onNotifySubscribed = onNotifySubscribed,
+       _onHandshakeStarted = onHandshakeStarted,
+       _onPeerDisconnected = onPeerDisconnected;
 
   final Logger _logger;
   final IBLEPlatformHost _platformHost;
@@ -42,6 +52,11 @@ class BleLifecycleCoordinator {
   final IBLEAdvertisingService Function() _getAdvertisingService;
   final IBLEMessagingService Function() _getMessagingService;
   final IBLEHandshakeService Function() _getHandshakeService;
+  final void Function(String address)? _onInboundConnected;
+  final void Function(String address, int mtu)? _onMtuReady;
+  final void Function(String address)? _onNotifySubscribed;
+  final void Function(String address)? _onHandshakeStarted;
+  final void Function(String address, String reason)? _onPeerDisconnected;
 
   Timer? _serverHandshakeTimer;
   StreamSubscription<CentralConnectionStateChangedEventArgs>?
@@ -123,6 +138,7 @@ class BleLifecycleCoordinator {
               _connectionManager.handleCentralConnected(event.central);
               final connectionService = _getConnectionService();
               connectionService.connectedCentral = event.central;
+              _onInboundConnected?.call(event.central.uuid.toString());
               _scheduleResponderHandshakeFallback();
             } else {
               _connectionManager.handleCentralDisconnected(event.central);
@@ -141,6 +157,10 @@ class BleLifecycleCoordinator {
                 connectionService.connectedCentral = null;
                 connectionService.connectedCharacteristic = null;
               }
+              _onPeerDisconnected?.call(
+                disconnectedId,
+                'peripheral-connection-state-disconnected',
+              );
 
               if (!hasOtherServerConnections) {
                 advertisingService.resetPeripheralSession();
@@ -170,6 +190,7 @@ class BleLifecycleCoordinator {
           event.central.uuid.toString(),
           event.mtu,
         );
+        _onMtuReady?.call(event.central.uuid.toString(), event.mtu);
         _maybeStartResponderHandshake();
       });
 
@@ -184,6 +205,7 @@ class BleLifecycleCoordinator {
             final connectionService = _getConnectionService();
             connectionService.connectedCentral = event.central;
             connectionService.connectedCharacteristic = event.characteristic;
+            _onNotifySubscribed?.call(event.central.uuid.toString());
             _maybeStartResponderHandshake(
               characteristicOverride: event.characteristic,
             );
@@ -305,6 +327,7 @@ class BleLifecycleCoordinator {
 
     advertisingService.peripheralHandshakeStarted = true;
     _connectionManager.onCharacteristicFound?.call(characteristic);
+    _onHandshakeStarted?.call(address);
 
     unawaited(
       _getHandshakeService().performHandshake(startAsInitiatorOverride: false),

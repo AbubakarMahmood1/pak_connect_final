@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,7 +24,6 @@ import '../../domain/entities/message.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../models/connection_info.dart';
 import '../models/mesh_network_models.dart';
-import '../models/bluetooth_state_models.dart';
 import '../constants/binary_payload_types.dart';
 import '../interfaces/i_shared_message_queue_provider.dart';
 import 'mesh/mesh_network_health_monitor.dart';
@@ -358,10 +356,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// Generate a fallback node ID when BLE service is unavailable
   String _generateFallbackNodeId() => _runtimeHelper.generateFallbackNodeId();
 
-  Future<void> _waitForBluetoothReady({
-    Duration timeout = const Duration(seconds: 25),
-  }) => _runtimeHelper.waitForBluetoothReady(timeout: timeout);
-
   /// Set up BLE integration with fallback handling
   Future<void> _setupBLEIntegrationWithFallback() =>
       _runtimeHelper.setupBleIntegrationWithFallback();
@@ -400,9 +394,20 @@ class MeshNetworkingService implements IMeshNetworkingService {
         // Direct delivery
         return await _sendDirectMessage(content, recipientPublicKey, chatId);
       } else {
+        final innerProtocolMessage =
+            await _messageHandler.buildSecureTextProtocolMessage(
+              recipientKey: recipientPublicKey,
+              content: content,
+            );
+        if (innerProtocolMessage == null) {
+          return MeshSendResult.error(
+            'Unable to create sealed relay payload for recipient',
+          );
+        }
+
         // Mesh relay required
         return await _relayCoordinator.sendRelayMessage(
-          content: content,
+          innerProtocolMessage: innerProtocolMessage,
           recipientPublicKey: recipientPublicKey,
           chatId: chatId,
           priority: priority,
@@ -523,7 +528,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
     String originalSender,
   ) async {
     try {
-      // 🎯 ENHANCED DEBUG LOGGING for delivery confirmation
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.shortId()
           : originalMessageId;
@@ -538,27 +542,14 @@ class MeshNetworkingService implements IMeshNetworkingService {
       _logger.fine('🎯 MESH DELIVERY START: Message $truncatedMessageId...');
       _logger.fine('🎯 FROM ORIGINAL SENDER: $truncatedSender...');
       _logger.fine('🎯 TO CURRENT USER: $truncatedCurrentNode...');
-
-      // 🔍 CRITICAL FIX: Generate chat ID using original sender (not relay node)
-      final chatId = ChatUtils.generateChatId(originalSender);
-      _logger.fine(
-        '🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.shortId() : chatId}...',
+      final protocolBytes = Uint8List.fromList(base64.decode(content));
+      await _messageHandler.processReceivedData(
+        data: protocolBytes,
+        fromDeviceId: originalSender,
+        fromNodeId: originalSender,
       );
-
-      // Create message with proper attribution to original sender
-      final message = Message(
-        id: MessageId(originalMessageId),
-        chatId: ChatId(chatId),
-        content: content,
-        timestamp: DateTime.now(),
-        isFromMe: false, // ✅ Message is from original sender, not current user
-        status: MessageStatus.delivered,
-      );
-
-      // Save to repository with confirmation
-      await _messageRepository.saveMessage(message);
       _logger.info(
-        '✅ MESH DELIVERY SUCCESS: Message stored in chat with original sender $truncatedSender...',
+        '✅ MESH DELIVERY SUCCESS: Inner protocol message reinjected from $truncatedSender...',
       );
 
       // Broadcast mesh status update

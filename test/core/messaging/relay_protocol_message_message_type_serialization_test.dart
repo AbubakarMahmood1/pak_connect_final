@@ -12,6 +12,12 @@ import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/models/message_priority.dart';
 import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
+String _relayPayload(String content) => 'ciphertext::$content';
+
+Map<String, String> _relayWirePayload(String content) => {
+ 'innerProtocolMessage': _relayPayload(content),
+};
+
 void main() {
  group('ProtocolMessage Message Type Serialization', () {
  test('Should serialize and deserialize meshRelay with message type', () {
@@ -31,7 +37,7 @@ void main() {
  'finalRecipient': 'recipient-xyz',
  'senderRateCount': 0,
  },
- originalPayload: {'content': 'Hello World'},
+ originalPayload: _relayWirePayload('Hello World'),
  originalMessageType: originalType,
 );
 
@@ -62,7 +68,7 @@ void main() {
  'finalRecipient': 'recipient-xyz',
  'senderRateCount': 0,
  },
- originalPayload: {'content': 'Hello World'},
+ originalPayload: _relayWirePayload('Hello World'),
 );
 
  final bytes = message.toBytes();
@@ -96,7 +102,7 @@ void main() {
  'finalRecipient': 'recipient',
  'senderRateCount': 0,
  },
- originalPayload: {'content': 'Test'},
+ originalPayload: _relayWirePayload('Test'),
  originalMessageType: originalType,
 );
 
@@ -113,7 +119,7 @@ void main() {
 
  group('MeshRelayMessage Message Type Handling', () {
  test('Should create and preserve message type', () {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test message',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test message'),
  priority: MessagePriority.normal,
  originalSender: 'sender123',
  finalRecipient: 'recipient456',
@@ -121,10 +127,11 @@ void main() {
 );
 
  final message = MeshRelayMessage.createRelay(originalMessageId: 'msg-001',
- originalContent: 'Test message',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'relay-node',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('Test message'),
 );
 
  expect(message.originalMessageType,
@@ -133,7 +140,7 @@ void main() {
  });
 
  test('Should preserve message type through nextHop', () {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'recipient',
@@ -141,10 +148,11 @@ void main() {
 );
 
  final originalMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg-001',
- originalContent: 'Test',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('Test'),
 );
 
  final nextHopMessage = originalMessage.nextHop('node2');
@@ -156,7 +164,7 @@ void main() {
  });
 
  test('Should serialize and deserialize with message type', () {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'recipient',
@@ -164,10 +172,11 @@ void main() {
 );
 
  final original = MeshRelayMessage.createRelay(originalMessageId: 'msg-001',
- originalContent: 'Test',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
  originalMessageType: ProtocolMessageType.queueSync,
+ encryptedPayload: _relayPayload('Test'),
 );
 
  final json = original.toJson();
@@ -180,7 +189,7 @@ void main() {
  });
 
  test('Should handle null message type (backward compatibility)', () {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'recipient',
@@ -188,9 +197,10 @@ void main() {
 );
 
  final message = MeshRelayMessage.createRelay(originalMessageId: 'msg-001',
- originalContent: 'Test',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
+ encryptedPayload: _relayPayload('Test'),
 );
 
  expect(message.originalMessageType, isNull);
@@ -255,7 +265,7 @@ void main() {
  });
 
  test('Should reject non-relay-eligible message types', () async {
- final metadata = RelayMetadata.create(originalMessageContent: 'Handshake data',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Handshake data'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'recipient',
@@ -263,10 +273,11 @@ void main() {
 );
 
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg-handshake',
- originalContent: 'Handshake data',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
  originalMessageType: ProtocolMessageType.noiseHandshake1,
+ encryptedPayload: _relayPayload('Handshake data'),
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -279,7 +290,7 @@ void main() {
  });
 
  test('Should allow relay-eligible message types', () async {
- final metadata = RelayMetadata.create(originalMessageContent: 'Hello',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Hello'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'node-current', // Address to us
@@ -287,10 +298,11 @@ void main() {
 );
 
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg-text',
- originalContent: 'Hello',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('Hello'),
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -335,6 +347,7 @@ void main() {
  originalContent: 'Hello',
  finalRecipientPublicKey: 'recipient',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('Hello'),
 );
 
  expect(relayMessage, isNotNull);
@@ -344,7 +357,7 @@ void main() {
  });
 
  test('Should handle null message type gracefully', () async {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'node-current',
@@ -352,9 +365,10 @@ void main() {
 );
 
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg-001',
- originalContent: 'Test',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
+ encryptedPayload: _relayPayload('Test'),
 );
 
  // Should process without type filtering when type is null
@@ -394,7 +408,7 @@ void main() {
  await engineA.initialize(currentNodeId: 'node-A');
 
  // Create initial relay message
- final originalMetadata = RelayMetadata.create(originalMessageContent: 'Multi-hop test',
+ final originalMetadata = RelayMetadata.create(originalMessageContent: _relayPayload('Multi-hop test'),
  priority: MessagePriority.normal,
  originalSender: 'node-originator',
  finalRecipient: 'node-final',
@@ -402,10 +416,11 @@ void main() {
 );
 
  var relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'multi-hop-msg',
- originalContent: 'Multi-hop test',
+ originalContent: '',
  metadata: originalMetadata,
  relayNodeId: 'node-originator',
  originalMessageType: ProtocolMessageType.textMessage,
+ encryptedPayload: _relayPayload('Multi-hop test'),
 );
 
  // Simulate 3 hops
@@ -464,7 +479,7 @@ void main() {
  final nonRelayableTypes = RelayPolicy.getNonRelayableTypes();
 
  for (final type in nonRelayableTypes) {
- final metadata = RelayMetadata.create(originalMessageContent: 'Test ${type.name}',
+ final metadata = RelayMetadata.create(originalMessageContent: _relayPayload('Test ${type.name}'),
  priority: MessagePriority.normal,
  originalSender: 'sender',
  finalRecipient: 'recipient',
@@ -472,10 +487,11 @@ void main() {
 );
 
  final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg-${type.name}',
- originalContent: 'Test ${type.name}',
+ originalContent: '',
  metadata: metadata,
  relayNodeId: 'node1',
  originalMessageType: type,
+ encryptedPayload: _relayPayload('Test ${type.name}'),
 );
 
  final result = await engine.processIncomingRelay(relayMessage: relayMessage,

@@ -713,6 +713,35 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     }
   }
 
+  @override
+  Future<domain_models.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) async {
+    try {
+      final stateManager = _resolveLegacyStateManager();
+      if (stateManager == null) {
+        _logger.warning(
+          '⚠️ buildSecureTextProtocolMessage skipped - missing BLEStateManager',
+        );
+        return null;
+      }
+
+      return await _handler.buildSecureTextProtocolMessage(
+        recipientKey: recipientKey,
+        content: content,
+        messageId: messageId,
+        originalIntendedRecipient: originalIntendedRecipient,
+        stateManager: stateManager,
+      );
+    } catch (e) {
+      _logger.warning('⚠️ buildSecureTextProtocolMessage failed: $e');
+      return null;
+    }
+  }
+
   Future<bool> _sendPeripheralViaAdapter({
     required String senderKey,
     required String content,

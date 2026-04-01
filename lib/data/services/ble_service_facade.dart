@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
-import 'package:meta/meta.dart';
+import 'package:pak_connect/data/services/ble_experiment_metrics_recorder.dart';
+import 'package:pak_connect/data/services/ble_role_scheduler.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_experiment_metrics_recorder.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_role_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
@@ -73,6 +76,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     'PAKCONNECT_BLE_STRICT_SINGLETON_GUARD',
     defaultValue: false,
   );
+  static const bool _strictTdmFlag = bool.fromEnvironment(
+    'PAKCONNECT_STRICT_TDM',
+    defaultValue: false,
+  );
 
   static void configureHandshakeServiceRegistrar(
     void Function(IBLEHandshakeService handshakeService) registrar,
@@ -100,6 +107,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   late final AdvertisingManager _advertisingManager;
   final IHandshakeCoordinatorFactory? _handshakeCoordinatorFactory;
   late final _BleServiceFacadeRuntimeHelper _runtimeHelper;
+  late final IBleExperimentMetricsRecorder _experimentMetricsRecorder;
+  final IBleRoleScheduler? _injectedBleRoleScheduler;
+  IBleRoleScheduler? _bleRoleScheduler;
+  final bool _strictTdmEnabled;
 
   // Sub-services (lazy-initialized)
   BLEConnectionService? _connectionService;
@@ -131,6 +142,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
+  Future<void>? _initializationInFlight;
 
   @override
   bool get isInitialized => _initializationCompleter.isCompleted;
@@ -153,6 +165,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     AdvertisingManager? advertisingManager,
     ContactRepository? contactRepository,
     IHandshakeCoordinatorFactory? handshakeCoordinatorFactory,
+    IBleExperimentMetricsRecorder? experimentMetricsRecorder,
+    IBleRoleScheduler? bleRoleScheduler,
+    bool? strictTdmEnabled,
   }) : _platformHost =
            platformHost ??
            BlePlatformHost(
@@ -173,8 +188,17 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
        _advertisingService = advertisingService,
        _handshakeService = handshakeService,
        _handshakeCoordinatorFactory = handshakeCoordinatorFactory,
+       _injectedBleRoleScheduler = bleRoleScheduler,
+       _strictTdmEnabled =
+           strictTdmEnabled ?? (_strictTdmFlag && _isAndroidStrictTdmTarget),
        instanceId = ++_nextInstanceId {
     _eventBus = BleFacadeEventBus(logger: _logger);
+    _experimentMetricsRecorder =
+        experimentMetricsRecorder ??
+        BleExperimentMetricsRecorder(
+          logger: Logger('BleExperimentMetricsRecorder'),
+          sessionMode: _strictTdmEnabled ? 'strict_tdm' : 'concurrent',
+        );
     _connectionManager =
         connectionManager ??
         BLEConnectionManager(
@@ -183,6 +207,15 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         );
     _connectionManager.onInboundDuplicateRejected = (address) {
       _handshakeService?.disposeHandshakeCoordinator();
+    };
+    _connectionManager.onReconnectAttemptStarted = (peerId) {
+      _experimentMetricsRecorder.recordReconnectAttemptStarted(peerId);
+    };
+    _connectionManager.onReconnectAttemptFinished = (peerId, success) {
+      _experimentMetricsRecorder.recordReconnectAttemptFinished(
+        peerId,
+        success: success,
+      );
     };
     _peripheralInitializer =
         peripheralInitializer ??
@@ -228,7 +261,31 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       getAdvertisingService: _getAdvertisingService,
       getMessagingService: _getMessagingService,
       getHandshakeService: _getHandshakeService,
+      onInboundConnected: (address) {
+        _experimentMetricsRecorder.recordInboundConnected(address);
+        _bleRoleScheduler?.reportInboundConnected(address);
+      },
+      onMtuReady: (address, mtu) {
+        _experimentMetricsRecorder.recordMtuReady(address, mtu);
+        _bleRoleScheduler?.reportMtuReady(address, mtu);
+      },
+      onNotifySubscribed: (address) {
+        _experimentMetricsRecorder.recordNotifySubscribed(address);
+        _bleRoleScheduler?.reportNotifySubscribed(address);
+      },
+      onHandshakeStarted: (address) {
+        _experimentMetricsRecorder.recordHandshakeStarted(address);
+        _bleRoleScheduler?.reportHandshakeStarted(address);
+      },
+      onPeerDisconnected: (address, reason) {
+        _experimentMetricsRecorder.recordDisconnect(address, reason);
+        _bleRoleScheduler?.reportDisconnect(address, reason);
+      },
     );
+    if (_strictTdmEnabled) {
+      _connectionManager.outboundConnectCoordinator = (device) =>
+          _getBleRoleScheduler().requestOutboundConnect(device);
+    }
     _runtimeHelper = _BleServiceFacadeRuntimeHelper(this);
     _recordInstanceCreated();
   }
@@ -243,6 +300,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       centralManager: _platformHost.centralManager,
       bluetoothStateMonitor: _bluetoothStateMonitor,
       onUpdateConnectionInfo: _updateConnectionInfo,
+      metricsRecorder: _experimentMetricsRecorder,
+      isRadioSchedulerManagingConnects: () => _strictTdmEnabled,
     );
 
     _connectionInfoSubscription = service.connectionInfoStream.listen((
@@ -265,6 +324,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       onUpdateConnectionInfo: _updateConnectionInfo,
       isAdvertising: () => _getAdvertisingService().isAdvertising,
       isConnected: () => _getConnectionService().isConnected,
+      metricsRecorder: _experimentMetricsRecorder,
     );
   }
 
@@ -282,6 +342,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       peripheralInitializer: _peripheralInitializer,
       peripheralManager: _platformHost.peripheralManager,
       onUpdateConnectionInfo: _updateConnectionInfo,
+      metricsRecorder: _experimentMetricsRecorder,
     );
   }
 
@@ -354,7 +415,22 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<void> initialize() => _runtimeHelper.initializeFacade();
+  Future<void> initialize() {
+    if (_initializationCompleter.isCompleted) {
+      return _initializationCompleter.future;
+    }
+
+    final inFlight = _initializationInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final initializationFuture = _runtimeHelper.initializeFacade();
+    _initializationInFlight = initializationFuture.whenComplete(() {
+      _initializationInFlight = null;
+    });
+    return _initializationInFlight!;
+  }
 
   @override
   Future<void> dispose() => _runtimeHelper.disposeFacade();
@@ -651,6 +727,10 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _getMessagingService().sendQueueSyncMessage(queueMessage);
 
   @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) =>
+      _getMessagingService().sendProtocolMessage(message);
+
+  @override
   Future<void> sendIdentityExchange() =>
       _getMessagingService().sendIdentityExchange();
 
@@ -725,15 +805,21 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
 
   @override
   Future<void> startScanning({ScanningSource source = ScanningSource.system}) =>
-      _getDiscoveryService().startScanning(source: source);
+      _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getDiscoveryService().startScanning(source: source);
 
   @override
-  Future<void> stopScanning() => _getDiscoveryService().stopScanning();
+  Future<void> stopScanning() => _strictTdmEnabled
+      ? Future<void>.value()
+      : _getDiscoveryService().stopScanning();
 
   @override
   Future<void> startScanningWithValidation({
     ScanningSource source = ScanningSource.manual,
-  }) => _getDiscoveryService().startScanningWithValidation(source: source);
+  }) => _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getDiscoveryService().startScanningWithValidation(source: source);
 
   @override
   Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) =>
@@ -779,12 +865,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<void> startAsPeripheral() =>
-      _getAdvertisingService().startAsPeripheral();
+  Future<void> startAsPeripheral() => _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getAdvertisingService().startAsPeripheral();
 
   @override
-  Future<void> startAsPeripheralWithValidation() =>
-      _getAdvertisingService().startAsPeripheralWithValidation();
+  Future<void> startAsPeripheralWithValidation() => _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getAdvertisingService().startAsPeripheralWithValidation();
 
   @override
   Future<void> refreshAdvertising({bool? showOnlineStatus}) =>
@@ -793,7 +881,9 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       );
 
   @override
-  Future<void> startAsCentral() => _getAdvertisingService().startAsCentral();
+  Future<void> startAsCentral() => _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getAdvertisingService().startAsCentral();
 
   @override
   bool get isAdvertising => _getAdvertisingService().isAdvertising;
@@ -822,11 +912,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _getAdvertisingService().peripheralHandshakeStarted = value;
 
   @override
-  Future<void> stopAdvertising() => _getAdvertisingService().stopAdvertising();
+  Future<void> stopAdvertising() => _strictTdmEnabled
+      ? Future<void>.value()
+      : _getAdvertisingService().stopAdvertising();
 
   @override
-  Future<void> startAdvertising() =>
-      _getAdvertisingService().startAdvertising();
+  Future<void> startAdvertising() => _strictTdmEnabled
+      ? _getBleRoleScheduler().start()
+      : _getAdvertisingService().startAdvertising();
 
   @override
   void updatePeripheralMtu(int mtu) =>
@@ -1074,6 +1167,34 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     _serializedConnectionOperationTail = queuedOperation.catchError((_) {});
     return queuedOperation;
   }
+
+  IBleRoleScheduler _getBleRoleScheduler() {
+    return _bleRoleScheduler ??=
+        _injectedBleRoleScheduler ??
+        BleRoleScheduler(
+          logger: Logger('BleRoleScheduler'),
+          config: const BleRoleSchedulerConfig(),
+          metricsRecorder: _experimentMetricsRecorder,
+          startScanEffector: () => _getDiscoveryService().startScanning(
+            source: ScanningSource.system,
+          ),
+          stopScanEffector: () => _getDiscoveryService().stopScanning(),
+          startAdvertisingEffector: () =>
+              _getAdvertisingService().startAsPeripheral(),
+          stopAdvertisingEffector: () =>
+              _getAdvertisingService().stopAdvertising(),
+          connectEffector: (peer) => _getConnectionService()
+              .connectToDeviceDirect(peer, recordMetrics: false),
+          canOpenAdditionalLinks: () =>
+              _connectionManager.canAcceptMoreConnections,
+          hasActiveLinks: () => _connectionManager.hasBleConnection,
+          isHandshakeInProgress: () =>
+              _getHandshakeService().isHandshakeInProgress,
+        );
+  }
+
+  static bool get _isAndroidStrictTdmTarget =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   Future<void> _initializeNodeIdentity() =>
       _runtimeHelper.initializeNodeIdentity();

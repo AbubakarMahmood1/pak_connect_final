@@ -4,9 +4,14 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import '../../controllers/settings_controller.dart';
 
 class AboutSection extends StatelessWidget {
-  const AboutSection({super.key, required this.controller});
+  const AboutSection({
+    super.key,
+    required this.controller,
+    required this.onPanicWipeRequested,
+  });
 
   final SettingsController controller;
+  final Future<void> Function() onPanicWipeRequested;
 
   @override
   Widget build(BuildContext context) {
@@ -42,46 +47,19 @@ class AboutSection extends StatelessWidget {
     );
   }
 
-  void _showAbout(BuildContext context) {
-    showAboutDialog(
+  Future<void> _showAbout(BuildContext context) async {
+    final action = await showDialog<_AboutDialogAction>(
       context: context,
-      applicationName: 'PakConnect',
-      applicationVersion: '1.0.0',
-      applicationIcon: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          Icons.message,
-          color: Theme.of(context).colorScheme.onPrimary,
-          size: 24,
-        ),
+      builder: (dialogContext) => _AboutDialog(
+        onHiddenTriggerActivated: () {
+          Navigator.of(dialogContext).pop(_AboutDialogAction.panicWipe);
+        },
       ),
-      children: [
-        const SizedBox(height: 16),
-        const Text(
-          'Secure peer-to-peer messaging with mesh networking and end-to-end encryption.',
-        ),
-        const SizedBox(height: 12),
-        const Text('Features:', style: TextStyle(fontWeight: FontWeight.w600)),
-        const Text('• Offline messaging via Bluetooth'),
-        const Text('• End-to-end encryption'),
-        const Text('• Mesh network relay'),
-        const Text('• No internet required'),
-        const Text('• No data collection'),
-        const SizedBox(height: 12),
-        Text(
-          'Your messages never leave your devices.',
-          style: TextStyle(
-            fontStyle: FontStyle.italic,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-        ),
-      ],
     );
+
+    if (action == _AboutDialogAction.panicWipe && context.mounted) {
+      await onPanicWipeRequested();
+    }
   }
 
   void _showHelp(BuildContext context) {
@@ -213,5 +191,119 @@ class AboutSection extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+enum _AboutDialogAction { panicWipe }
+
+class _AboutDialog extends StatefulWidget {
+  const _AboutDialog({required this.onHiddenTriggerActivated});
+
+  final VoidCallback onHiddenTriggerActivated;
+
+  @override
+  State<_AboutDialog> createState() => _AboutDialogState();
+}
+
+class _AboutDialogState extends State<_AboutDialog> {
+  static const int _tapThreshold = 7;
+  static const Duration _tapWindow = Duration(seconds: 5);
+  int _versionTapCount = 0;
+  DateTime? _firstTapAt;
+
+  void _handleVersionTap() {
+    final now = DateTime.now();
+    if (_firstTapAt == null || now.difference(_firstTapAt!) > _tapWindow) {
+      _firstTapAt = now;
+      _versionTapCount = 1;
+    } else {
+      _versionTapCount++;
+    }
+
+    if (_versionTapCount >= _tapThreshold) {
+      widget.onHiddenTriggerActivated();
+    } else {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.message,
+              color: theme.colorScheme.onPrimary,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('About PakConnect')),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              key: const Key('aboutVersionText'),
+              onTap: _handleVersionTap,
+              child: Text(
+                'Version 1.0.0',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Secure peer-to-peer messaging with mesh networking and end-to-end encryption.',
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Features:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const Text('• Offline messaging via Bluetooth'),
+            const Text('• End-to-end encryption'),
+            const Text('• Mesh network relay'),
+            const Text('• No internet required'),
+            const Text('• No data collection'),
+            const SizedBox(height: 12),
+            Text(
+              'Your messages never leave your devices.',
+              style: TextStyle(
+                fontStyle: FontStyle.italic,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            if (_versionTapCount > 0) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${(_tapThreshold - _versionTapCount).clamp(0, _tapThreshold)} taps remaining',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
   }
 }

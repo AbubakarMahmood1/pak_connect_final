@@ -50,8 +50,11 @@ class StealthAddress {
 
     try {
       // 2. ECDH: sharedSecret = X25519(r, recipientScanKey)
-      final sharedSecret =
-          DHState.calculate(ephemeralPrivate, recipientScanKey);
+      final sharedSecret = DHState.calculateChecked(
+        ephemeralPrivate,
+        recipientScanKey,
+        contextLabel: 'stealth_generate',
+      );
 
       // 3. Derive view tag and stealth address
       final viewTag = _deriveViewTag(sharedSecret);
@@ -78,9 +81,10 @@ class StealthAddress {
     required StealthEnvelope envelope,
   }) {
     // 1. ECDH: sharedSecret = X25519(scanPrivateKey, R)
-    final sharedSecret = DHState.calculate(
+    final sharedSecret = DHState.calculateChecked(
       scanPrivateKey,
       envelope.ephemeralPublicKey,
+      contextLabel: 'stealth_check',
     );
 
     // 2. Fast-reject via view tag (filters 255/256 ≈ 99.6% of non-matches)
