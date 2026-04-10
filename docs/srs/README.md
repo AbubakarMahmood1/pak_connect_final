@@ -1,8 +1,10 @@
 # PakConnect - System Requirements Specification (SRS)
 
 **Version**: 1.0
-**Date**: 2025-01-19
+**Date**: Originally extracted 2025-01-19, last updated 2026-04
 **Status**: Complete - Extracted from Production Code
+
+> **Note**: This SRS was extracted from production code. Features added after January 2025 (stealth addressing, sealed sender, proof-of-work spam prevention, v2 export/import bundles) are documented in ThreatModel.md and security_guarantees.md but not yet reflected in the functional requirements tables below.
 
 ---
 
@@ -213,43 +215,14 @@ Complete database documentation.
 
 ---
 
-## How to Use This Documentation
+## Reading Guide
 
-### For Diagram Generation
-
-Each diagram document provides:
-
-1. **Structured text descriptions** - Clear entity/component lists with attributes, relationships, and flows
-2. **Mermaid syntax examples** - Ready-to-render code for common diagram tools
-3. **Relationship definitions** - Cardinality, types, dependencies
-
-**Recommended Tools**:
-- **Mermaid Live Editor**: https://mermaid.live (paste Mermaid syntax)
-- **PlantUML**: Convert text descriptions to PlantUML syntax
-- **Draw.io / Lucidchart**: Use text descriptions as reference
-- **AI Diagram Tools**: Provide text descriptions to AI tools like Claude, GPT, or specialized diagram generators
-
-### For Development
-
-- **Functional Requirements**: Reference for feature verification, testing, and validation
-- **Non-Functional Requirements**: Performance targets, security constraints, quality benchmarks
-- **Class Diagrams**: Navigate codebase, understand dependencies, plan refactoring
-- **Sequence Diagrams**: Debug complex flows, trace message paths, understand handshake protocol
-- **Database Schema**: Write queries, plan migrations, optimize indexes
-
-### For Documentation
-
-- **Vision**: Context for README, project proposals, grant applications
-- **Use Cases**: User documentation, feature guides, tutorial content
-- **Architecture**: Technical blog posts, conference talks, contributor onboarding
-
-### For Academic/Evaluation
-
-- **Complete SRS**: Satisfies software engineering course requirements
-- **Real Implementation**: All content verified against production code
-- **Comprehensive Coverage**: 137 functional + 105 non-functional requirements
-- **Diagram Context**: Ready for UML tool generation
-- **No Assumptions**: Every claim traceable to source code
+- **Functional Requirements** (doc 3): Start here for feature coverage and verification.
+- **Architecture & Data Flow** (doc 8): Entry point for understanding system structure and component responsibilities.
+- **Sequence Diagrams** (doc 6): Use when tracing message paths or debugging protocol flows.
+- **Class & Domain Models** (doc 7): Reference when navigating the codebase or planning refactoring.
+- **Database Schema** (doc 10): Use for query writing, migration planning, and index optimization.
+- **Diagram syntax**: All diagrams use Mermaid and can be rendered at [mermaid.live](https://mermaid.live) or any compatible tool.
 
 ---
 
@@ -278,27 +251,7 @@ Each diagram document provides:
 **Codebase Version**: Database Schema v9, Git commit b3aa452
 **Excluded**: UI implementation details, test files, future/planned features
 **Included**: Core, Domain, Data layers; all business logic and infrastructure
-
----
-
-## Next Steps
-
-1. **Generate Diagrams**: Use Mermaid syntax or text descriptions with your preferred tool
-2. **Review & Validate**: Cross-check diagrams against source code if needed
-3. **Compile Final Document**: Merge all .md files into single PDF/DOCX for submission
-4. **Add Visuals**: Insert generated diagrams into appropriate sections
-5. **Proofread**: Check formatting, page breaks, table of contents
-
----
-
-## Contact & Contribution
-
-This documentation was generated from the PakConnect open-source project.
-
-**License**: MIT
-**Repository**: (Add your repo URL)
-**Documentation Date**: 2025-01-19
-**Maintainer**: (Add your name/team)
+**Documentation Date**: Originally extracted 2025-01-19, last updated 2026-04
 
 ---
 

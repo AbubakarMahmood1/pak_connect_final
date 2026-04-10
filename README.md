@@ -7,82 +7,123 @@
 [![Storage](https://img.shields.io/badge/Storage-SQLCipher-1565C0)](https://www.zetetic.net/sqlcipher/)
 [![License](https://img.shields.io/badge/License-Proprietary-8E24AA)]()
 
-Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environments. PakConnect combines BLE discovery, dual-role transport, end-to-end encrypted messaging, store-and-forward queues, and mesh relay logic in a Flutter application built for hostile or connectivity-constrained conditions.
+Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environments. PakConnect combines dual-role BLE discovery, end-to-end encrypted messaging, store-and-forward queues, mesh relay forwarding, and relay metadata privacy in a Flutter application designed for hostile or connectivity-constrained conditions.
+
+---
 
 ## Highlights
 
 - End-to-end encrypted messaging using Noise XX/KK, X25519, and ChaCha20-Poly1305.
-- Mobile database encryption at rest using SQLCipher-backed storage.
-- Dual-role BLE runtime that can operate as both central and peripheral.
+- Dual-role BLE runtime operating as central and peripheral simultaneously.
 - Offline-first delivery with queue sync, retry orchestration, and relay-aware routing.
-- Rich messaging flows including text, binary payloads, archive/search, groups, and topology views.
-- Large automated test surface with CI guardrails for runtime hygiene, DI boundaries, and crypto policy regressions.
+- Mesh relay with multi-hop message forwarding and store-and-forward for offline recipients.
+- Stealth addressing (EIP-5564 simplified) for relay metadata privacy.
+- Sealed sender — relay nodes cannot observe message origin.
+- Hashcash proof-of-work spam prevention with trust-tiered rate limits.
+- Broadcast mode for small networks of up to 30 peers.
+- Rich messaging: text, binary payloads, archive/search, groups, and topology views.
+- Export/import with HMAC-SHA256 authenticated v2 bundles containing an embedded encrypted database.
+- Custom `ServiceRegistry` + `AppRuntimeServicesRegistry` for dependency injection with no GetIt dependency.
+- CI-enforced coverage via `flutter_coverage.yml` and static analysis via `codeql.yml`.
+
+---
 
 ## Current Status
 
-PakConnect is in active hardening and release-preparation, not an early feature-build phase.
+PakConnect is in active hardening and release-preparation. Core transport, persistence, archive/search, and advanced UI flows are implemented. VM-friendly `flutter test` coverage is green and enforced in CI. Current work is focused on release validation and documentation.
 
-- Core transport, persistence, archive/search, and advanced UI flows are implemented.
-- VM-friendly `flutter test` coverage is green and enforced in CI.
-- Current work is focused on legacy compatibility retirement, DI consolidation, runtime hardening, and release validation.
+---
 
 ## Architecture
 
-PakConnect follows a layered architecture with an explicit runtime composition root.
+PakConnect follows a layered architecture with a single runtime composition root. `AppCore` bootstraps all services and publishes a typed `AppServices` snapshot that propagates upward through Riverpod providers to the presentation layer.
 
 ```mermaid
 graph TD
     subgraph Presentation["Presentation"]
-        UI["Screens and Widgets"]
-        RP["Riverpod Providers"]
+        UI["Screens & Widgets"]
+        RP["Riverpod Providers & Controllers"]
     end
 
-    subgraph Application["Runtime Composition"]
-        AC["AppCore"]
+    subgraph Composition["Runtime Composition"]
+        AC["AppCore (bootstrap)"]
         AS["AppServices Snapshot"]
+        SR["ServiceRegistry / AppRuntimeServicesRegistry"]
     end
 
     subgraph Domain["Domain"]
-        UC["Services and Use Cases"]
-        IF["Interfaces and Entities"]
+        UC["Use Cases & Domain Services"]
+        IF["Interfaces & Entities"]
+        PO["Policies (routing, rate-limit, PoW)"]
     end
 
     subgraph Data["Data"]
         REPO["Repositories"]
-        DB["SQLCipher / Secure Storage"]
-        BLE["BLE Data Services"]
+        DB["SQLCipher / flutter_secure_storage"]
+        BLEF["BLE Facades & Data Services"]
     end
 
     subgraph Core["Core"]
-        NOISE["Noise / Security"]
-        MESH["Mesh Relay / Routing"]
-        INFRA["Lifecycle / Monitoring"]
+        NOISE["Noise XX/KK Handshake & Runtime"]
+        RELAY["Relay Engine & Mesh Routing"]
+        QUEUE["Queue Sync & Retry Orchestration"]
+        MON["Lifecycle & Monitoring"]
     end
 
     UI --> RP
     RP --> AS
-    AS --> UC
+    AS --> SR
+    SR --> UC
     UC --> IF
+    UC --> PO
     REPO --> IF
     REPO --> DB
-    BLE --> Core
-    DB --> Core
+    BLEF --> RELAY
+    RELAY --> NOISE
+    RELAY --> QUEUE
+    DB --> MON
+    QUEUE --> MON
 ```
-
-### Main Runtime Pieces
-
-- Presentation: Flutter widgets with Riverpod-managed UI state.
-- Runtime composition: `AppCore` bootstraps the app and publishes a typed `AppServices` snapshot.
-- Data layer: repositories, BLE facades, SQLite/SQLCipher persistence, secure storage.
-- Core layer: Noise handshake/runtime, relay engine, routing, queue sync, and monitoring.
 
 ### Tech Stack
 
-- Flutter 3.9+ / Dart 3.9+
-- Riverpod 3.0
-- `bluetooth_low_energy`
-- `sqflite_sqlcipher` + `flutter_secure_storage`
-- `pinenacl`, `cryptography`, `pointycastle`
+| Layer | Libraries |
+|---|---|
+| Framework | Flutter 3.9+ / Dart 3.9+ |
+| State | Riverpod 3.0 |
+| BLE | `bluetooth_low_energy` |
+| Persistence | `sqflite_sqlcipher`, `flutter_secure_storage` |
+| Cryptography | `pinenacl`, `cryptography`, `pointycastle` |
+
+---
+
+## Key Security Features
+
+### Noise XX/KK Protocol
+
+All peer-to-peer communication uses the [Noise Protocol Framework](https://noiseprotocol.org). XX is used for initial mutual authentication with no prior key knowledge; KK is used for subsequent sessions where both static keys are already known. Key agreement is X25519; transport encryption is ChaCha20-Poly1305.
+
+### Stealth Addressing
+
+Relay metadata privacy is implemented using a simplified variant of EIP-5564 stealth addressing. Recipients publish a stealth meta-address; senders derive a one-time relay address per message. Relay nodes see neither the true sender identity nor the true recipient identity.
+
+### Sealed Sender
+
+Message origin is concealed from relay nodes. Only the intended recipient can recover the sender's identity. Intermediate relay hops forward ciphertext without access to authorship information.
+
+### Proof-of-Work Spam Prevention
+
+Outbound messages include a Hashcash-style proof-of-work token. Required difficulty scales with trust tier, making spam and denial-of-service attacks computationally expensive without degrading legitimate low-volume usage.
+
+### Export/Import Security
+
+Data exports are packaged as HMAC-SHA256 authenticated v2 bundles. The bundle embeds an encrypted copy of the database. Import validates the authentication tag before any data is read or written.
+
+### Fail-Closed Encryption
+
+Database encryption is designed to fail closed when secure storage is unavailable — the application will not fall back to plaintext persistence. New outbound transport is also fail-closed. Decryption compatibility for migration scenarios is limited to inbound legacy paths and does not affect new message handling.
+
+---
 
 ## Repository Layout
 
@@ -95,17 +136,19 @@ lib/
 
 test/             unit and widget suites mirroring lib/
 integration_test/ device-bound integration and soak scenarios
-docs/             security, testing, refactoring, review, and SRS material
+docs/             security, testing, refactoring, and SRS material
 ```
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
 - Flutter SDK 3.9+
-- Dart SDK 3.9+ (via Flutter)
-- Android/iOS hardware for BLE validation
-- Android Studio or VS Code
+- Dart SDK 3.9+ (bundled with Flutter)
+- Android or iOS hardware for BLE validation (emulators do not support BLE)
+- Android Studio or VS Code with the Flutter plugin
 
 ### Clone and Install
 
@@ -133,37 +176,54 @@ flutter analyze --no-pub
 flutter test
 ```
 
-For full-suite logging:
+For full-suite output with coverage:
 
 ```bash
 set -o pipefail
 flutter test --coverage | tee flutter_test_latest.log
 ```
 
-## Security Notes
+Integration tests require a physical device:
 
-- Mobile database encryption is intended to fail closed if secure storage is unavailable.
-- Legacy decrypt compatibility still exists for migration scenarios; new outbound transport is fail-closed.
-- Threat modeling and implemented guarantees are documented separately and should be treated as the source of truth over historical audit notes.
+```bash
+flutter test integration_test/
+```
+
+---
 
 ## Documentation
 
-- [Testing Strategy](TESTING_STRATEGY.md)
-- [Testing Quick Start](docs/testing/QUICK_START_TESTING.md)
-- [Security Guarantees](docs/security/security_guarantees.md)
-- [Threat Model](ThreatModel.md)
-- [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md)
-- [SRS Overview](docs/srs/README.md)
-- [AI Agent Guidance](AGENTS.md)
+| Document | Description |
+|---|---|
+| [Threat Model](ThreatModel.md) | Attacker model, trust boundaries, and mitigations |
+| [Security Guarantees](docs/security/security_guarantees.md) | Implemented cryptographic and operational guarantees |
+| [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md) | ServiceRegistry migration and DI consolidation plan |
+| [Testing Strategy](TESTING_STRATEGY.md) | Test philosophy, coverage policy, and CI integration |
+| [Testing Quick Start](docs/testing/QUICK_START_TESTING.md) | How to run tests locally and interpret results |
+| [SRS Overview](docs/srs/README.md) | Software requirements specification index |
+
+---
+
+## Security Notes
+
+- The threat model and security guarantees documents are the authoritative source of truth for security properties. Historical audit notes may be outdated.
+- `lib/core/security/`, BLE lifecycle code, and mesh routing code are high-scrutiny areas. Changes to these paths require careful review and test coverage.
+- Relay nodes are explicitly untrusted. Stealth addressing and sealed sender are both required for metadata privacy; neither alone is sufficient.
+- Do not remove or weaken proof-of-work enforcement without a documented risk assessment.
+
+---
 
 ## Contribution Expectations
 
 This is a proprietary internal repository.
 
-- Keep architecture boundaries intact.
-- Avoid `print()` in runtime code; use structured logging.
-- Add or update tests alongside functional changes.
-- Treat `lib/core/security/`, BLE lifecycle code, and mesh routing code as high-scrutiny areas.
+- Keep architecture layer boundaries intact. Domain code must not import from data or presentation. Core must not import from domain.
+- Use structured logging throughout; `print()` statements are not acceptable in runtime code.
+- Add or update tests alongside all functional changes. Coverage enforcement is automated in CI.
+- Changes to security-critical paths (`core/security/`, relay engine, routing, queue sync) require explicit justification and a corresponding test demonstrating the invariant being preserved.
+- The `ServiceRegistry` and `AppRuntimeServicesRegistry` are the canonical DI mechanism. Do not reintroduce GetIt or ad-hoc service locators.
+
+---
 
 ## License
 
