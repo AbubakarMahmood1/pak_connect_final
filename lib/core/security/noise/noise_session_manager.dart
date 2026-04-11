@@ -9,6 +9,7 @@ library;
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../secure_key.dart';
+import 'noise_handshake_message_size.dart';
 import 'models/noise_models.dart';
 import 'noise_session.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -171,7 +172,7 @@ class NoiseSessionManager {
   /// [remoteStaticPublicKey] Remote's static public key (REQUIRED for KK pattern)
   ///
   /// For XX pattern: Returns Message 1 (32 bytes)
-  /// For KK pattern: Returns Message 1 (96 bytes)
+  /// For KK pattern: Returns Message 1 (48 bytes)
   Future<Uint8List> initiateHandshake(
     String peerID, {
     NoisePattern pattern = NoisePattern.xx,
@@ -235,19 +236,20 @@ class NoiseSessionManager {
       // 🚀 NEW: Protect established sessions from being overwritten by a new responder attempt.
       // This happens if a late inbound packet triggers a "fallback" responder handshake.
       if (session != null) {
-        if (session.isEstablished()) {
+        if (session.isEstablished() && _isInitialHandshakeMessage(message)) {
           _logger.warning(
             '🛡️ Ignoring responder handshake for $peerID - session already ESTABLISHED',
           );
           return null;
         }
-        if (session.isInitiator && _isLikelyHandshake1(message)) {
+        if (session.isInitiator &&
+            _isDuplicateHandshake1ForActiveInitiator(message)) {
           _logger.warning(
             '🛡️ Ignoring inbound handshake 1 for $peerID - initiator session already active',
           );
           return null;
         }
-        if (!session.isInitiator && _isLikelyHandshake1(message)) {
+        if (_shouldRestartResponderForDuplicateHandshake1(session, message)) {
           _logger.warning(
             '🛡️ Duplicate handshake 1 for $peerID while responder session is in-flight; restarting responder state',
           );
@@ -300,8 +302,21 @@ class NoiseSessionManager {
 
   // ========== TRANSPORT ENCRYPTION ==========
 
-  bool _isLikelyHandshake1(Uint8List message) =>
-      message.length == 32 || message.length == 96;
+  bool _isInitialHandshakeMessage(Uint8List message) =>
+      message.length == NoiseHandshakeMessageSize.xxMessage1 ||
+      message.length == NoiseHandshakeMessageSize.kkMessage1;
+
+  bool _isDuplicateHandshake1ForActiveInitiator(Uint8List message) =>
+      // 32 bytes is unambiguously XX handshake message 1.
+      message.length == NoiseHandshakeMessageSize.xxMessage1;
+
+  bool _shouldRestartResponderForDuplicateHandshake1(
+    NoiseSession session,
+    Uint8List message,
+  ) =>
+      !session.isInitiator &&
+      session.pattern == NoisePattern.xx &&
+      message.length == NoiseHandshakeMessageSize.xxMessage1;
 
   /// Encrypt data for peer
   ///
@@ -401,6 +416,8 @@ class NoiseSessionManager {
     }
 
     _sessions.clear();
+    _persistentToEphemeral.clear();
+    _localStaticPrivateKey.destroy();
     _logger.info('All sessions destroyed');
   }
 
