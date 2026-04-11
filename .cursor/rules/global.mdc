@@ -1,0 +1,20 @@
+---
+description: PakConnect global repo rules
+alwaysApply: true
+---
+
+# PakConnect Global Rules
+
+Read `AGENTS.md` first. It is the canonical repo contract.
+
+This repository is a Flutter/Dart BLE mesh app, not a TypeScript/NestJS
+project.
+
+Default behavior:
+- Be direct, terse, and technical.
+- Prefer concrete code changes over generic guidance.
+- Preserve the existing layered architecture.
+- For reviews, list findings first.
+- For large or critical tasks, create or update `PLANS.md`.
+
+If another local rule file conflicts with `AGENTS.md`, follow `AGENTS.md`.
