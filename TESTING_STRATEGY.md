@@ -1,7 +1,22 @@
 # pak_connect Testing Strategy & Roadmap
 ## Comprehensive Test Suite Overhaul - Future-Proof Investment Plan
 
-**Status**: Phase 1 (desktop suites) COMPLETE | **Target**: 100% Pass Rate + >80% Coverage | **Timeline**: 5 Days (non-device) + hardware pass TBD
+**Status**: Phase 1 (desktop suites) COMPLETE | **Target**: 100% Pass Rate + >80% Coverage | **Hardware track**: single-device validation complete, two-device validation next, three-device relay validation after that
+
+---
+
+## Current Hardware Validation Status
+
+This section is the current source of truth for hardware testing status as of
+April 11, 2026. Older review/session artifacts were removed during repo docs
+cleanup and should not be treated as the live status tracker.
+
+- Single-device real-device validation: complete
+- Two-device validation: next required gate
+- Three-device relay validation: only after two-device stability is confirmed
+- Recommended execution order: XX first-contact, KK returning-contact,
+  bidirectional messaging, reconnect/offline queue, large-message
+  fragmentation, then three-device relay
 
 ---
 

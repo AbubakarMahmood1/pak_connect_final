@@ -651,7 +651,7 @@ void main() {
 
         // This test verifies the size-based detection logic:
         // - XX handshake1: 32 bytes (e only)
-        // - KK handshake1: 96 bytes (e, es, ss)
+        // - KK handshake1: 48 bytes (e + encrypted empty payload/MAC)
 
         debugPrint('\n1. Testing XX detection (32 bytes)...');
         final coords = await createCoordinatorPair(

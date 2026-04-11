@@ -34,5 +34,10 @@ PakConnect is a Flutter/Dart BLE mesh messaging app with:
 
 ## When More Detail Is Needed
 
-Read `docs/claude/*` on demand for BLE, Noise, mesh, database, Riverpod, and
-testing details.
+Read the surviving repo docs on demand:
+- `CONTRIBUTING.md` and `README.md` for repo/runtime context
+- `ThreatModel.md`, `docs/security/security_overview.md`, and
+  `docs/security/security_guarantees.md` for security-sensitive work
+- `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
+  verification flow
+- `docs/srs/README.md` for requirements context

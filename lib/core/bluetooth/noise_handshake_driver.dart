@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import '../security/noise/models/noise_models.dart';
+import '../security/noise/noise_handshake_message_size.dart';
 import '../security/noise/noise_encryption_service.dart';
 import 'kk_pattern_tracker.dart';
 
@@ -94,7 +95,7 @@ class NoiseHandshakeDriver {
   }) async {
     final noiseService = _requireNoiseService();
 
-    final isKK = data.length == 96; // KK message 1 is 96 bytes (e, es, ss)
+    final isKK = data.length == NoiseHandshakeMessageSize.kkMessage1;
 
     final msg2 = await noiseService.processHandshakeMessage(data, peerId);
 

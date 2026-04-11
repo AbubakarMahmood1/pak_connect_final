@@ -34,7 +34,14 @@ Primary stack:
 Read documentation in this order:
 1. `AGENTS.md` for repo-wide rules and invariants
 2. `PLANS.md` for long-running task planning rules
-3. `docs/claude/*` only for task-specific deep dives
+3. Relevant surviving repo docs for the subsystem you are touching:
+   - `CONTRIBUTING.md` for workflow and high-scrutiny paths
+   - `README.md` for architecture and runtime overview
+   - `ThreatModel.md`, `docs/security/security_overview.md`, and
+     `docs/security/security_guarantees.md` for security-sensitive work
+   - `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
+     verification workflow
+   - `docs/srs/README.md` for requirements context
 
 Use Context7 before manually browsing package/plugin docs when up-to-date
 library documentation is needed.
@@ -222,4 +229,4 @@ Pause and ask before making risky changes when you are unsure about:
 - Database schema or migration semantics
 
 If you are only missing implementation detail, consult the relevant
-`docs/claude/*` file first.
+surviving repo doc first.

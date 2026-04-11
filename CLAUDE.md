@@ -9,23 +9,22 @@ not as a second source of truth.
 
 1. Read `AGENTS.md`.
 2. If the task is non-trivial, create or update `PLANS.md`.
-3. Load only the relevant `docs/claude/*` deep dive for the area you are
-   touching.
+3. Load only the relevant surviving repo docs for the area you are touching.
 4. Implement with narrow changes.
 5. Verify with `flutter analyze`, targeted `flutter test`, or a full suite when
    warranted.
 
-## On-Demand Deep Dives
+## On-Demand Repo Docs
 
 Load only what you need:
-- `docs/claude/architecture-ble.md`
-- `docs/claude/architecture-noise.md`
-- `docs/claude/architecture-mesh.md`
-- `docs/claude/architecture-database.md`
-- `docs/claude/architecture-riverpod.md`
-- `docs/claude/development-guide.md`
-- `docs/claude/confidence-protocol.md`
-- `docs/claude/performance.md`
+- `CONTRIBUTING.md` for branch/review expectations and high-scrutiny areas
+- `README.md` for the current architecture and runtime summary
+- `ThreatModel.md` for attacker model and trust boundaries
+- `docs/security/security_overview.md` for the current security map
+- `docs/security/security_guarantees.md` for implemented guarantees
+- `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
+  verification flow
+- `docs/srs/README.md` for requirements context
 
 ## Claude-Specific Guidance
 

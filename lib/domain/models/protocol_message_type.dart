@@ -9,7 +9,7 @@ enum ProtocolMessageType {
   // Phase 1: Identity exchange (EPHEMERAL IDs only)
   identity, // Send ephemeral identity information (response IS ack)
   // Phase 1.5: Noise Protocol Handshake (XX: 3 messages, KK: 2 messages)
-  noiseHandshake1, // XX: -> e (32 bytes) | KK: -> e, es, ss (96 bytes) [SIZE INDICATES PATTERN]
+  noiseHandshake1, // XX: -> e (32 bytes) | KK: -> e + encrypted empty payload/MAC (48 bytes)
   noiseHandshake2, // XX: <- e, ee, s, es (80 bytes) | KK: <- e, ee, se (48 bytes)
   noiseHandshake3, // XX: -> s, se (48 bytes) [XX ONLY - KK has no message 3]
   noiseHandshakeRejected, // "I can't do KK" + reason + suggested pattern
