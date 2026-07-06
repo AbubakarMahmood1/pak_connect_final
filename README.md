@@ -153,8 +153,8 @@ docs/             security, testing, refactoring, and SRS material
 ### Clone and Install
 
 ```bash
-git clone https://github.com/AbubakarMahmood1/pak_connect_final.git
-cd pak_connect_final
+git clone https://github.com/AbubakarMahmood/pak_connect.git
+cd pak_connect
 flutter pub get
 ```
 
