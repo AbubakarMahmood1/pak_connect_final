@@ -7,10 +7,9 @@ import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
-import 'package:pak_connect/domain/models/connection_state.dart'
-    show ChatConnectionState;
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
+import '../../domain/constants/ble_constants.dart';
 import '../../domain/services/device_deduplication_manager.dart';
 import 'ble_connection_manager.dart';
 import 'ble_connection_service.dart';
@@ -233,15 +232,26 @@ class BleLifecycleCoordinator {
             return;
           }
 
-          await _getMessagingService().processIncomingPeripheralData(
-            data,
-            senderDeviceId: event.central.uuid.toString(),
-            senderNodeId: DeviceDeduplicationManager.getDevice(
-              event.central.uuid.toString(),
-            )?.ephemeralHint,
-          );
+          final status = await _getMessagingService()
+              .processIncomingPeripheralData(
+                data,
+                senderDeviceId: event.central.uuid.toString(),
+                senderNodeId: DeviceDeduplicationManager.getDevice(
+                  event.central.uuid.toString(),
+                )?.ephemeralHint,
+              );
 
-          await peripheralManager.respondWriteRequest(event.request);
+          // Only ACK when the frame was accepted. A structurally corrupt frame
+          // must NACK so the sender does not record a false delivery
+          // (PC-GATT-002).
+          if (status == InboundProcessStatus.failed) {
+            await peripheralManager.respondWriteRequestWithError(
+              event.request,
+              error: GATTError.unlikelyError,
+            );
+          } else {
+            await peripheralManager.respondWriteRequest(event.request);
+          }
         } catch (e, stack) {
           _logger.warning(
             '⚠️ Failed to handle inbound write from ${event.central.uuid}: $e',
@@ -267,10 +277,9 @@ class BleLifecycleCoordinator {
     GATTCharacteristic? characteristicOverride,
   }) {
     final handshakeService = _getHandshakeService();
-    if (handshakeService.isHandshakeInProgress ||
-        _connectionManager.connectionState == ChatConnectionState.ready) {
+    if (handshakeService.isHandshakeInProgress) {
       _logger.info(
-        '🛑 Skipping fallback responder handshake: already ${handshakeService.isHandshakeInProgress ? "IN_PROGRESS" : "READY"}',
+        '🛑 Skipping fallback responder handshake: already IN_PROGRESS',
       );
       return;
     }
@@ -339,8 +348,7 @@ class BleLifecycleCoordinator {
   }) {
     if (_connectionManager.serverConnectionCount == 0) return;
 
-    if (_connectionManager.connectionState == ChatConnectionState.ready ||
-        _getHandshakeService().isHandshakeInProgress) {
+    if (_getHandshakeService().isHandshakeInProgress) {
       return;
     }
 
@@ -375,8 +383,7 @@ class BleLifecycleCoordinator {
       try {
         if (_connectionManager.serverConnectionCount == 0) return;
 
-        if (_connectionManager.connectionState == ChatConnectionState.ready ||
-            _getHandshakeService().isHandshakeInProgress) {
+        if (_getHandshakeService().isHandshakeInProgress) {
           return;
         }
 
@@ -432,6 +439,17 @@ class BleLifecycleCoordinator {
                   '🧟 Service Changed (0x2A05) received from $deviceId - Remote app likely restarted. Disconnecting to clear zombie state.',
                 );
                 await _connectionManager.disconnectClient(deviceId);
+                return;
+              }
+
+              // Only app payloads from our message characteristic are
+              // processed; foreign notifications (battery, HID, other apps'
+              // services) must not reach handshake/fragment parsing where
+              // they could poison partial reassembly state.
+              if (uuid != BLEConstants.messageCharacteristicUUID) {
+                _logger.finer(
+                  'Ignoring notification from non-message characteristic $uuid',
+                );
                 return;
               }
 

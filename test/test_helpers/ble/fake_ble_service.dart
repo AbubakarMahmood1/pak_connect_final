@@ -124,11 +124,15 @@ class FakeBleService extends BLEService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) async {
     sentQueueSyncMessages.add(queueMessage);
     if (_queueSyncHandler != null && _currentSessionId != null) {
       await _queueSyncHandler!(queueMessage, _currentSessionId!);
     }
+    return true;
   }
 
   @override

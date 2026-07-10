@@ -324,7 +324,10 @@ class _FakeConnectionService implements IConnectionService {
   Future<bool> sendProtocolMessage(ProtocolMessage message) async => true;
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async => true;
 
   @override
   void registerQueueSyncHandler(

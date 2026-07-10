@@ -9,6 +9,7 @@ import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/spam_prevention_manager.dart';
 import 'package:pak_connect/domain/utils/binary_fragmenter.dart';
@@ -37,40 +38,41 @@ void main() {
       facade.dispose();
     });
 
-    test('sendMessage returns false when central sender is not configured', () async {
-      final result = await facade.sendMessage(
-        recipientKey: 'recipient_key_001',
-        content: 'hello',
-        timeout: const Duration(seconds: 1),
-      );
+    test(
+      'sendMessage returns false when central sender is not configured',
+      () async {
+        final result = await facade.sendMessage(
+          recipientKey: 'recipient_key_001',
+          content: 'hello',
+          timeout: const Duration(seconds: 1),
+        );
 
-      expect(result, isFalse);
-    });
+        expect(result, isFalse);
+      },
+    );
 
     test('sendMessage delegates to configured central sender', () async {
       final invocations = <Map<String, Object?>>[];
       facade.configureSenders(
-        sendCentral: ({
-          required recipientKey,
-          required content,
-          required timeout,
-          messageId,
-          originalIntendedRecipient,
-        }) async {
-          invocations.add({
-            'recipientKey': recipientKey,
-            'content': content,
-            'timeout': timeout,
-            'messageId': messageId,
-            'originalIntendedRecipient': originalIntendedRecipient,
-          });
-          return true;
-        },
-        sendPeripheral: ({
-          required senderKey,
-          required content,
-          messageId,
-        }) async => true,
+        sendCentral:
+            ({
+              required recipientKey,
+              required content,
+              required timeout,
+              messageId,
+              originalIntendedRecipient,
+            }) async {
+              invocations.add({
+                'recipientKey': recipientKey,
+                'content': content,
+                'timeout': timeout,
+                'messageId': messageId,
+                'originalIntendedRecipient': originalIntendedRecipient,
+              });
+              return true;
+            },
+        sendPeripheral:
+            ({required senderKey, required content, messageId}) async => true,
       );
 
       final result = await facade.sendMessage(
@@ -94,20 +96,18 @@ void main() {
 
     test('sendMessage returns false when configured sender throws', () async {
       facade.configureSenders(
-        sendCentral: ({
-          required recipientKey,
-          required content,
-          required timeout,
-          messageId,
-          originalIntendedRecipient,
-        }) async {
-          throw StateError('boom');
-        },
-        sendPeripheral: ({
-          required senderKey,
-          required content,
-          messageId,
-        }) async => true,
+        sendCentral:
+            ({
+              required recipientKey,
+              required content,
+              required timeout,
+              messageId,
+              originalIntendedRecipient,
+            }) async {
+              throw StateError('boom');
+            },
+        sendPeripheral:
+            ({required senderKey, required content, messageId}) async => true,
       );
 
       final result = await facade.sendMessage(
@@ -122,23 +122,21 @@ void main() {
     test('sendPeripheralMessage delegates and handles failures', () async {
       var shouldThrow = false;
       facade.configureSenders(
-        sendCentral: ({
-          required recipientKey,
-          required content,
-          required timeout,
-          messageId,
-          originalIntendedRecipient,
-        }) async => true,
-        sendPeripheral: ({
-          required senderKey,
-          required content,
-          messageId,
-        }) async {
-          if (shouldThrow) {
-            throw StateError('peripheral send fail');
-          }
-          return senderKey == 'sender_a' && content == 'hi';
-        },
+        sendCentral:
+            ({
+              required recipientKey,
+              required content,
+              required timeout,
+              messageId,
+              originalIntendedRecipient,
+            }) async => true,
+        sendPeripheral:
+            ({required senderKey, required content, messageId}) async {
+              if (shouldThrow) {
+                throw StateError('peripheral send fail');
+              }
+              return senderKey == 'sender_a' && content == 'hi';
+            },
       );
 
       final ok = await facade.sendPeripheralMessage(
@@ -156,106 +154,176 @@ void main() {
       expect(failed, isFalse);
     });
 
-    test('processReceivedData returns null for non-fragment non-protocol payload', () async {
-      final result = await facade.processReceivedData(
-        data: Uint8List.fromList([0x7F, 0x01, 0x02]),
-        fromDeviceId: 'dev-1',
-        fromNodeId: 'node-1',
-      );
-
-      expect(result, isNull);
-    });
-
-    test('routes reassembled handshake protocol messages to handshake service', () async {
-      final handshakeService = _FakeHandshakeService();
-      handshakeService.nextHandleResult = true;
-
-      BLEMessageHandlerFacade.configureDependencyResolvers(
-        handshakeServiceResolver: () => handshakeService,
-      );
-
-      final handshakeMessage = ProtocolMessage.connectionReady(
-        deviceId: 'device-x',
-        deviceName: 'X',
-      );
-      final bytes = handshakeMessage.toBytes(enableCompression: false);
-      final chunks = MessageFragmenter.fragmentBytes(bytes, 90, 'phase2_msg_001');
-
-      String? lastResult;
-      for (final chunk in chunks) {
-        lastResult = await facade.processReceivedData(
-          data: chunk.toBytes(),
-          fromDeviceId: 'dev-2',
-          fromNodeId: 'peer-node',
+    test(
+      'processReceivedData returns null for non-fragment non-protocol payload',
+      () async {
+        final result = await facade.processReceivedData(
+          data: Uint8List.fromList([0x7F, 0x01, 0x02]),
+          fromDeviceId: 'dev-1',
+          fromNodeId: 'node-1',
         );
-      }
 
-      expect(lastResult, isNull);
-      expect(handshakeService.handleCalls, 1);
-      expect(handshakeService.lastIsFromPeripheral, isFalse);
-      expect(handshakeService.lastData, isNotNull);
-    });
+        expect(result, isNull);
+      },
+    );
 
-    test('processes binary payload reassembly and calls binary callback on decrypt success', () async {
-      securityService.decryptResult = Uint8List.fromList([9, 8, 7, 6]);
-      securityService.decryptShouldThrow = false;
-
-      Uint8List? callbackBytes;
-      int? callbackType;
-      String? callbackFragmentId;
-      String? callbackSender;
-      facade.onBinaryPayloadReceived = (
-        data,
-        originalType,
-        fragmentId,
-        ttl,
-        recipient,
-        senderNodeId,
-      ) {
-        callbackBytes = data;
-        callbackType = originalType;
-        callbackFragmentId = fragmentId;
-        callbackSender = senderNodeId;
-      };
-
-      final fragments = BinaryFragmenter.fragment(
-        data: Uint8List.fromList([1, 2, 3, 4, 5, 6, 7, 8]),
-        mtu: 120,
-        originalType: BinaryPayloadType.media,
-        ttl: 4,
-      );
-
-      for (final fragment in fragments) {
-        await facade.processReceivedData(
-          data: fragment,
-          fromDeviceId: 'device-binary',
-          fromNodeId: 'sender-node-key',
+    test(
+      'processReceivedData returns the failure marker for a recognized but '
+      'corrupt protocol payload (PC-GATT-002)',
+      () async {
+        // Valid JSON with type/version/payload → passes isProtocolMessage, so
+        // the pipeline treats it as a direct protocol message. But as raw
+        // bytes it is not a valid ProtocolMessage frame ('{' = 0x7B is odd →
+        // read as "compressed" → decompress fails), so fromBytes throws.
+        final corrupt = Uint8List.fromList(
+          '{"type":"textMessage","version":1,"payload":{}}'.codeUnits,
         );
-      }
 
-      expect(callbackBytes, isNotNull);
-      expect(callbackBytes, Uint8List.fromList([9, 8, 7, 6]));
-      expect(callbackType, BinaryPayloadType.media);
-      expect(callbackFragmentId, isNotEmpty);
-      expect(callbackSender, 'sender-node-key');
-      expect(securityService.decryptCalls, 1);
-      expect(securityService.lastDecryptPublicKey, 'sender-node-key');
-    });
+        final result = await facade.processReceivedData(
+          data: corrupt,
+          fromDeviceId: 'dev-1',
+          fromNodeId: 'node-1',
+        );
+
+        expect(
+          result,
+          equals(BLEMessageHandlerFacade.processingFailedMarker),
+          reason:
+              'a recognized-but-unparseable frame must be reported as failed, '
+              'not silently dropped as null',
+        );
+      },
+    );
+
+    test(
+      'routes reassembled handshake protocol messages to handshake service',
+      () async {
+        final handshakeService = _FakeHandshakeService();
+        handshakeService.nextHandleResult = true;
+
+        BLEMessageHandlerFacade.configureDependencyResolvers(
+          handshakeServiceResolver: () => handshakeService,
+        );
+
+        final handshakeMessage = ProtocolMessage.connectionReady(
+          deviceId: 'device-x',
+          deviceName: 'X',
+        );
+        final bytes = handshakeMessage.toBytes(enableCompression: false);
+        final chunks = MessageFragmenter.fragmentBytes(
+          bytes,
+          90,
+          'phase2_msg_001',
+        );
+
+        String? lastResult;
+        for (final chunk in chunks) {
+          lastResult = await facade.processReceivedData(
+            data: chunk.toBytes(),
+            fromDeviceId: 'dev-2',
+            fromNodeId: 'peer-node',
+          );
+        }
+
+        expect(lastResult, isNull);
+        expect(handshakeService.handleCalls, 1);
+        expect(handshakeService.lastIsFromPeripheral, isFalse);
+        expect(handshakeService.lastData, isNotNull);
+      },
+    );
+
+    test(
+      'processes binary payload reassembly and calls binary callback on decrypt success',
+      () async {
+        securityService.decryptResult = Uint8List.fromList([9, 8, 7, 6]);
+        securityService.decryptShouldThrow = false;
+
+        Uint8List? callbackBytes;
+        int? callbackType;
+        String? callbackFragmentId;
+        String? callbackSender;
+        facade.onBinaryPayloadReceived =
+            (data, originalType, fragmentId, ttl, recipient, senderNodeId) {
+              callbackBytes = data;
+              callbackType = originalType;
+              callbackFragmentId = fragmentId;
+              callbackSender = senderNodeId;
+            };
+
+        final fragments = BinaryFragmenter.fragment(
+          data: Uint8List.fromList([1, 2, 3, 4, 5, 6, 7, 8]),
+          mtu: 120,
+          originalType: BinaryPayloadType.media,
+          ttl: 4,
+        );
+
+        for (final fragment in fragments) {
+          await facade.processReceivedData(
+            data: fragment,
+            fromDeviceId: 'device-binary',
+            fromNodeId: 'sender-node-key',
+          );
+        }
+
+        expect(callbackBytes, isNotNull);
+        expect(callbackBytes, Uint8List.fromList([9, 8, 7, 6]));
+        expect(callbackType, BinaryPayloadType.media);
+        expect(callbackFragmentId, isNotEmpty);
+        expect(callbackSender, 'sender-node-key');
+        expect(securityService.decryptCalls, 1);
+        expect(securityService.lastDecryptPublicKey, 'sender-node-key');
+      },
+    );
+
+    test(
+      'routes binary-fragmented queue sync protocol payload to callback',
+      () async {
+        final received = <QueueSyncMessage>[];
+        String? receivedFromNode;
+        facade.onQueueSyncReceived = (syncMessage, fromNodeId) {
+          received.add(syncMessage);
+          receivedFromNode = fromNodeId;
+        };
+
+        final syncMessage = QueueSyncMessage.createRequest(
+          messageIds: List<String>.generate(80, (i) => 'message-$i'),
+          nodeId: 'sender-node',
+          queueHash: 'queue-hash-1',
+        );
+        final protocolMessage = ProtocolMessage.queueSync(
+          queueMessage: syncMessage,
+        );
+        final fragments = BinaryFragmenter.fragment(
+          data: protocolMessage.toBytes(),
+          mtu: 90,
+          originalType: BinaryPayloadType.protocolMessage,
+        );
+
+        expect(fragments.length, greaterThan(1));
+
+        for (final fragment in fragments) {
+          await facade.processReceivedData(
+            data: fragment,
+            fromDeviceId: 'device-queue-sync',
+            fromNodeId: 'sender-node',
+          );
+        }
+
+        expect(received, hasLength(1));
+        expect(received.single.queueHash, 'queue-hash-1');
+        expect(received.single.syncType, QueueSyncType.request);
+        expect(receivedFromNode, 'sender-node');
+      },
+    );
 
     test('drops binary payload when decrypt fails (fail-closed)', () async {
       securityService.decryptShouldThrow = true;
 
       var callbackCalls = 0;
-      facade.onBinaryPayloadReceived = (
-        data,
-        originalType,
-        fragmentId,
-        ttl,
-        recipient,
-        senderNodeId,
-      ) {
-        callbackCalls++;
-      };
+      facade.onBinaryPayloadReceived =
+          (data, originalType, fragmentId, ttl, recipient, senderNodeId) {
+            callbackCalls++;
+          };
 
       final fragments = BinaryFragmenter.fragment(
         data: Uint8List.fromList([42, 43, 44, 45]),
@@ -276,100 +344,101 @@ void main() {
       expect(securityService.decryptCalls, 1);
     });
 
-    test('forwards binary fragments for non-local recipients and stores reassembled forward payload', () async {
-      facade.setCurrentNodeId('local-node');
+    test(
+      'forwards binary fragments for non-local recipients and stores reassembled forward payload',
+      () async {
+        facade.setCurrentNodeId('local-node');
 
-      final forwarded = <_ForwardCall>[];
-      facade.onForwardBinaryFragment = (
-        data,
-        fragmentId,
-        index,
-        fromDeviceId,
-        fromNodeId,
-      ) {
-        forwarded.add(
-          _ForwardCall(
-            data: data,
-            fragmentId: fragmentId,
-            index: index,
-            fromDeviceId: fromDeviceId,
-            fromNodeId: fromNodeId,
-          ),
+        final forwarded = <_ForwardCall>[];
+        facade.onForwardBinaryFragment =
+            (data, fragmentId, index, fromDeviceId, fromNodeId) {
+              forwarded.add(
+                _ForwardCall(
+                  data: data,
+                  fragmentId: fragmentId,
+                  index: index,
+                  fromDeviceId: fromDeviceId,
+                  fromNodeId: fromNodeId,
+                ),
+              );
+            };
+
+        final originalData = Uint8List.fromList(
+          List<int>.generate(120, (i) => i % 255),
         );
-      };
-
-      final originalData = Uint8List.fromList(
-        List<int>.generate(120, (i) => i % 255),
-      );
-      final fragments = BinaryFragmenter.fragment(
-        data: originalData,
-        mtu: 55,
-        originalType: BinaryPayloadType.media,
-        recipient: 'remote-node',
-        ttl: 5,
-      );
-
-      for (final fragment in fragments) {
-        await facade.processReceivedData(
-          data: fragment,
-          fromDeviceId: 'sender-device',
-          fromNodeId: 'sender-node',
+        final fragments = BinaryFragmenter.fragment(
+          data: originalData,
+          mtu: 55,
+          originalType: BinaryPayloadType.media,
+          recipient: 'remote-node',
+          ttl: 5,
         );
-      }
 
-      expect(forwarded.length, fragments.length);
-      expect(forwarded.first.fragmentId, isNotEmpty);
-      expect(forwarded.first.fromDeviceId, 'sender-device');
-      expect(forwarded.first.fromNodeId, 'sender-node');
+        for (final fragment in fragments) {
+          await facade.processReceivedData(
+            data: fragment,
+            fromDeviceId: 'sender-device',
+            fromNodeId: 'sender-node',
+          );
+        }
 
-      final reassembled = facade.takeForwardReassembledPayload(
-        forwarded.first.fragmentId,
-      );
-      expect(reassembled, isNotNull);
-      expect(reassembled!.bytes, originalData);
-      expect(reassembled.originalType, BinaryPayloadType.media);
-      expect(reassembled.recipient, 'remote-node');
-    });
+        expect(forwarded.length, fragments.length);
+        expect(forwarded.first.fragmentId, isNotEmpty);
+        expect(forwarded.first.fromDeviceId, 'sender-device');
+        expect(forwarded.first.fromNodeId, 'sender-node');
 
-    test('initializeRelaySystem accepts resolver and callback wiring', () async {
-      final seenStore = _FakeSeenMessageStore();
-      BLEMessageHandlerFacade.configureDependencyResolvers(
-        seenMessageStoreResolver: () => seenStore,
-      );
+        final reassembled = facade.takeForwardReassembledPayload(
+          forwarded.first.fragmentId,
+        );
+        expect(reassembled, isNotNull);
+        expect(reassembled!.bytes, originalData);
+        expect(reassembled.originalType, BinaryPayloadType.media);
+        expect(reassembled.recipient, 'remote-node');
+      },
+    );
 
-      facade.setMessageQueue(InMemoryOfflineMessageQueue());
-      facade.setSpamPreventionManager(SpamPreventionManager());
+    test(
+      'initializeRelaySystem accepts resolver and callback wiring',
+      () async {
+        final seenStore = _FakeSeenMessageStore();
+        BLEMessageHandlerFacade.configureDependencyResolvers(
+          seenMessageStoreResolver: () => seenStore,
+        );
 
-      await facade.initializeRelaySystem(
-        currentNodeId: 'node-relay',
-        nextHopsProvider: () => ['next-1', 'next-2'],
-        onRelayMessageReceived: (_, _, _) {},
-        onRelayDecisionMade: (_) {},
-        onRelayStatsUpdated: (_) {},
-      );
+        facade.setMessageQueue(InMemoryOfflineMessageQueue());
+        facade.setSpamPreventionManager(SpamPreventionManager());
 
-      facade.onContactRequestReceived = (_, _) {};
-      facade.onContactAcceptReceived = (_, _) {};
-      facade.onContactRejectReceived = () {};
-      facade.onCryptoVerificationReceived = (_, _) {};
-      facade.onCryptoVerificationResponseReceived = (_, _, _, _) {};
-      facade.onQueueSyncReceived = (_, _) {};
-      facade.onSendQueueMessages = (_, _) {};
-      facade.onQueueSyncCompleted = (_, _) {};
-      facade.onRelayMessageReceived = (_, _, _) {};
-      facade.onRelayMessageReceivedIds = (_, _, _) {};
-      facade.onRelayDecisionMade = (_) {};
-      facade.onRelayStatsUpdated = (_) {};
-      facade.onSendAckMessage = (_) {};
-      facade.onSendRelayMessage = (_, _) {};
-      facade.onTextMessageReceived = (_, _, _) async {};
-      facade.onIdentityRevealed = (_) {};
+        await facade.initializeRelaySystem(
+          currentNodeId: 'node-relay',
+          nextHopsProvider: () => ['next-1', 'next-2'],
+          onRelayMessageReceived: (_, _, _) {},
+          onRelayDecisionMade: (_) {},
+          onRelayStatsUpdated: (_) {},
+        );
 
-      expect(facade.getAvailableNextHops(), ['next-1', 'next-2']);
-      // Ensure no crash on repeated disposal.
-      facade.dispose();
-      facade.dispose();
-    });
+        facade.onContactRequestReceived = (_, _) {};
+        facade.onContactAcceptReceived = (_, _) {};
+        facade.onContactRejectReceived = () {};
+        facade.onCryptoVerificationReceived = (_, _) {};
+        facade.onCryptoVerificationResponseReceived = (_, _, _, _) {};
+        facade.onQueueSyncReceived = (_, _) {};
+        facade.onSendQueueMessages = (_, _) {};
+        facade.onQueueSyncCompleted = (_, _) {};
+        facade.onRelayMessageReceived = (_, _, _) {};
+        facade.onRelayMessageReceivedIds = (_, _, _) {};
+        facade.onRelayDecisionMade = (_) {};
+        facade.onRelayStatsUpdated = (_) {};
+        facade.onSendAckMessage = (_) {};
+        facade.onSendRelayMessage = (_, _) {};
+        facade.onTextMessageReceived = (_, _, _) async {};
+        facade.onIdentityRevealed = (_) {};
+
+        expect(facade.getAvailableNextHops(), ['next-1', 'next-2']);
+        // Ensure no crash on repeated disposal.
+        facade.dispose();
+        facade.dispose();
+      },
+    );
   });
 }
 

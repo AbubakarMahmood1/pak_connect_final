@@ -18,8 +18,8 @@ void main() {
 
  final bytes = chunk.toBytes();
  final decoded = utf8.decode(bytes);
- // shortId = last 6 chars = '123456'
- expect(decoded, equals('123456|0|3|0|hello'));
+ // id is emitted verbatim (no truncation) to preserve reassembly entropy.
+ expect(decoded, equals('abcdef123456|0|3|0|hello'));
  });
 
  test('fromBytes parses valid chunk correctly', () {
@@ -41,7 +41,7 @@ void main() {
 );
  });
 
- test('toBytes uses last 6 chars of messageId as shortId', () {
+ test('toBytes emits the messageId verbatim (no truncation)', () {
  final chunk = MessageChunk(messageId: 'XYZABCDEF012',
  chunkIndex: 1,
  totalChunks: 2,
@@ -50,10 +50,7 @@ void main() {
 );
 
  final decoded = utf8.decode(chunk.toBytes());
- expect(decoded.startsWith('EF012|'), isFalse); // wrong length
- expect(decoded.startsWith('F012|'), isFalse);
- // last 6 = 'EF0012' — wait let me recheck: 'XYZABCDEF012' last 6 = 'DEF012'
- expect(decoded, startsWith('DEF012|'));
+ expect(decoded, startsWith('XYZABCDEF012|'));
  });
 
  test('toBytes handles messageId shorter than 6 chars', () {
@@ -106,10 +103,8 @@ void main() {
 
  final restored = MessageChunk.fromBytes(original.toBytes());
 
- // fromBytes gets the shortId (last 6 chars of original messageId)
- const fullId = 'roundtrip1234';
- final expectedShortId = fullId.substring(fullId.length - 6);
- expect(restored.messageId, equals(expectedShortId));
+ // id round-trips verbatim (no truncation)
+ expect(restored.messageId, equals('roundtrip1234'));
  expect(restored.chunkIndex, equals(2));
  expect(restored.totalChunks, equals(4));
  expect(restored.content, equals('some content here'));
@@ -259,20 +254,83 @@ void main() {
  }
  });
 
- test('fragmentBytes uses last 6 chars of messageId as shortId', () {
+ test('fragmentBytes assigns a generated wire id, not a slice of the caller id',
+ () {
  final data = Uint8List.fromList([1, 2, 3]);
  final chunks =
  MessageFragmenter.fragmentBytes(data, 200, 'ABCDEFGHIJKL');
 
- // shortId = last 6 = 'GHIJKL'
- expect(chunks.first.messageId, equals('GHIJKL'));
+ // The wire id is generated, not derived from the caller id.
+ expect(chunks.first.messageId, isNot(equals('GHIJKL')));
+ expect(chunks.first.messageId, isNot(contains('ABCDEF')));
+ // All chunks of one message share the same wire id.
+ for (final c in chunks) {
+ expect(c.messageId, equals(chunks.first.messageId));
+ }
  });
 
- test('fragmentBytes handles messageId shorter than 6 chars', () {
+ test('fragmentBytes generates a wire id independent of the caller id', () {
  final data = Uint8List.fromList([1, 2, 3]);
  final chunks = MessageFragmenter.fragmentBytes(data, 200, 'XY');
 
- expect(chunks.first.messageId, equals('XY'));
+ // The wire (grouping) id must be collision-resistant, not the caller's
+ // low-entropy id. It should not simply echo the caller id.
+ expect(chunks.first.messageId, isNot(equals('XY')));
+ expect(chunks.first.messageId.length, greaterThanOrEqualTo(8));
+ });
+
+ test('fragmentBytes assigns distinct wire ids even when caller ids share a '
+ 'suffix (PC-FRAG-001)', () {
+ final data1 = Uint8List.fromList(List.generate(300, (i) => i % 256));
+ final data2 = Uint8List.fromList(List.generate(300, (i) => (i * 7) % 256));
+
+ // Two callers whose ids collide on the last 6 chars (old truncation key).
+ final chunks1 =
+ MessageFragmenter.fragmentBytes(data1, 80, 'senderA_123456');
+ final chunks2 =
+ MessageFragmenter.fragmentBytes(data2, 80, 'senderB_123456');
+
+ expect(chunks1.length, greaterThan(1));
+ expect(chunks2.length, greaterThan(1));
+ expect(chunks1.first.messageId, isNot(equals(chunks2.first.messageId)),
+ reason:
+ 'colliding caller ids must not produce colliding wire ids');
+ });
+
+ test('interleaved multi-chunk messages with colliding caller ids reassemble '
+ 'independently (PC-FRAG-001)', () {
+ final data1 = Uint8List.fromList(List.generate(300, (i) => i % 256));
+ final data2 =
+ Uint8List.fromList(List.generate(300, (i) => (255 - (i % 256))));
+
+ final chunks1 =
+ MessageFragmenter.fragmentBytes(data1, 80, 'one_999999');
+ final chunks2 =
+ MessageFragmenter.fragmentBytes(data2, 80, 'two_999999');
+
+ final reassembler = MessageReassembler();
+ Uint8List? r1;
+ Uint8List? r2;
+ final maxLen = chunks1.length > chunks2.length
+ ? chunks1.length
+ : chunks2.length;
+ for (var i = 0; i < maxLen; i++) {
+ if (i < chunks1.length) {
+ final got = reassembler
+ .addChunkBytes(MessageChunk.fromBytes(chunks1[i].toBytes()));
+ if (got != null) r1 = got;
+ }
+ if (i < chunks2.length) {
+ final got = reassembler
+ .addChunkBytes(MessageChunk.fromBytes(chunks2[i].toBytes()));
+ if (got != null) r2 = got;
+ }
+ }
+
+ expect(r1, equals(data1),
+ reason: 'message 1 must reassemble without chunk mixing');
+ expect(r2, equals(data2),
+ reason: 'message 2 must reassemble without chunk mixing');
  });
  });
 

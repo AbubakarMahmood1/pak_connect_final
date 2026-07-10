@@ -50,7 +50,7 @@ void main() {
     );
 
     test(
-      'handleCentralConnected rejects inbound when state is ready',
+      'handleCentralConnected accepts new inbound peer when another peer is ready',
       () async {
         final central = fakeCentralFromString(
           '00000000-0000-0000-0000-000000000102',
@@ -61,9 +61,10 @@ void main() {
         manager.handleCentralConnected(central);
         await _settle();
 
-        verify(peripheralManager.disconnect(central)).called(1);
-        expect(manager.serverConnectionCount, 0);
-        expect(manager.isResponderHandshakeBlocked(address), isTrue);
+        verifyNever(peripheralManager.disconnect(central));
+        expect(manager.serverConnectionCount, 1);
+        expect(manager.hasServerConnection(address), isTrue);
+        expect(manager.isResponderHandshakeBlocked(address), isFalse);
       },
     );
 

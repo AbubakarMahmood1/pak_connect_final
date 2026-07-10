@@ -319,8 +319,12 @@ class _FakeRuntimeConnectionService implements IConnectionService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async {
     sendQueueSyncMessageCalls++;
+    return true;
   }
 
   @override

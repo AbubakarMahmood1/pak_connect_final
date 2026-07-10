@@ -315,7 +315,9 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       );
     } catch (e) {
       _logger.warning('⚠️ processReceivedData failed: $e');
-      return null;
+      // Surface genuine processing failures so the GATT layer can NACK
+      // instead of silently ACKing a dropped frame (PC-GATT-002).
+      return IBLEMessageHandlerFacade.processingFailedMarker;
     }
   }
 

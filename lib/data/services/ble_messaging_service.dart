@@ -298,31 +298,80 @@ class BLEMessagingService implements IBLEMessagingService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
-    final hasCentralLink =
-        _connectionManager.hasBleConnection &&
-        _connectionManager.messageCharacteristic != null;
-    final hasPeripheralLink =
-        _stateManager.isPeripheralMode &&
-        _getConnectedCentral() != null &&
-        _getPeripheralMessageCharacteristic() != null;
-
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) async {
     if (_connectionManager.isHandshakeInProgress ||
         _connectionManager.awaitingHandshake) {
       _logger.fine(
         '🔄 QUEUE SYNC: Skipping send while handshake is in progress',
       );
-      return;
+      return false;
     }
+
+    var targetPeerAddress = peerId == null ? null : _resolvePeerAddress(peerId);
+
+    bool globalCentralLink() =>
+        _connectionManager.hasBleConnection &&
+        _connectionManager.messageCharacteristic != null;
+    bool globalPeripheralLink() =>
+        _stateManager.isPeripheralMode &&
+        _getConnectedCentral() != null &&
+        _getPeripheralMessageCharacteristic() != null;
+
+    var hasCentralLink = targetPeerAddress == null
+        ? globalCentralLink()
+        : _connectionManager
+                  .clientConnectionForPeer(targetPeerAddress)
+                  ?.messageCharacteristic !=
+              null;
+    var hasPeripheralLink = targetPeerAddress == null
+        ? globalPeripheralLink()
+        : _connectionManager
+                  .serverConnectionForPeer(targetPeerAddress)
+                  ?.subscribedCharacteristic !=
+              null;
+
+    // Peer ids arrive in several flavors (session id, relationship hint,
+    // address); resolution can fail even though the peer is the one link we
+    // have. With exactly one active link the global route *is* that peer, so
+    // downgrade to it instead of dropping the sync. With multiple links we
+    // fail fast rather than risk sending to the wrong peer.
+    if (targetPeerAddress != null && !hasCentralLink && !hasPeripheralLink) {
+      final totalLinks =
+          _connectionManager.clientConnectionCount +
+          _connectionManager.serverConnectionCount;
+      if (totalLinks <= 1 && (globalCentralLink() || globalPeripheralLink())) {
+        _logger.fine(
+          '🔄 QUEUE SYNC: peer $peerId unresolved; using the only active link',
+        );
+        targetPeerAddress = null;
+        hasCentralLink = globalCentralLink();
+        hasPeripheralLink = globalPeripheralLink();
+      }
+    }
+
     if (!hasCentralLink && !hasPeripheralLink) {
-      _logger.fine('🔄 QUEUE SYNC: No active BLE link, skipping send');
-      return;
+      _logger.fine(
+        '🔄 QUEUE SYNC: No active BLE route, skipping send'
+        '${peerId == null ? "" : " (peer=$peerId, resolved=$targetPeerAddress)"}',
+      );
+      return false;
     }
 
     final protocolMessage = ProtocolMessage.queueSync(
       queueMessage: queueMessage,
     );
-    await _sendProtocolMessage(protocolMessage);
+    try {
+      await _sendProtocolMessage(protocolMessage, peerId: targetPeerAddress);
+      return true;
+    } catch (e) {
+      // Callers fire-and-forget; surface failure as a result, not as an
+      // unhandled async exception.
+      _logger.warning('🔄 QUEUE SYNC: send failed: $e');
+      return false;
+    }
   }
 
   @override
@@ -593,15 +642,37 @@ class BLEMessagingService implements IBLEMessagingService {
     return true;
   }
 
-  Future<void> _sendProtocolMessage(ProtocolMessage message) =>
-      _transportHelper.sendProtocolMessage(message);
+  Future<void> _sendProtocolMessage(
+    ProtocolMessage message, {
+    String? peerId,
+  }) => _transportHelper.sendProtocolMessage(message, peerId: peerId);
+
+  String _resolvePeerAddress(String peerId) {
+    final mapped = _nodeIdToAddress[peerId];
+    if (mapped != null) return mapped;
+
+    // Peer ids may be any identity flavor (ephemeral session id, persistent
+    // key). When it matches the active session, route to the connected
+    // device/central address.
+    if (peerId == _stateManager.currentSessionId ||
+        peerId == _stateManager.theirEphemeralId ||
+        peerId == _stateManager.theirPersistentKey) {
+      final device = _connectionManager.connectedDevice;
+      if (device != null) return device.uuid.toString();
+      final central = _getConnectedCentral() as Central?;
+      if (central != null) return central.uuid.toString();
+    }
+
+    // May already be a device address.
+    return peerId;
+  }
 
   // ============================================================================
   // MESSAGE RECEPTION & STREAM
   // ============================================================================
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
@@ -611,13 +682,33 @@ class BLEMessagingService implements IBLEMessagingService {
         senderDeviceId,
         providedNodeId: senderNodeId,
       );
-      await _messageHandler.processReceivedData(
+      // Record the mapping before processing: handlers triggered by this
+      // data (e.g. queue-sync responses) may need to route a reply to this
+      // peer immediately.
+      if (inferredNodeId.isNotEmpty) {
+        _nodeIdToAddress[inferredNodeId] = senderDeviceId;
+      }
+      final result = await _messageHandler.processReceivedData(
         data: data,
         fromDeviceId: senderDeviceId,
         fromNodeId: inferredNodeId,
       );
+      // A structural parse failure of a recognized payload must not be ACKed
+      // to the sender as a successful write (PC-GATT-002).
+      if (result == IBLEMessageHandlerFacade.processingFailedMarker) {
+        _logger.warning(
+          '⚠️ Inbound payload from $senderDeviceId failed to parse; NACKing',
+        );
+        return InboundProcessStatus.failed;
+      }
+      // Non-null marker → something was produced/handled; null → legitimately
+      // nothing to surface (buffered fragment, ping, not-for-us). Both ACK.
+      return result != null
+          ? InboundProcessStatus.handled
+          : InboundProcessStatus.ignored;
     } catch (e) {
       _logger.warning('⚠️ Failed to process inbound peripheral data: $e');
+      return InboundProcessStatus.failed;
     }
   }
 

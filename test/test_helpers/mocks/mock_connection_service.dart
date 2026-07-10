@@ -138,11 +138,15 @@ class MockConnectionService implements IConnectionService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) async {
     queueSyncMessages.add(queueMessage);
     if (_queueSyncHandler != null) {
       await _queueSyncHandler!(queueMessage, 'mock_node');
     }
+    return true;
   }
 
   @override

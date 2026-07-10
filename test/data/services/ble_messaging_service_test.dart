@@ -16,6 +16,7 @@ import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
 import 'package:pak_connect/domain/utils/binary_fragmenter.dart';
 import 'package:pak_connect/data/models/ble_client_connection.dart';
+import 'package:pak_connect/domain/models/ble_server_connection.dart';
 import '../../helpers/ble/ble_fakes.dart';
 
 @GenerateNiceMocks([
@@ -731,6 +732,295 @@ void main() {
 
         // Keep analyzer happy about unused instance.
         expect(service, isA<BLEMessagingService>());
+      },
+    );
+  });
+
+  group('BLEMessagingService peer-targeted queue sync', () {
+    late _ForwardingHarnessHandler handler;
+    late _MockBLEConnectionManagerWithHandshake connectionManager;
+    late MockIBLEStateManagerFacade stateManager;
+    late MockContactRepository contactRepository;
+    late MockCentralManager centralManager;
+    late MockPeripheralManager peripheralManager;
+    late List<_WriteCall> writes;
+
+    BLEMessagingService buildService({
+      Object? Function()? getConnectedCentral,
+      Object? Function()? getPeripheralMessageCharacteristic,
+    }) {
+      return BLEMessagingService(
+        messageHandler: handler,
+        connectionManager: connectionManager,
+        stateManager: stateManager,
+        contactRepository: contactRepository,
+        getCentralManager: () => centralManager,
+        getPeripheralManager: () => peripheralManager,
+        getConnectedCentral: getConnectedCentral ?? () => null,
+        getPeripheralMessageCharacteristic:
+            getPeripheralMessageCharacteristic ?? () => null,
+        getPeripheralMtuReady: () => false,
+        getPeripheralNegotiatedMtu: () => null,
+      );
+    }
+
+    relay_models.QueueSyncMessage buildSyncMessage() =>
+        relay_models.QueueSyncMessage(
+          queueHash: 'hash',
+          messageIds: const ['id-1'],
+          syncTimestamp: DateTime.now(),
+          nodeId: 'node-self',
+          syncType: relay_models.QueueSyncType.request,
+        );
+
+    setUp(() {
+      resetMockitoState();
+      handler = _ForwardingHarnessHandler();
+      connectionManager = _MockBLEConnectionManagerWithHandshake();
+      stateManager = MockIBLEStateManagerFacade();
+      contactRepository = MockContactRepository();
+      centralManager = MockCentralManager();
+      peripheralManager = MockPeripheralManager();
+      writes = [];
+
+      when(stateManager.isPeripheralMode).thenReturn(false);
+      when(stateManager.getRecipientId()).thenReturn(null);
+      when(stateManager.currentSessionId).thenReturn(null);
+      when(stateManager.theirEphemeralId).thenReturn(null);
+      when(stateManager.theirPersistentKey).thenReturn(null);
+      when(contactRepository.getAllContacts()).thenAnswer((_) async => {});
+      when(connectionManager.mtuSize).thenReturn(512);
+      when(connectionManager.clientConnectionCount).thenReturn(0);
+      when(connectionManager.serverConnectionCount).thenReturn(0);
+      when(connectionManager.hasBleConnection).thenReturn(false);
+      when(connectionManager.messageCharacteristic).thenReturn(null);
+      when(connectionManager.connectedDevice).thenReturn(null);
+      when(connectionManager.clientConnectionForPeer(any)).thenReturn(null);
+      when(connectionManager.serverConnectionForPeer(any)).thenReturn(null);
+      when(connectionManager.serverConnections).thenReturn(const []);
+
+      when(
+        centralManager.writeCharacteristic(
+          any,
+          any,
+          value: anyNamed('value'),
+          type: anyNamed('type'),
+        ),
+      ).thenAnswer((invocation) async {
+        writes.add(
+          _WriteCall(
+            target: _Target.central,
+            deviceId: (invocation.positionalArguments[0] as Peripheral).uuid
+                .toString(),
+            value: invocation.namedArguments[#value] as Uint8List,
+          ),
+        );
+      });
+      when(
+        peripheralManager.notifyCharacteristic(
+          any,
+          any,
+          value: anyNamed('value'),
+        ),
+      ).thenAnswer((invocation) async {
+        writes.add(
+          _WriteCall(
+            target: _Target.peripheral,
+            deviceId: (invocation.positionalArguments[0] as Central).uuid
+                .toString(),
+            value: invocation.namedArguments[#value] as Uint8List,
+          ),
+        );
+      });
+    });
+
+    GATTCharacteristic writableCharacteristic(String uuid) =>
+        GATTCharacteristic.mutable(
+          uuid: UUID.fromString(uuid),
+          properties: [GATTCharacteristicProperty.write],
+          permissions: [GATTCharacteristicPermission.write],
+          descriptors: const [],
+        );
+
+    test(
+      'unresolvable peer id falls back to the sole active link '
+      'instead of dropping the sync',
+      () async {
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000e1e1',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000e2e2',
+        );
+        when(connectionManager.hasBleConnection).thenReturn(true);
+        when(
+          connectionManager.messageCharacteristic,
+        ).thenReturn(characteristic);
+        when(connectionManager.connectedDevice).thenReturn(peripheral);
+        when(connectionManager.clientConnectionCount).thenReturn(1);
+
+        final service = buildService();
+        final sent = await service.sendQueueSyncMessage(
+          buildSyncMessage(),
+          peerId: 'unknown-node-id-flavor',
+        );
+
+        expect(
+          sent,
+          isTrue,
+          reason:
+              'with exactly one link the global route is that peer; the '
+              'sync must not be dropped just because resolution failed',
+        );
+        expect(writes, isNotEmpty);
+      },
+    );
+
+    test(
+      'peer id matching the active session identity resolves to the '
+      'connected device even with multiple links',
+      () async {
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000e3e3',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000e4e4',
+        );
+        final address = peripheral.uuid.toString();
+        final connection = BLEClientConnection(
+          address: address,
+          peripheral: peripheral,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 200,
+        );
+
+        when(stateManager.currentSessionId).thenReturn('session-xyz');
+        when(connectionManager.hasBleConnection).thenReturn(true);
+        when(
+          connectionManager.messageCharacteristic,
+        ).thenReturn(characteristic);
+        when(connectionManager.connectedDevice).thenReturn(peripheral);
+        when(connectionManager.clientConnectionCount).thenReturn(2);
+        when(
+          connectionManager.clientConnectionForPeer(address),
+        ).thenReturn(connection);
+
+        final service = buildService();
+        final sent = await service.sendQueueSyncMessage(
+          buildSyncMessage(),
+          peerId: 'session-xyz',
+        );
+
+        expect(sent, isTrue);
+        expect(writes, isNotEmpty);
+        expect(writes.every((w) => w.deviceId == address), isTrue);
+      },
+    );
+
+    test(
+      'unresolvable peer id with multiple links fails fast without '
+      'writing to the wrong peer',
+      () async {
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000e5e5',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000e6e6',
+        );
+        when(connectionManager.hasBleConnection).thenReturn(true);
+        when(
+          connectionManager.messageCharacteristic,
+        ).thenReturn(characteristic);
+        when(connectionManager.connectedDevice).thenReturn(peripheral);
+        when(connectionManager.clientConnectionCount).thenReturn(2);
+
+        final service = buildService();
+        final sent = await service.sendQueueSyncMessage(
+          buildSyncMessage(),
+          peerId: 'unknown-node-id-flavor',
+        );
+
+        expect(sent, isFalse);
+        expect(writes, isEmpty);
+      },
+    );
+
+    test('transport failure returns false instead of throwing', () async {
+      final characteristic = writableCharacteristic(
+        '00000000-0000-0000-0000-00000000e7e7',
+      );
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000e8e8',
+      );
+      when(connectionManager.hasBleConnection).thenReturn(true);
+      when(connectionManager.messageCharacteristic).thenReturn(characteristic);
+      when(connectionManager.connectedDevice).thenReturn(peripheral);
+      when(connectionManager.clientConnectionCount).thenReturn(1);
+      when(
+        centralManager.writeCharacteristic(
+          any,
+          any,
+          value: anyNamed('value'),
+          type: anyNamed('type'),
+        ),
+      ).thenThrow(Exception('GATT write failed'));
+
+      final service = buildService();
+      final sent = await service.sendQueueSyncMessage(buildSyncMessage());
+
+      expect(
+        sent,
+        isFalse,
+        reason:
+            'callers use unawaited(); a thrown error would surface as an '
+            'unhandled async exception instead of a false result',
+      );
+    });
+
+    test(
+      'targeted server route is used even when the legacy global link '
+      'checks see no connection',
+      () async {
+        final notifyCharacteristic = GATTCharacteristic.mutable(
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000e9e9'),
+          properties: [GATTCharacteristicProperty.notify],
+          permissions: [GATTCharacteristicPermission.read],
+          descriptors: const [],
+        );
+        final central = fakeCentralFromString(
+          '00000000-0000-0000-0000-00000000eaea',
+        );
+        final address = central.uuid.toString();
+        final serverConnection = BLEServerConnection(
+          address: address,
+          central: central,
+          connectedAt: DateTime.now(),
+          subscribedCharacteristic: notifyCharacteristic,
+        );
+
+        // Legacy global checks all say "no link": not in peripheral mode,
+        // no client connection. Only the peer-targeted server route exists.
+        when(connectionManager.serverConnectionCount).thenReturn(1);
+        when(
+          connectionManager.serverConnectionForPeer(address),
+        ).thenReturn(serverConnection);
+
+        final service = buildService();
+        final sent = await service
+            .sendQueueSyncMessage(buildSyncMessage(), peerId: address)
+            .timeout(
+              const Duration(seconds: 3),
+              onTimeout: () => fail(
+                'sendQueueSyncMessage hung: the write queue dropped the '
+                'targeted write and its completer never completed',
+              ),
+            );
+
+        expect(sent, isTrue);
+        expect(writes, hasLength(1));
+        expect(writes.single.target, _Target.peripheral);
+        expect(writes.single.deviceId, address);
       },
     );
   });

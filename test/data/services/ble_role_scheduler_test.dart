@@ -47,7 +47,8 @@ void main() {
         metricsRecorder: recorder,
         startScanEffector: () async => transitions.add('scan:start'),
         stopScanEffector: () async => transitions.add('scan:stop'),
-        startAdvertisingEffector: () async => transitions.add('advertise:start'),
+        startAdvertisingEffector: () async =>
+            transitions.add('advertise:start'),
         stopAdvertisingEffector: () async => transitions.add('advertise:stop'),
         connectEffector: (peer) async {
           connectRequests.add(peer.uuid.toString());
@@ -58,35 +59,34 @@ void main() {
       );
     });
 
-    test('start enters scan window without overlapping advertise start', () async {
-      await scheduler.start();
+    test(
+      'start enters scan window without overlapping advertise start',
+      () async {
+        await scheduler.start();
 
-      expect(scheduler.snapshot.state, BleRoleSchedulerState.scanWindow);
-      expect(transitions, [
-        'advertise:stop',
-        'scan:stop',
-        'scan:start',
-      ]);
-    });
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.scanWindow);
+        expect(transitions, ['advertise:stop', 'scan:stop', 'scan:start']);
+      },
+    );
 
-    test('outbound connect enters connect lock and calls connect effector', () async {
-      final peer = _TestPeripheral(
-        UUID.fromString('00000000-0000-0000-0000-0000000000aa'),
-      );
+    test(
+      'outbound connect enters connect lock and calls connect effector',
+      () async {
+        final peer = _TestPeripheral(
+          UUID.fromString('00000000-0000-0000-0000-0000000000aa'),
+        );
 
-      await scheduler.start();
-      await scheduler.requestOutboundConnect(peer);
+        await scheduler.start();
+        await scheduler.requestOutboundConnect(peer);
 
-      expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
-      expect(connectRequests, [peer.uuid.toString()]);
-      expect(
-        transitions,
-        containsAllInOrder([
-          'scan:stop',
-          'advertise:stop',
-        ]),
-      );
-    });
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+        expect(connectRequests, [peer.uuid.toString()]);
+        expect(
+          transitions,
+          containsAllInOrder(['scan:stop', 'advertise:stop']),
+        );
+      },
+    );
 
     test('inbound connected enters connect lock', () async {
       await scheduler.start();
@@ -96,21 +96,34 @@ void main() {
       expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
     });
 
-    test('handshake ready releases connect lock', () async {
-      final peer = _TestPeripheral(
-        UUID.fromString('00000000-0000-0000-0000-0000000000bb'),
-      );
+    test(
+      'handshake ready waits for MTU and notify readiness before releasing connect lock',
+      () async {
+        final peer = _TestPeripheral(
+          UUID.fromString('00000000-0000-0000-0000-0000000000bb'),
+        );
 
-      await scheduler.requestOutboundConnect(peer);
-      scheduler.reportHandshakeStarted(peer.uuid.toString());
-      scheduler.reportHandshakeReady(peer.uuid.toString());
-      await Future<void>.delayed(const Duration(milliseconds: 25));
+        await scheduler.requestOutboundConnect(peer);
+        scheduler.reportHandshakeStarted(peer.uuid.toString());
+        scheduler.reportHandshakeReady(peer.uuid.toString());
+        await Future<void>.delayed(const Duration(milliseconds: 5));
 
-      expect(
-        scheduler.snapshot.state,
-        isNot(BleRoleSchedulerState.connectLock),
-      );
-    });
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+
+        scheduler.reportMtuReady(peer.uuid.toString(), 185);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+
+        scheduler.reportNotifySubscribed(peer.uuid.toString());
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        expect(
+          scheduler.snapshot.state,
+          isNot(BleRoleSchedulerState.connectLock),
+        );
+      },
+    );
 
     test('connect lock timeout releases scheduler back into cycling', () async {
       final peer = _TestPeripheral(

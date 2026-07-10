@@ -41,6 +41,10 @@ class MeshQueueSyncCoordinator {
   bool _queueSyncHandlerRegistered = false;
   final Set<String> _queueSyncInFlight = {};
   final Map<String, DateTime> _lastQueueSyncAt = {};
+  // Inbound *request* debounce lives in its own map: sharing state with the
+  // outbound attempt tracker (_lastQueueSyncAt) let an inbound request from a
+  // peer suppress our own outbound sync to that peer, and vice versa.
+  final Map<String, DateTime> _lastInboundSyncRequestAt = {};
   static const Duration _queueSyncDebounce = Duration(seconds: 10);
 
   MeshQueueSyncCoordinator({
@@ -166,6 +170,37 @@ class MeshQueueSyncCoordinator {
       priority: priority,
     );
     return messageId;
+  }
+
+  /// Re-drive delivery of the backlog to the currently-connected peer.
+  ///
+  /// Intended for app foreground-resume: while backgrounded (notably iOS) the
+  /// queue's delivery timers are suspended, so a message enqueued in the
+  /// background is not sent until the app returns. This reuses the same
+  /// per-peer delivery path as connection-ready, pushing pending direct
+  /// messages immediately rather than waiting on the suspended timers. No-ops
+  /// when there is no usable link (delivery then resumes on reconnect).
+  Future<void> reprocessPendingDeliveries() async {
+    final queue = _messageQueue;
+    if (queue == null) {
+      return;
+    }
+    final deviceId = _bleService.currentSessionId;
+    if (deviceId == null ||
+        deviceId.isEmpty ||
+        !_bleService.canSendMessages) {
+      _logger.fine(
+        'Resume flush skipped: no usable link (delivery resumes on reconnect)',
+      );
+      return;
+    }
+    try {
+      await queue.setOnline();
+      await _deliverQueuedMessagesToDevice(deviceId);
+      _onStatusChanged?.call();
+    } catch (e) {
+      _logger.warning('Failed to reprocess pending deliveries: $e');
+    }
   }
 
   Future<bool> retryMessage(String messageId) async {
@@ -528,22 +563,28 @@ class MeshQueueSyncCoordinator {
     }
 
     try {
-      // Debounce sync per peer to avoid tight retries on notification failure.
-      final lastSync = _lastQueueSyncAt[fromNodeId];
-      if (lastSync != null &&
-          DateTime.now().difference(lastSync) < _queueSyncDebounce) {
-        _logger.fine(
-          '⏳ Skipping queue sync from ${fromNodeId.shortId(8)}... (debounced)',
-        );
-        return false;
-      }
-      _lastQueueSyncAt[fromNodeId] = DateTime.now();
-
       if (message.syncType == QueueSyncType.request) {
+        // Debounce duplicate *requests* only (tight retries on notification
+        // failure). Responses must never be debounced: they complete a
+        // pending initiated sync and dropping one forces a 15s timeout.
+        final lastRequest = _lastInboundSyncRequestAt[fromNodeId];
+        if (lastRequest != null &&
+            DateTime.now().difference(lastRequest) < _queueSyncDebounce) {
+          _logger.fine(
+            '⏳ Skipping queue sync request from ${fromNodeId.shortId(8)}... (debounced)',
+          );
+          return false;
+        }
+        _lastInboundSyncRequestAt[fromNodeId] = DateTime.now();
+
         final response = await manager.handleSyncRequest(message, fromNodeId);
         if (response.type == QueueSyncResponseType.success &&
             response.responseMessage != null) {
-          await _bleService.sendQueueSyncMessage(response.responseMessage!);
+          final sent = await _bleService.sendQueueSyncMessage(
+            response.responseMessage!,
+            peerId: fromNodeId,
+          );
+          if (!sent) return false;
         }
         return true;
       }
@@ -552,7 +593,7 @@ class MeshQueueSyncCoordinator {
         await manager.processSyncResponse(
           message,
           const <QueuedMessage>[],
-          fromNodeId,
+          _resolvePendingSyncKey(manager, message, fromNodeId),
         );
         return true;
       }
@@ -563,6 +604,32 @@ class MeshQueueSyncCoordinator {
     }
 
     return false;
+  }
+
+  /// The transport, the peer's self-declared node id, and our session state
+  /// may all use different identifier flavors for the same peer (relationship
+  /// hint vs ephemeral session id vs persistent key). A pending initiated
+  /// sync is keyed by whichever flavor we initiated with, so resolve the
+  /// response against every known alias before falling back to the transport
+  /// id.
+  String _resolvePendingSyncKey(
+    QueueSyncManagerContract manager,
+    QueueSyncMessage message,
+    String fromNodeId,
+  ) {
+    final aliases = <String?>[
+      fromNodeId,
+      message.nodeId,
+      _bleService.currentSessionId,
+      _bleService.theirEphemeralId,
+      _bleService.theirPersistentKey,
+    ];
+    for (final alias in aliases) {
+      if (alias != null && alias.isNotEmpty && manager.hasPendingSyncWith(alias)) {
+        return alias;
+      }
+    }
+    return fromNodeId;
   }
 
   void _handleConnectionChange(ConnectionInfo connectionInfo) async {
@@ -586,6 +653,7 @@ class MeshQueueSyncCoordinator {
       _queueSyncManager?.cancelAllSyncs(reason: 'Connection lost');
       _messageQueue?.setOffline();
       _queueSyncInFlight.clear();
+      _lastInboundSyncRequestAt.clear();
       if (connectedDeviceId != null) {
         _lastQueueSyncAt.remove(connectedDeviceId);
       }
@@ -685,15 +753,33 @@ class MeshQueueSyncCoordinator {
     }
   }
 
-  void _handleSyncRequest(QueueSyncMessage message, String fromNodeId) {
-    final truncatedNodeId = fromNodeId.length > 8
-        ? fromNodeId.shortId(8)
-        : fromNodeId;
+  void _handleSyncRequest(QueueSyncMessage message, String toNodeId) {
+    final truncatedNodeId = toNodeId.length > 8
+        ? toNodeId.shortId(8)
+        : toNodeId;
     _logger.info(
       '🔄 Sending queue sync to $truncatedNodeId... (${message.messageIds.length} ids)',
     );
 
-    unawaited(_bleService.sendQueueSyncMessage(message));
+    unawaited(
+      _bleService
+          .sendQueueSyncMessage(message, peerId: toNodeId)
+          .then((sent) {
+            if (!sent) {
+              _logger.warning(
+                '⚠️ Queue sync request to $truncatedNodeId... had no BLE '
+                'route — failing fast instead of waiting for timeout',
+              );
+              _queueSyncManager?.failPendingSync(toNodeId, 'No BLE route');
+            }
+          })
+          .catchError((Object e) {
+            _logger.warning(
+              '⚠️ Queue sync request send to $truncatedNodeId... failed: $e',
+            );
+            _queueSyncManager?.failPendingSync(toNodeId, 'Send failed: $e');
+          }),
+    );
   }
 
   void _handleSendMessages(List<QueuedMessage> messages, String toNodeId) {
@@ -701,12 +787,16 @@ class MeshQueueSyncCoordinator {
       return;
     }
 
+    // The requester id arrives in whatever flavor the transport resolved
+    // (often a relationship hint), so it may not match our session
+    // identifiers even though it is the connected peer. Recipient binding is
+    // enforced per message in _handleSendMessage via
+    // _canSendMessageToCurrentPeer; a mismatch here is only informational.
     if (!_matchesConnectedPeer(toNodeId)) {
-      _logger.warning(
-        'Skipping queue sync delivery to non-connected requester: '
-        '${toNodeId.shortId(8)}...',
+      _logger.fine(
+        'Queue sync requester ${toNodeId.shortId(8)}... does not match '
+        'session identifiers; relying on per-message recipient gate',
       );
-      return;
     }
 
     final truncated = toNodeId.length > 8 ? toNodeId.shortId(8) : toNodeId;
@@ -765,6 +855,12 @@ abstract class QueueSyncManagerContract {
     String fromNodeId,
   );
 
+  /// True when an initiated sync is still awaiting a response from [nodeId].
+  bool hasPendingSyncWith(String nodeId);
+
+  /// Fail a pending initiated sync immediately (e.g. transport had no route).
+  void failPendingSync(String nodeId, String reason);
+
   void cancelAllSyncs({String? reason});
 
   void dispose();
@@ -820,6 +916,13 @@ class QueueSyncManagerAdapter implements QueueSyncManagerContract {
     receivedMessages,
     fromNodeId,
   );
+
+  @override
+  bool hasPendingSyncWith(String nodeId) => _manager.hasPendingSyncWith(nodeId);
+
+  @override
+  void failPendingSync(String nodeId, String reason) =>
+      _manager.failPendingSync(nodeId, reason);
 
   @override
   void cancelAllSyncs({String? reason}) =>

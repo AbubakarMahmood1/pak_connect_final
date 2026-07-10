@@ -1121,7 +1121,10 @@ final class _StubMessagingService implements IBLEMessagingService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {}
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) async => true;
 
   @override
   Future<void> sendIdentityExchange() async {}
@@ -1169,11 +1172,11 @@ final class _StubMessagingService implements IBLEMessagingService {
   ) {}
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
-  }) async {}
+  }) async => InboundProcessStatus.handled;
 
   void dispose() {
     _messagesController.close();
