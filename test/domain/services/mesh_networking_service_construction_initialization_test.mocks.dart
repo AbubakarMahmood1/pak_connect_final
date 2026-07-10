@@ -737,13 +737,29 @@ class MockIConnectionService extends _i1.Mock
           as _i13.Future<bool>);
 
   @override
-  _i13.Future<void> sendQueueSyncMessage(_i3.QueueSyncMessage? message) =>
+  _i13.Future<bool> sendProtocolMessage(_i21.ProtocolMessage? message) =>
       (super.noSuchMethod(
-            Invocation.method(#sendQueueSyncMessage, [message]),
-            returnValue: _i13.Future<void>.value(),
-            returnValueForMissingStub: _i13.Future<void>.value(),
+            Invocation.method(#sendProtocolMessage, [message]),
+            returnValue: _i13.Future<bool>.value(false),
+            returnValueForMissingStub: _i13.Future<bool>.value(false),
           )
-          as _i13.Future<void>);
+          as _i13.Future<bool>);
+
+  @override
+  _i13.Future<bool> sendQueueSyncMessage(
+    _i3.QueueSyncMessage? message, {
+    String? peerId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #sendQueueSyncMessage,
+              [message],
+              {#peerId: peerId},
+            ),
+            returnValue: _i13.Future<bool>.value(false),
+            returnValueForMissingStub: _i13.Future<bool>.value(false),
+          )
+          as _i13.Future<bool>);
 
   @override
   _i13.Future<void> startScanning({

@@ -1,9 +1,30 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
 final _logger = Logger('MessageFragmenter');
+
+/// Source of collision-resistant transport-level fragment ids.
+///
+/// The wire id groups a message's chunks at the reassembler; it is not a
+/// semantic message id (that lives inside the reassembled payload). It must
+/// carry enough entropy that two messages in flight within the reassembly
+/// window — possibly from different senders — never share an id.
+final Random _wireIdRandom = Random.secure();
+
+/// Generate an ~64-bit collision-resistant fragment wire id.
+///
+/// base64url of 8 random bytes (11 chars, padding stripped). The base64url
+/// alphabet (A-Za-z0-9-_) contains no '|', so it is safe in the pipe-
+/// delimited chunk format. Replaces the previous 6-char truncation of the
+/// caller id, which collided whenever two ids shared a 6-char suffix
+/// (PC-FRAG-001) — trivially likely for timestamp-derived ids.
+String _newWireFragmentId() {
+  final bytes = List<int>.generate(8, (_) => _wireIdRandom.nextInt(256));
+  return base64Url.encode(bytes).replaceAll('=', '');
+}
 
 class MessageChunk {
   final String messageId;
@@ -39,19 +60,19 @@ class MessageChunk {
     isBinary: isBinary,
   );
 
-  // Ultra-compact format: "shortId|idx|total|content"
+  // Ultra-compact format: "id|idx|total|binaryFlag|content"
   Uint8List toBytes() {
-    // FIX: Ensure we don't try to get more characters than available
-    final shortId = messageId.length >= 6
-        ? messageId.substring(messageId.length - 6)
-        : messageId; // Use full messageId if less than 6 chars
+    // The id is emitted verbatim: fragmenters assign a compact, collision-
+    // resistant wire id, so there is nothing to truncate. Truncating here
+    // (previously to 6 chars) destroyed that entropy and caused reassembly
+    // collisions (PC-FRAG-001).
     final binaryFlag = isBinary ? '1' : '0';
     final compactString =
-        '$shortId|$chunkIndex|$totalChunks|$binaryFlag|$content';
+        '$messageId|$chunkIndex|$totalChunks|$binaryFlag|$content';
     final bytes = Uint8List.fromList(utf8.encode(compactString));
 
     _logger.fine(
-      '🔧 CHUNK DEBUG: Encoded chunk $shortId '
+      '🔧 CHUNK DEBUG: Encoded chunk $messageId '
       '(${chunkIndex + 1}/$totalChunks, ${bytes.length} bytes, '
       '${isBinary ? "binary" : "text"})',
     );
@@ -103,7 +124,7 @@ class MessageFragmenter {
   static List<MessageChunk> fragment(String message, int maxChunkSize) {
     if (message.isEmpty) return [];
 
-    final messageId = DateTime.now().millisecondsSinceEpoch.toString();
+    final messageId = _newWireFragmentId();
     final timestamp = DateTime.now();
 
     // Safety check: Minimum viable MTU
@@ -123,8 +144,10 @@ class MessageFragmenter {
     while (iterations < maxIterations) {
       iterations++;
 
-      // Calculate header size for current chunk estimate
-      final sampleHeader = '$messageId|0|$estimatedChunks|';
+      // Calculate header size for current chunk estimate. Include the binary
+      // flag field ("|0") so the budget matches the actual wire format
+      // (id|idx|total|flag|content) emitted by toBytes().
+      final sampleHeader = '$messageId|0|$estimatedChunks|0|';
       final headerSize = utf8.encode(sampleHeader).length;
       final contentSpace = maxChunkSize - headerSize;
 
@@ -177,16 +200,19 @@ class MessageFragmenter {
     String messageId,
   ) {
     final timestamp = DateTime.now();
-    // FIX: Ensure we don't try to get more characters than available
-    final shortId = messageId.length >= 6
-        ? messageId.substring(messageId.length - 6)
-        : messageId; // Use full messageId if less than 6 chars
+    // Collision-resistant transport id (see _newWireFragmentId). The caller's
+    // [messageId] is a semantic id and is intentionally not used as the wire
+    // grouping key — truncating it to 6 chars caused reassembly collisions
+    // (PC-FRAG-001).
+    final shortId = _newWireFragmentId();
 
     // 🔧 CRITICAL FIX: Work with bytes directly - data might be compressed binary, not UTF-8 text!
     // Messages can be compressed in ProtocolMessage.toBytes(), so we can't assume UTF-8.
 
-    // Fixed header size calculation + BLE notification overhead
-    const headerSize = 15; // "123456|0|999|0|"
+    // Header size derived from the actual wire id length + fixed fields
+    // "id|idx|total|flag|" (idx/total budgeted at up to 3 digits each).
+    final headerSize = shortId.length + '|'.length + 3 + '|'.length + 3 +
+        '|'.length + 1 + '|'.length;
     const bleOverhead =
         5; // BLE notification protocol overhead (ATT headers, etc.)
 

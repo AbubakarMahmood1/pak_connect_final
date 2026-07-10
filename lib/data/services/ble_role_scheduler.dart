@@ -48,6 +48,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
   bool _nextWindowIsScan = true;
   BleRoleSchedulerState _state = BleRoleSchedulerState.idle;
   String? _activePeerId;
+  final Map<String, _LinkBringupState> _bringupByPeer = {};
   DateTime _lastTransitionAt = DateTime.now();
 
   @override
@@ -76,6 +77,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
   Future<void> stop() => _serialize(() async {
     _isRunning = false;
     _activePeerId = null;
+    _bringupByPeer.clear();
     _windowTimer?.cancel();
     _windowTimer = null;
     await _stopRadios();
@@ -86,6 +88,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
   Future<void> requestOutboundConnect(Peripheral peer) => _serialize(() async {
     _isRunning = true;
     _activePeerId = peer.uuid.toString();
+    _stateFor(_activePeerId!).connected = true;
     _metricsRecorder.recordOutboundConnectRequested(_activePeerId!);
     await _enterConnectLock(reason: 'outbound-connect-request', peer: peer);
   });
@@ -96,30 +99,66 @@ class BleRoleScheduler implements IBleRoleScheduler {
       _serialize(() async {
         _isRunning = true;
         _activePeerId = address;
+        _stateFor(address).connected = true;
         await _enterConnectLock(reason: 'inbound-connected');
       }),
     );
   }
 
   @override
-  void reportMtuReady(String address, int mtu) {}
+  void reportMtuReady(String address, int mtu) {
+    _activePeerId ??= address;
+    final state = _stateFor(address)
+      ..connected = true
+      ..mtuReady = true
+      ..mtu = mtu;
+    _completeConnectLockIfReady(address, state, reason: 'mtu-ready');
+  }
 
   @override
-  void reportNotifySubscribed(String address) {}
+  void reportNotifySubscribed(String address) {
+    _activePeerId ??= address;
+    final state = _stateFor(address)
+      ..connected = true
+      ..notifySubscribed = true;
+    _completeConnectLockIfReady(address, state, reason: 'notify-subscribed');
+  }
 
   @override
   void reportHandshakeStarted(String address) {
     _activePeerId ??= address;
+    _stateFor(address)
+      ..connected = true
+      ..handshakeStarted = true;
   }
 
   @override
   void reportHandshakeReady(String address) {
     _activePeerId ??= address;
+    final state = _stateFor(address)
+      ..connected = true
+      ..handshakeStarted = true
+      ..handshakeReady = true;
+    _completeConnectLockIfReady(address, state, reason: 'handshake-ready');
+  }
+
+  void _completeConnectLockIfReady(
+    String address,
+    _LinkBringupState state, {
+    required String reason,
+  }) {
+    if (!state.isReady) {
+      _logger.fine(
+        'Strict TDM keeping connect lock for $address after $reason '
+        '(mtu=${state.mtuReady}, notify=${state.notifySubscribed}, handshake=${state.handshakeReady})',
+      );
+      return;
+    }
     unawaited(
       _serialize(() async {
         if (_state == BleRoleSchedulerState.connectLock ||
             _state == BleRoleSchedulerState.connectedMaintain) {
-          await _enterConnectedMaintain(reason: 'handshake-ready');
+          await _enterConnectedMaintain(reason: 'link-ready');
         }
       }),
     );
@@ -127,6 +166,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
 
   @override
   void reportDisconnect(String address, String reason) {
+    _bringupByPeer.remove(address);
     unawaited(
       _serialize(() async {
         if (_activePeerId == address) {
@@ -149,6 +189,9 @@ class BleRoleScheduler implements IBleRoleScheduler {
     _tail = future.catchError((_) {});
     return future;
   }
+
+  _LinkBringupState _stateFor(String address) =>
+      _bringupByPeer.putIfAbsent(address, _LinkBringupState.new);
 
   Future<void> _enterScanWindow({required String reason}) async {
     if (!_isRunning) {
@@ -295,4 +338,16 @@ class BleRoleScheduler implements IBleRoleScheduler {
       _logger.info('Strict TDM state -> ${nextState.name}');
     }
   }
+}
+
+class _LinkBringupState {
+  bool connected = false;
+  bool mtuReady = false;
+  bool notifySubscribed = false;
+  bool handshakeStarted = false;
+  bool handshakeReady = false;
+  int? mtu;
+
+  bool get isReady =>
+      connected && mtuReady && notifySubscribed && handshakeReady;
 }

@@ -217,6 +217,14 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         success: success,
       );
     };
+    _connectionManager.onClientMtuReady = (address, mtu) {
+      _experimentMetricsRecorder.recordMtuReady(address, mtu);
+      _bleRoleScheduler?.reportMtuReady(address, mtu);
+    };
+    _connectionManager.onClientNotifySubscribed = (address) {
+      _experimentMetricsRecorder.recordNotifySubscribed(address);
+      _bleRoleScheduler?.reportNotifySubscribed(address);
+    };
     _peripheralInitializer =
         peripheralInitializer ??
         PeripheralInitializer(_platformHost.peripheralManager);
@@ -723,8 +731,11 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       );
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) =>
-      _getMessagingService().sendQueueSyncMessage(queueMessage);
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) =>
+      _getMessagingService().sendQueueSyncMessage(queueMessage, peerId: peerId);
 
   @override
   Future<bool> sendProtocolMessage(ProtocolMessage message) =>
@@ -789,7 +800,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       _getMessagingService().lastExtractedMessageId;
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,

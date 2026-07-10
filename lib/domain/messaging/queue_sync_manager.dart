@@ -202,6 +202,22 @@ class QueueSyncManager {
     }
   }
 
+  /// True when an initiated sync is still awaiting a response from [nodeId].
+  bool hasPendingSyncWith(String nodeId) => _pendingSyncs.containsKey(nodeId);
+
+  /// Fail a pending initiated sync immediately, e.g. when the transport
+  /// reports there is no usable route to the peer. Without this the
+  /// initiator would silently wait for the full response timeout.
+  void failPendingSync(String nodeId, String reason) {
+    final pending = _pendingSyncs.remove(nodeId);
+    _syncStopwatches.remove(nodeId);
+    _activeSyncs.remove(nodeId)?.cancel();
+    if (pending != null && !pending.isCompleted) {
+      pending.complete(QueueSyncResult.error(reason));
+      onSyncFailed?.call(nodeId, reason);
+    }
+  }
+
   /// Process sync response and complete synchronization
   Future<QueueSyncResult> processSyncResponse(
     QueueSyncMessage responseMessage,
@@ -271,9 +287,17 @@ class QueueSyncManager {
         'Sync completed with $fromNodeId: +$messagesAdded, ~$messagesUpdated, -$messagesSkipped',
       );
 
-      final pending = _pendingSyncs.remove(fromNodeId);
-      final stopwatch = _syncStopwatches.remove(fromNodeId);
-      _activeSyncs.remove(fromNodeId)?.cancel();
+      // The transport-level sender id and the id the sync was initiated with
+      // can be different flavors of the same peer identity. Fall back to the
+      // responder's self-declared node id before giving up on the completer.
+      var pendingKey = fromNodeId;
+      if (!_pendingSyncs.containsKey(pendingKey) &&
+          _pendingSyncs.containsKey(responseMessage.nodeId)) {
+        pendingKey = responseMessage.nodeId;
+      }
+      final pending = _pendingSyncs.remove(pendingKey);
+      final stopwatch = _syncStopwatches.remove(pendingKey);
+      _activeSyncs.remove(pendingKey)?.cancel();
       final elapsed = stopwatch?.elapsed ?? Duration.zero;
 
       if (pending != null && !pending.isCompleted) {

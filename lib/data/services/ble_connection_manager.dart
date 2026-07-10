@@ -101,6 +101,8 @@ class BLEConnectionManager {
   Function(Peripheral?)? onConnectionChanged;
   Function(GATTCharacteristic?)? onCharacteristicFound;
   Function(int?)? onMtuDetected;
+  Function(String address, int mtu)? onClientMtuReady;
+  Function(String address)? onClientNotifySubscribed;
   Function()? onConnectionComplete;
   Function(bool)? onMonitoringChanged;
   Function(ConnectionInfo)? onConnectionInfoChanged;
@@ -371,6 +373,16 @@ class BLEConnectionManager {
 
   bool hasPendingClientForPeer(String peerAddress) =>
       _matchPendingClientAddressByPeer(peerAddress) != null;
+
+  BLEClientConnection? clientConnectionForPeer(String peerAddress) {
+    final address = _matchClientAddressByPeer(peerAddress);
+    return address == null ? null : _clientConnections[address];
+  }
+
+  BLEServerConnection? serverConnectionForPeer(String peerAddress) {
+    final address = _matchServerAddressByPeer(peerAddress);
+    return address == null ? null : _serverConnections[address];
+  }
 
   void _notifyInboundRejected(String address) {
     _healthMonitor.setAwaitingHandshake(false);

@@ -141,7 +141,7 @@ class BleConnectionGattController {
     if (!characteristic.properties.contains(
       GATTCharacteristicProperty.notify,
     )) {
-      return;
+      throw StateError('Message characteristic is not notifiable');
     }
 
     await _centralManager.setCharacteristicNotifyState(

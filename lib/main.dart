@@ -1,5 +1,6 @@
 // Enhanced main.dart with comprehensive feature integration and proper initialization
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -195,6 +196,10 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
             'App resumed - power management handled by burst scanning controller',
           );
           // Note: Power management is now handled automatically by BurstScanningController
+          // Re-drive the outbound queue: delivery timers may have been
+          // suspended while backgrounded (notably iOS), stranding a backlog
+          // that setOnline() will not recover once already-online.
+          unawaited(_appCore.meshNetworkingService.reprocessQueuedMessages());
           break;
         case AppLifecycleState.detached:
           _logger.info('App detached - performing cleanup');

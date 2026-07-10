@@ -567,22 +567,33 @@ class NoiseSession {
     }
   }
 
-  /// Shift replay window right by shift bits
+  /// Age the replay window by [shift] nonces.
+  ///
+  /// Bit `offset o` (byte o/8, bit o%8) records `highest - o` as seen, so
+  /// when the highest nonce advances by [shift], every recorded bit must
+  /// move to offset `o + shift`: a left shift within the byte with carry
+  /// into the next higher byte. (The previous implementation shifted the
+  /// other way, which both erased seen nonces — accepting replays — and
+  /// smeared bits onto unseen offsets — rejecting legitimate out-of-order
+  /// messages as replays.)
   void _shiftReplayWindow(int shift) {
+    final byteShift = shift ~/ 8;
+    final bitShift = shift % 8;
+
     for (int i = _replayWindowBytes - 1; i >= 0; i--) {
-      final sourceByteIndex = i - shift ~/ 8;
+      final sourceByteIndex = i - byteShift;
       int newByte = 0;
 
       if (sourceByteIndex >= 0) {
-        newByte = (_replayWindow[sourceByteIndex] & 0xFF) >> (shift % 8);
-        if (sourceByteIndex > 0 && shift % 8 != 0) {
+        newByte = (_replayWindow[sourceByteIndex] << bitShift) & 0xFF;
+        if (sourceByteIndex > 0 && bitShift != 0) {
           newByte =
               newByte |
-              ((_replayWindow[sourceByteIndex - 1] & 0xFF) << (8 - shift % 8));
+              ((_replayWindow[sourceByteIndex - 1] & 0xFF) >> (8 - bitShift));
         }
       }
 
-      _replayWindow[i] = (newByte & 0xFF);
+      _replayWindow[i] = newByte;
     }
   }
 

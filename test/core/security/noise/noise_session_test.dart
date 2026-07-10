@@ -842,6 +842,103 @@ void main() {
       bob.destroy();
     });
 
+    test(
+      'replay of an older (non-latest) message is rejected after the '
+      'window has shifted',
+      () async {
+        final alice = NoiseSession(
+          peerID: 'Bob',
+          isInitiator: true,
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+        final bob = NoiseSession(
+          peerID: 'Alice',
+          isInitiator: false,
+          localStaticPrivateKey: bobStaticPrivate,
+          localStaticPublicKey: bobStaticPublic,
+        );
+
+        final msgA = await alice.startHandshake();
+        final msgB = await bob.processHandshakeMessage(msgA);
+        final msgC = await alice.processHandshakeMessage(msgB!);
+        await bob.processHandshakeMessage(msgC!);
+
+        final messages = <Uint8List>[];
+        for (int i = 0; i < 5; i++) {
+          messages.add(await alice.encrypt(Uint8List.fromList([i])));
+        }
+
+        // Deliver all five in order; every delivery shifts the replay window.
+        for (final message in messages) {
+          await bob.decrypt(message);
+        }
+
+        // Replaying each earlier message must fail even though the window
+        // has shifted several times since it was first seen.
+        for (final message in messages) {
+          await expectLater(
+            () => bob.decrypt(message),
+            throwsA(isA<Exception>()),
+            reason:
+                'an already-seen nonce must stay marked as seen after '
+                'the replay window shifts',
+          );
+        }
+
+        alice.destroy();
+        bob.destroy();
+      },
+    );
+
+    test(
+      'out-of-order delivery within the replay window is accepted',
+      () async {
+        final alice = NoiseSession(
+          peerID: 'Bob',
+          isInitiator: true,
+          localStaticPrivateKey: aliceStaticPrivate,
+          localStaticPublicKey: aliceStaticPublic,
+        );
+        final bob = NoiseSession(
+          peerID: 'Alice',
+          isInitiator: false,
+          localStaticPrivateKey: bobStaticPrivate,
+          localStaticPublicKey: bobStaticPublic,
+        );
+
+        final msgA = await alice.startHandshake();
+        final msgB = await bob.processHandshakeMessage(msgA);
+        final msgC = await alice.processHandshakeMessage(msgB!);
+        await bob.processHandshakeMessage(msgC!);
+
+        // Nonces 1..20; deliver 1 and 3..20 in order, then the delayed 2.
+        final messages = <Uint8List>[];
+        for (int i = 0; i < 20; i++) {
+          messages.add(await alice.encrypt(Uint8List.fromList([i])));
+        }
+
+        await bob.decrypt(messages[0]);
+        for (int i = 2; i < 20; i++) {
+          await bob.decrypt(messages[i]);
+        }
+
+        // The delayed message is 18 nonces behind the highest — well within
+        // the 1024-entry window — and was never seen, so it must decrypt.
+        final delayed = await bob.decrypt(messages[1]);
+        expect(delayed, equals(Uint8List.fromList([1])));
+
+        // And a replay of it must now fail.
+        await expectLater(
+          () => bob.decrypt(messages[1]),
+          throwsA(isA<Exception>()),
+        );
+
+        alice.destroy();
+        bob.destroy();
+      },
+    );
+
     test('bidirectional communication works', () async {
       final alice = NoiseSession(
         peerID: 'Bob',

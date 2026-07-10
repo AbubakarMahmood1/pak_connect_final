@@ -211,8 +211,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
     final hasServerForPeer = hasServerLinkForPeer(address);
     final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
 
-    if (connectionState == ChatConnectionState.ready ||
-        hasServerForPeer ||
+    if (hasServerForPeer ||
         hasClientForPeer ||
         pendingClientForPeer ||
         hasHintCollision) {

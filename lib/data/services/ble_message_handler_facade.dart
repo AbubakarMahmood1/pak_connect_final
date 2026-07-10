@@ -28,6 +28,11 @@ import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 ///
 /// All consumers of BLEMessageHandler should use this interface
 class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
+  /// Sentinel for structural parse failures — see
+  /// [IBLEMessageHandlerFacade.processingFailedMarker].
+  static const String processingFailedMarker =
+      IBLEMessageHandlerFacade.processingFailedMarker;
+
   static IBLEHandshakeService? Function()? _handshakeServiceResolver;
   static ISeenMessageStore? Function()? _seenMessageStoreResolver;
 
@@ -426,7 +431,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           );
         } catch (e) {
           _logger.warning('Failed to parse direct protocol message: $e');
-          return null;
+          return processingFailedMarker;
         }
       }
 
@@ -466,7 +471,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           );
         } catch (e) {
           _logger.warning('Failed to parse reassembled protocol message: $e');
-          return null;
+          return processingFailedMarker;
         }
       }
 
@@ -512,7 +517,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
               _logger.warning(
                 'Failed to parse binary protocol message (${payload.originalType}): $e',
               );
-              return null;
+              return processingFailedMarker;
             }
           }
 
@@ -606,7 +611,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
       return fragmentResult;
     } catch (e) {
       _logger.severe('Error processing received data: $e');
-      return null;
+      return processingFailedMarker;
     }
   }
 
@@ -779,6 +784,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
   ) {
     _ensureInitialized();
+    _protocolHandler.onQueueSyncReceived(callback);
     if (callback != null) {
       _relayCoordinator.onQueueSyncReceived(callback);
     }

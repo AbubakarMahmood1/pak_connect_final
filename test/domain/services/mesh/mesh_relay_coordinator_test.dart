@@ -771,7 +771,10 @@ class _FakeMeshBleService implements IConnectionService {
   }) async => true;
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async => true;
 
   @override
   Future<void> startScanning({

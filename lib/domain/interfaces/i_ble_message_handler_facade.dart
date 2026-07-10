@@ -11,6 +11,14 @@ import 'i_seen_message_store.dart';
 
 /// Public API interface for BLE message handling
 abstract interface class IBLEMessageHandlerFacade {
+  /// Sentinel returned by [processReceivedData] when a *recognized* payload is
+  /// structurally corrupt (failed to parse). Distinct from `null`, which
+  /// covers legitimate not-for-us / buffered-fragment / handshake-consumed
+  /// cases. The messaging service maps this to a failed inbound status so the
+  /// GATT layer NACKs the write instead of silently ACKing a dropped frame
+  /// (PC-GATT-002).
+  static const String processingFailedMarker = '__INBOUND_PROCESS_FAILED__';
+
   /// Sets current node ID for this device in mesh routing
   void setCurrentNodeId(String nodeId);
 

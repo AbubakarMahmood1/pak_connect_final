@@ -21,6 +21,7 @@ import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dar
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
 void main() {
@@ -122,6 +123,41 @@ void main() {
       expect(fakeManager.forcedSyncTargets.single, ['peer-sync']);
     });
 
+    test('queue sync response is sent back to requesting peer', () async {
+      coordinator.enableQueueSyncHandling();
+      bleService.simulateConnection(peerId: 'peer-requester');
+      final responseMessage = QueueSyncMessage.createResponse(
+        messageIds: const ['message-a'],
+        nodeId: 'node-integration',
+        stats: QueueSyncStats(
+          totalMessages: 1,
+          pendingMessages: 0,
+          failedMessages: 0,
+          lastSyncTime: DateTime.fromMillisecondsSinceEpoch(1),
+          successRate: 1,
+        ),
+      );
+      fakeManager.nextSyncRequestResponse = QueueSyncResponse.success(
+        responseMessage: responseMessage,
+        missingMessages: const [],
+        excessMessages: const [],
+      );
+
+      final request = QueueSyncMessage.createRequest(
+        messageIds: const ['message-a'],
+        nodeId: 'peer-requester',
+        queueHash: 'peer-request-hash',
+      );
+
+      final handled = await bleService.invokeQueueSyncHandlerForTest(
+        request,
+        'peer-requester',
+      );
+
+      expect(handled, isTrue);
+      expect(bleService.sentQueueSyncPeerIds, ['peer-requester']);
+    });
+
     test('connection monitoring toggles queue online/offline', () async {
       coordinator.startConnectionMonitoring();
 
@@ -134,6 +170,249 @@ void main() {
       expect(queue.isOnline, isFalse);
       expect(statusRefreshes, greaterThanOrEqualTo(2));
     });
+
+    test(
+      'reprocessPendingDeliveries flushes a backgrounded backlog to the '
+      'connected peer',
+      () async {
+        bleService.simulateConnection(peerId: 'peer-resume');
+        // Enqueue while offline so it stays pending (mimics a message queued
+        // while the app was backgrounded and delivery timers were suspended).
+        queue.setOffline();
+        await coordinator.queueDirectMessage(
+          chatId: 'chat',
+          content: 'backlogged',
+          recipientPublicKey: 'peer-resume',
+          senderPublicKey: 'node-integration',
+        );
+        expect(bleService.sentMessages, isEmpty);
+
+        await coordinator.reprocessPendingDeliveries();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(
+          bleService.sentMessages,
+          contains('backlogged'),
+          reason: 'resume must push the pending backlog, not wait on timers',
+        );
+      },
+    );
+
+    test('reprocessPendingDeliveries no-ops when there is no usable link',
+        () async {
+      // No simulateConnection → canSendMessages is false.
+      queue.setOffline();
+      await coordinator.queueDirectMessage(
+        chatId: 'chat',
+        content: 'stranded',
+        recipientPublicKey: 'peer-absent',
+        senderPublicKey: 'node-integration',
+      );
+
+      await coordinator.reprocessPendingDeliveries();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(bleService.sentMessages, isEmpty);
+    });
+
+    test(
+      'sync response is processed even right after a request from same peer',
+      () async {
+        coordinator.enableQueueSyncHandling();
+        bleService.simulateConnection(peerId: 'peer-x');
+
+        final request = QueueSyncMessage.createRequest(
+          messageIds: const ['message-a'],
+          nodeId: 'peer-x',
+          queueHash: 'request-hash',
+        );
+        await bleService.invokeQueueSyncHandlerForTest(request, 'peer-x');
+
+        final response = QueueSyncMessage.createResponse(
+          messageIds: const ['message-a'],
+          nodeId: 'peer-x',
+          stats: QueueSyncStats(
+            totalMessages: 1,
+            pendingMessages: 0,
+            failedMessages: 0,
+            lastSyncTime: DateTime.fromMillisecondsSinceEpoch(1),
+            successRate: 1,
+          ),
+        );
+        final handled = await bleService.invokeQueueSyncHandlerForTest(
+          response,
+          'peer-x',
+        );
+
+        expect(
+          handled,
+          isTrue,
+          reason: 'responses must never be dropped by the request debounce',
+        );
+        expect(fakeManager.processedResponseNodeIds, hasLength(1));
+      },
+    );
+
+    test(
+      'handling an inbound request does not debounce our own outbound sync',
+      () async {
+        coordinator.enableQueueSyncHandling();
+        coordinator.startConnectionMonitoring();
+
+        final request = QueueSyncMessage.createRequest(
+          messageIds: const [],
+          nodeId: 'peer-x',
+          queueHash: 'request-hash',
+        );
+        await bleService.invokeQueueSyncHandlerForTest(request, 'peer-x');
+
+        bleService.simulateConnection(peerId: 'peer-x');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(
+          fakeManager.initiatedSyncs,
+          contains('peer-x'),
+          reason:
+              'inbound request debounce must not suppress our outbound sync',
+        );
+      },
+    );
+  });
+
+  group('MeshQueueSyncCoordinator with real QueueSyncManager', () {
+    late _TestMeshBleService bleService;
+    late _FakeMessageRepository messageRepository;
+    late MeshNetworkHealthMonitor monitor;
+    late _InMemoryQueue queue;
+    late MeshQueueSyncCoordinator coordinator;
+
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      bleService = _TestMeshBleService();
+      messageRepository = _FakeMessageRepository();
+      monitor = MeshNetworkHealthMonitor();
+      queue = _InMemoryQueue();
+
+      coordinator = MeshQueueSyncCoordinator(
+        bleService: bleService,
+        messageRepository: messageRepository,
+        healthMonitor: monitor,
+      );
+
+      await coordinator.initialize(
+        nodeId: 'node-a',
+        messageQueue: queue,
+        onStatusChanged: () {},
+      );
+      coordinator.enableQueueSyncHandling();
+    });
+
+    tearDown(() async {
+      await coordinator.dispose();
+    });
+
+    test(
+      'initiated sync completes when the response arrives under a '
+      'different peer alias',
+      () async {
+        bleService.simulateConnection(peerId: 'session-b');
+        bleService.sendQueueSyncOverride = (message, peerId) async {
+          if (message.syncType == QueueSyncType.request) {
+            final response = QueueSyncMessage.createResponse(
+              messageIds: const [],
+              nodeId: 'peer-node-b',
+              stats: QueueSyncStats(
+                totalMessages: 0,
+                pendingMessages: 0,
+                failedMessages: 0,
+                lastSyncTime: DateTime.fromMillisecondsSinceEpoch(1),
+                successRate: 1,
+              ),
+            );
+            // The transport resolves the sender to its relationship hint,
+            // which differs from the session id the sync was keyed under.
+            unawaited(
+              bleService.invokeQueueSyncHandlerForTest(response, 'hint-b'),
+            );
+          }
+          return true;
+        };
+
+        final stopwatch = Stopwatch()..start();
+        final results = await coordinator.syncWithPeers(['session-b']);
+        stopwatch.stop();
+
+        final result = results['session-b'];
+        expect(result, isNotNull);
+        expect(
+          result!.success,
+          isTrue,
+          reason:
+              'sync should complete via alias resolution, got: ${result.error}',
+        );
+        expect(
+          stopwatch.elapsed,
+          lessThan(const Duration(seconds: 10)),
+          reason: 'sync must not run into the 15s response timeout',
+        );
+      },
+    );
+
+    test('initiated sync fails fast when transport reports no route', () async {
+      bleService.simulateConnection(peerId: 'session-b');
+      bleService.sendQueueSyncOverride = (message, peerId) async => false;
+
+      final stopwatch = Stopwatch()..start();
+      final results = await coordinator.syncWithPeers(['session-b']);
+      stopwatch.stop();
+
+      final result = results['session-b'];
+      expect(result, isNotNull);
+      expect(result!.success, isFalse);
+      expect(
+        stopwatch.elapsed,
+        lessThan(const Duration(seconds: 5)),
+        reason: 'a send with no route must fail fast, not wait for timeout',
+      );
+    });
+
+    test(
+      'sync-triggered delivery is not skipped when the requester id is a '
+      'hint alias of the connected peer',
+      () async {
+        bleService.simulateConnection(peerId: 'session-b');
+        queue.setOffline();
+        final messageId = await coordinator.queueDirectMessage(
+          chatId: 'chat',
+          content: 'queued-payload',
+          recipientPublicKey: 'session-b',
+          senderPublicKey: 'node-a',
+        );
+        bleService.sendQueueSyncOverride = (message, peerId) async => true;
+
+        final request = QueueSyncMessage.createRequest(
+          messageIds: const [],
+          nodeId: 'peer-node-b',
+          queueHash: 'different-hash',
+        );
+        final handled = await bleService.invokeQueueSyncHandlerForTest(
+          request,
+          'hint-b',
+        );
+        expect(handled, isTrue);
+
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(
+          bleService.sentMessages,
+          contains('queued-payload'),
+          reason:
+              'delivery must rely on the per-message recipient gate, not on '
+              'matching the transport-level requester id',
+        );
+        coordinator.completeAck(messageId);
+      },
+    );
   });
 }
 
@@ -141,6 +420,10 @@ class _InMemoryQueue extends InMemoryOfflineMessageQueue {}
 
 class _FakeQueueSyncManager implements QueueSyncManagerContract {
   final List<List<String>> forcedSyncTargets = [];
+  final List<String> initiatedSyncs = [];
+  final List<String> processedResponseNodeIds = [];
+  final List<String> failedPendingSyncs = [];
+  QueueSyncResponse? nextSyncRequestResponse;
 
   @override
   Future<void> initialize({
@@ -179,21 +462,23 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
   }
 
   @override
-  Future<QueueSyncResult> initiateSync(String targetNodeId) async =>
-      QueueSyncResult.success(
-        messagesReceived: 0,
-        messagesUpdated: 0,
-        messagesSkipped: 0,
-        finalHash: 'hash',
-        syncDuration: Duration.zero,
-      );
+  Future<QueueSyncResult> initiateSync(String targetNodeId) async {
+    initiatedSyncs.add(targetNodeId);
+    return QueueSyncResult.success(
+      messagesReceived: 0,
+      messagesUpdated: 0,
+      messagesSkipped: 0,
+      finalHash: 'hash',
+      syncDuration: Duration.zero,
+    );
+  }
 
   @override
   Future<QueueSyncResponse> handleSyncRequest(
     QueueSyncMessage syncMessage,
     String fromNodeId,
   ) async {
-    return QueueSyncResponse.alreadySynced();
+    return nextSyncRequestResponse ?? QueueSyncResponse.alreadySynced();
   }
 
   @override
@@ -201,13 +486,24 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
     QueueSyncMessage responseMessage,
     List<QueuedMessage> receivedMessages,
     String fromNodeId,
-  ) async => QueueSyncResult.success(
-    messagesReceived: receivedMessages.length,
-    messagesUpdated: 0,
-    messagesSkipped: 0,
-    finalHash: 'hash',
-    syncDuration: Duration.zero,
-  );
+  ) async {
+    processedResponseNodeIds.add(fromNodeId);
+    return QueueSyncResult.success(
+      messagesReceived: receivedMessages.length,
+      messagesUpdated: 0,
+      messagesSkipped: 0,
+      finalHash: 'hash',
+      syncDuration: Duration.zero,
+    );
+  }
+
+  @override
+  bool hasPendingSyncWith(String nodeId) => false;
+
+  @override
+  void failPendingSync(String nodeId, String reason) {
+    failedPendingSyncs.add(nodeId);
+  }
 
   @override
   void cancelAllSyncs({String? reason}) {}
@@ -229,6 +525,10 @@ class _TestMeshBleService implements IConnectionService {
   bool _canSend = false;
   bool _hasPeripheral = false;
   Future<bool> Function(QueueSyncMessage, String)? _queueSyncHandler;
+  final List<String?> sentQueueSyncPeerIds = [];
+  final List<String> sentMessages = [];
+  Future<bool> Function(QueueSyncMessage message, String? peerId)?
+  sendQueueSyncOverride;
 
   void simulateConnection({required String peerId}) {
     _currentSessionId = peerId;
@@ -440,12 +740,26 @@ class _TestMeshBleService implements IConnectionService {
     _queueSyncHandler = handler;
   }
 
+  Future<bool> invokeQueueSyncHandlerForTest(
+    QueueSyncMessage message,
+    String fromNodeId,
+  ) async {
+    final handler = _queueSyncHandler;
+    if (handler == null) return false;
+    return handler(message, fromNodeId);
+  }
+
   @override
   Future<bool> sendMessage(
     String message, {
     String? messageId,
     String? originalIntendedRecipient,
-  }) async => _canSend;
+  }) async {
+    if (_canSend) {
+      sentMessages.add(message);
+    }
+    return _canSend;
+  }
 
   @override
   Future<bool> sendPeripheralMessage(
@@ -473,10 +787,19 @@ class _TestMeshBleService implements IConnectionService {
   }) async => true;
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async {
+    sentQueueSyncPeerIds.add(peerId);
+    final override = sendQueueSyncOverride;
+    if (override != null) {
+      return override(message, peerId);
+    }
     if (_queueSyncHandler != null && _currentSessionId != null) {
       await _queueSyncHandler!(message, _currentSessionId!);
     }
+    return true;
   }
 
   @override

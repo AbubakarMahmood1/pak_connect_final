@@ -56,12 +56,11 @@ void main() {
         expect(chunks[i].totalChunks, equals(chunks.length));
       }
 
-      // Verify message ID consistency
+      // Verify wire-id consistency: all chunks of one message share the same
+      // generated wire id (collision-resistant, not derived from the caller id).
+      final wireId = chunks.first.messageId;
       for (final chunk in chunks) {
-        expect(
-          chunk.messageId.contains(messageId.substring(messageId.length - 6)),
-          isTrue,
-        );
+        expect(chunk.messageId, equals(wireId));
       }
     });
 
@@ -308,8 +307,11 @@ void main() {
           reason: '$size bytes should create many chunks',
         );
 
-        // Verify total chunks calculation
-        final expectedChunks = (size / ((maxSize - 15 - 5) * 3 / 4)).ceil();
+        // Verify total chunks calculation. Header = wireId + fixed fields
+        // "|idx|total|flag|" (idx/total budgeted at 3 digits) + BLE overhead.
+        final headerSize = chunks.first.messageId.length + 11;
+        final contentSpace = ((maxSize - headerSize - 5) * 3 / 4).floor();
+        final expectedChunks = (size / contentSpace).ceil();
         expect(
           chunks.length,
           equals(expectedChunks),
@@ -563,15 +565,16 @@ void main() {
       );
     });
 
-    test('handles message ID shorter than 6 characters', () {
+    test('generates a collision-resistant wire id regardless of caller id', () {
       final data = Uint8List.fromList([1, 2, 3]);
       final shortId = 'ab';
 
       final chunks = MessageFragmenter.fragmentBytes(data, 100, shortId);
 
-      // Should handle short IDs gracefully
+      // The wire id is generated, not the (short, low-entropy) caller id.
       expect(chunks.isNotEmpty, isTrue);
-      expect(chunks[0].messageId, equals(shortId));
+      expect(chunks[0].messageId, isNot(equals(shortId)));
+      expect(chunks[0].messageId.length, greaterThanOrEqualTo(8));
     });
   });
 }

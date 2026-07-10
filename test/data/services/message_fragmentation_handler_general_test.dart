@@ -166,9 +166,8 @@ void main() {
       final completionId = completionMarker.substring(
         'REASSEMBLY_COMPLETE:'.length,
       );
-      final expectedId = chunks.first.messageId.length >= 6
-          ? chunks.first.messageId.substring(chunks.first.messageId.length - 6)
-          : chunks.first.messageId;
+      // The wire id is carried verbatim end-to-end (no truncation).
+      final expectedId = chunks.first.messageId;
 
       expect(
         completionId,

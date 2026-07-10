@@ -67,7 +67,7 @@ abstract interface class IMeshBleService {
 
   Future<bool> sendProtocolMessage(ProtocolMessage message);
 
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message);
+  Future<bool> sendQueueSyncMessage(QueueSyncMessage message, {String? peerId});
   Future<void> startScanning({ScanningSource source = ScanningSource.system});
   Future<void> stopScanning();
 }

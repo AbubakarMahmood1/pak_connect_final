@@ -264,7 +264,10 @@ class _BleMessagingTransportHelper {
     return false;
   }
 
-  Future<void> sendProtocolMessage(ProtocolMessage message) async {
+  Future<void> sendProtocolMessage(
+    ProtocolMessage message, {
+    String? peerId,
+  }) async {
     // 🔧 CRITICAL FIX: Protocol messages must be fragmented like user messages
     // ProtocolMessage.toBytes() returns binary data (compressed or uncompressed)
     // This CANNOT be sent directly to BLE - it must be:
@@ -317,19 +320,49 @@ class _BleMessagingTransportHelper {
           return peripheralNotifyReady();
         }
 
+        final targetClient = peerId == null
+            ? null
+            : _owner._connectionManager.clientConnectionForPeer(peerId);
+        final targetServer = peerId == null
+            ? null
+            : _owner._connectionManager.serverConnectionForPeer(peerId);
+
         // Bail out early if neither central nor peripheral link is usable.
         final hasCentralLink =
-            _owner._connectionManager.hasBleConnection &&
-            _owner._connectionManager.messageCharacteristic != null;
+            targetClient?.messageCharacteristic != null ||
+            (peerId == null &&
+                _owner._connectionManager.hasBleConnection &&
+                _owner._connectionManager.messageCharacteristic != null);
         final hasPeripheralLink =
-            _owner._stateManager.isPeripheralMode &&
-            _owner._getConnectedCentral() != null &&
-            _owner._getPeripheralMessageCharacteristic() != null;
+            targetServer?.subscribedCharacteristic != null ||
+            (peerId == null &&
+                _owner._stateManager.isPeripheralMode &&
+                _owner._getConnectedCentral() != null &&
+                _owner._getPeripheralMessageCharacteristic() != null);
 
         // For handshake control frames we must avoid stale handles. If we are in
         // peripheral mode and have a fresh inbound link, prefer that path even
         // if an old client connection still exists.
         Future<void> sendUnfragmented(Uint8List value) async {
+          if (targetClient?.messageCharacteristic != null) {
+            await _owner._getCentralManager().writeCharacteristic(
+              targetClient!.peripheral,
+              targetClient.messageCharacteristic!,
+              value: value,
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+            return;
+          }
+
+          if (targetServer?.subscribedCharacteristic != null) {
+            await _owner._getPeripheralManager().notifyCharacteristic(
+              targetServer!.central,
+              targetServer.subscribedCharacteristic!,
+              value: value,
+            );
+            return;
+          }
+
           if (isHandshakeMessage && hasPeripheralLink) {
             final connectedCentral = _owner._getConnectedCentral() as Central;
             final characteristic =
@@ -371,7 +404,7 @@ class _BleMessagingTransportHelper {
 
         if (!hasCentralLink && !hasPeripheralLink) {
           final msg =
-              'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, state=${_owner._connectionManager.connectionState.name})';
+              'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, peer=${peerId ?? "default"}, state=${_owner._connectionManager.connectionState.name})';
           _owner._logger.warning('⚠️ Protocol message send skipped: $msg');
           if (isHandshakeMessage) {
             _owner._isProcessingWriteQueue = false;
@@ -529,24 +562,12 @@ class _BleMessagingTransportHelper {
 
     _owner._isProcessingWriteQueue = true;
 
+    // No link pre-check here: each queued write validates its own route
+    // (including peer-targeted client/server links the legacy global checks
+    // cannot see) and completes its completer with success or error. A
+    // pre-check that dropped writes left their completers dangling forever.
     while (_owner._writeQueue.isNotEmpty) {
       final write = _owner._writeQueue.removeAt(0);
-      final hasCentralLink =
-          _owner._connectionManager.hasBleConnection &&
-          _owner._connectionManager.messageCharacteristic != null;
-      final hasPeripheralLink =
-          _owner._stateManager.isPeripheralMode &&
-          _owner._getConnectedCentral() != null &&
-          _owner._getPeripheralMessageCharacteristic() != null;
-      if (!hasCentralLink && !hasPeripheralLink) {
-        _owner._logger.warning(
-          '⚠️ Aborting write queue; BLE connection not ready '
-          '(central=$hasCentralLink, peripheral=$hasPeripheralLink, '
-          'state=${_owner._connectionManager.connectionState.name})',
-        );
-        _owner._isProcessingWriteQueue = false;
-        return;
-      }
       try {
         await write();
       } catch (e) {

@@ -514,6 +514,14 @@ class MeshNetworkingService implements IMeshNetworkingService {
     return _queueCoordinator.retryAllMessages();
   }
 
+  /// Re-drive delivery of the outbound backlog. Intended for app
+  /// foreground-resume / reconnect, where delivery timers may have been
+  /// suspended (e.g. iOS backgrounding) leaving messages undelivered.
+  Future<void> reprocessQueuedMessages() async {
+    if (!_isInitialized) return;
+    await _queueCoordinator.reprocessPendingDeliveries();
+  }
+
   /// Get queued messages for a specific chat (for UI display)
   /// Returns only in-flight messages (pending, sending, retrying)
   /// Excludes delivered messages (those have moved to MessageRepository)

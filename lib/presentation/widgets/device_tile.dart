@@ -23,7 +23,11 @@ class DeviceTile extends ConsumerWidget {
     // Check if THIS specific device is connected
     final isThisDeviceConnected =
         bleService.isConnected &&
-        bleService.connectedDevice?.uuid == device.uuid;
+        (bleService.connectedDevice?.uuid == device.uuid ||
+            bleService.connectedCentral?.uuid == device.uuid ||
+            bleService.serverConnections.any(
+              (connection) => connection.central.uuid == device.uuid,
+            ));
 
     // Use connection info name if this is the connected device
     final displayName =

@@ -90,7 +90,12 @@ class _MeshNetworkingRuntimeHelper {
             MeshNetworkingService._logger.fine(
               '📡 Gossip: sending sync to ${peerId.shortId(8)}... (${syncMessage.messageIds.length} ids)',
             );
-            unawaited(_owner._bleService.sendQueueSyncMessage(syncMessage));
+            unawaited(
+              _owner._bleService.sendQueueSyncMessage(
+                syncMessage,
+                peerId: peerId,
+              ),
+            );
           }
           ..onDirectAnnouncement = (peerId) {
             _owner._scheduleInitialSyncForPeer(
@@ -110,7 +115,12 @@ class _MeshNetworkingRuntimeHelper {
               MeshNetworkingService._logger.fine(
                 '📡 Gossip: broadcasting sync request to ${peer.shortId(8)}...',
               );
-              unawaited(_owner._bleService.sendQueueSyncMessage(syncMessage));
+              unawaited(
+                _owner._bleService.sendQueueSyncMessage(
+                  syncMessage,
+                  peerId: peer,
+                ),
+              );
             }
           }
           ..onSendQueuedMessagesToPeer = (messages, peerId) {

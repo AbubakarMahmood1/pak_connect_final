@@ -557,6 +557,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   }
 
   @override
+  void onQueueSyncReceived(
+    Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
+  ) {
+    _onQueueSyncReceived = callback;
+  }
+
+  @override
   void onSendAckMessage(
     Function(domain_models.ProtocolMessage message) callback,
   ) {

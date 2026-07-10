@@ -47,14 +47,15 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
       );
       return;
     }
-    _connectionTracker.markAttempt(address);
-
     if (_pendingClientConnections.contains(address)) {
       _logger.fine(
         '↻ Already connecting to ${_formatAddress(address)} - ignoring duplicate request',
       );
       return;
     }
+    // Only count real attempts: marking before the duplicate check inflated
+    // backoff state for requests that never dialed.
+    _connectionTracker.markAttempt(address);
     final attemptId = _beginClientAttempt(address);
 
     try {
@@ -194,6 +195,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         _clientConnections[address] = mtuConnection.copyWith(mtu: mtu);
       }
       onMtuDetected?.call(mtu);
+      onClientMtuReady?.call(address, mtu);
 
       final messageChar = await _gattController.discoverMessageCharacteristic(
         device: device,
@@ -220,6 +222,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
             characteristic: messageChar,
             formattedAddress: _formatAddress(address),
           );
+          onClientNotifySubscribed?.call(address);
         } catch (e) {
           final hasInbound =
               _serverConnections.containsKey(address) ||

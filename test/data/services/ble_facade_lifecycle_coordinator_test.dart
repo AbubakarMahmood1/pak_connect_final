@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
 import 'package:pak_connect/data/services/ble_facade_lifecycle_coordinator.dart';
+import 'package:pak_connect/domain/constants/ble_constants.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_advertising_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
@@ -334,9 +335,10 @@ class _TestMessagingService implements IBLEMessagingService {
   Uint8List? lastProcessedData;
   String? lastSenderDeviceId;
   String? lastSenderNodeId;
+  InboundProcessStatus nextStatus = InboundProcessStatus.handled;
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
@@ -345,6 +347,7 @@ class _TestMessagingService implements IBLEMessagingService {
     lastProcessedData = data;
     lastSenderDeviceId = senderDeviceId;
     lastSenderNodeId = senderNodeId;
+    return nextStatus;
   }
 
   @override
@@ -566,6 +569,54 @@ void main() {
   });
 
   test(
+    'write handler NACKs (GATT error) when inbound processing reports failed '
+    '(PC-GATT-002)',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      messagingService.nextStatus = InboundProcessStatus.failed;
+
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([9, 9, 9]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(messagingService.processCalls, 1);
+      expect(
+        peripheralManager.respondWriteErrorCount,
+        1,
+        reason: 'a corrupt frame must be NACKed, not silently ACKed',
+      );
+      expect(peripheralManager.respondWriteCount, 0);
+    },
+  );
+
+  test(
+    'write handler ACKs when inbound processing reports handled/ignored',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      messagingService.nextStatus = InboundProcessStatus.ignored;
+
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([4, 5, 6]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(peripheralManager.respondWriteCount, 1);
+      expect(peripheralManager.respondWriteErrorCount, 0);
+    },
+  );
+
+  test(
     'disconnect events reset session and promote replacement server link',
     () async {
       coordinator.ensureConnectionServicePrepared();
@@ -633,7 +684,21 @@ void main() {
         peripheral.uuid.toString(),
       ]);
 
-      final normal = _TestCharacteristic(UUID.fromAddress(0x2A19));
+      // Foreign characteristics (e.g. Battery Level 0x2A19) must be ignored
+      // entirely — neither handshake nor message processing may see them.
+      final foreign = _TestCharacteristic(UUID.fromAddress(0x2A19));
+      handshakeService.handleIncomingResult = false;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          foreign,
+          Uint8List.fromList([9]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 0);
+
+      final normal = _TestCharacteristic(BLEConstants.messageCharacteristicUUID);
       handshakeService.handleIncomingResult = true;
       centralManager.emitNotified(
         GATTCharacteristicNotifiedEventArgs(

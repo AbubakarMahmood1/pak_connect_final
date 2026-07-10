@@ -500,18 +500,41 @@ class AppCore {
 
   /// Initialize monitoring systems
   Future<void> _initializeMonitoring() async {
+    // Monitoring is observability + an encryption *optimization*, not core
+    // function: PerformanceMonitor is pure telemetry, and
+    // AdaptiveEncryptionStrategy.encrypt/decrypt fall back to synchronous
+    // crypto when uninitialized. A failure here must therefore degrade
+    // gracefully rather than abort app startup (the DB/queue/identity phases
+    // remain fatal). Keeps a monitoring outage from bricking the whole app.
     performanceMonitor = PerformanceMonitor();
-    await performanceMonitor.initialize();
-    // Event-driven mode: disable periodic sampling, take initial snapshot.
-    performanceMonitor.startMonitoring(enablePeriodic: false);
-    performanceMonitor.collectSnapshot();
-    _logger.info('Performance monitor initialized (event-driven)');
+    try {
+      await performanceMonitor.initialize();
+      // Event-driven mode: disable periodic sampling, take initial snapshot.
+      performanceMonitor.startMonitoring(enablePeriodic: false);
+      performanceMonitor.collectSnapshot();
+      _logger.info('Performance monitor initialized (event-driven)');
+    } catch (e, stackTrace) {
+      _logger.warning(
+        '⚠️ Performance monitor init failed; continuing without telemetry: $e',
+        e,
+        stackTrace,
+      );
+    }
 
     // Initialize adaptive encryption strategy (FIX-013)
     // This checks performance metrics and decides whether to use isolate for encryption
-    final adaptiveStrategy = AdaptiveEncryptionStrategy();
-    await adaptiveStrategy.initialize();
-    _logger.info('Adaptive encryption strategy initialized');
+    try {
+      final adaptiveStrategy = AdaptiveEncryptionStrategy();
+      await adaptiveStrategy.initialize();
+      _logger.info('Adaptive encryption strategy initialized');
+    } catch (e, stackTrace) {
+      _logger.warning(
+        '⚠️ Adaptive encryption strategy init failed; encryption will use the '
+        'synchronous fallback path: $e',
+        e,
+        stackTrace,
+      );
+    }
 
     _logger.info('Monitoring systems initialized');
   }
@@ -869,19 +892,39 @@ class AppCore {
         }
       },
       onSendChangeLogToPeer: (String peerId, List<ChangeLogEntry> entries) async {
-        // Send change_log entries over BLE as a JSON payload.
-        // For now, we log + send via the mesh networking service's BLE transport.
-        // In a future iteration this could use a dedicated BLE characteristic.
-        _logger.info(
-          '📤 Sending ${entries.length} change_log entries to ${peerId.shortId(8)}...',
+        // NOT IMPLEMENTED: change_log entries are not transmitted over BLE
+        // yet. Queue sync moves messages; change_log replication awaits a
+        // dedicated protocol payload. Logged at fine so nobody debugs a
+        // "sent" batch that never left the device.
+        _logger.fine(
+          '⏭️ Change_log send to ${peerId.shortId(8)}... skipped '
+          '(${entries.length} entries; BLE transport not implemented)',
         );
-        // The entries are serialized and transmitted. The receiving side's
-        // gossip handler will call processReceivedEntries().
-        // For MVP, the exchange is one-directional per sync round — the peer
-        // will send their entries back during their next sync initiation.
       },
     );
     _logger.info('🔄 Change_log sync wired to mesh networking service');
+
+    // The change_log is fed by triggers on every contact/chat/message write
+    // and had no pruning path wired in, so it grew without bound. Entries
+    // older than the sync horizon are useless once peer cursors passed them.
+    unawaited(() async {
+      try {
+        final db = await databaseProvider.database;
+        final cutoff = DateTime.now()
+            .subtract(const Duration(days: 30))
+            .millisecondsSinceEpoch;
+        final deleted = await db.delete(
+          'change_log',
+          where: 'changed_at < ?',
+          whereArgs: [cutoff],
+        );
+        if (deleted > 0) {
+          _logger.info('🧹 Pruned $deleted change_log entries (>30 days old)');
+        }
+      } catch (e) {
+        _logger.fine('Change_log prune skipped: $e');
+      }
+    }());
   }
 
   /// Map table name to its primary key column for DELETE replay.
