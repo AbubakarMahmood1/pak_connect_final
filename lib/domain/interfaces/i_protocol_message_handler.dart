@@ -143,8 +143,9 @@ abstract interface class IProtocolMessageHandler {
   /// Registers callback for friend reveal (spy mode identity disclosure)
   void onIdentityRevealed(Function(String contactName) callback);
 
-  /// Registers callback for queue-sync protocol messages.
+  /// Registers queue-sync protocol messages with their concrete BLE sender
+  /// address. The second value must not be replaced with a session alias.
   void onQueueSyncReceived(
-    Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
+    Function(QueueSyncMessage syncMessage, String fromDeviceAddress)? callback,
   );
 }

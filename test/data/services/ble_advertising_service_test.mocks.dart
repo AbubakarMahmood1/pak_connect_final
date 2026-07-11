@@ -1019,24 +1019,25 @@ class MockBLEConnectionManager extends _i1.Mock
   );
 
   @override
-  set onClientMtuReady(dynamic Function(String, int)? value) =>
+  set onClientMtuReady(dynamic Function(String, int, int?)? value) =>
       super.noSuchMethod(
         Invocation.setter(#onClientMtuReady, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onClientNotifySubscribed(dynamic Function(String)? value) =>
+  set onClientNotifySubscribed(dynamic Function(String, int?)? value) =>
       super.noSuchMethod(
         Invocation.setter(#onClientNotifySubscribed, value),
         returnValueForMissingStub: null,
       );
 
   @override
-  set onConnectionComplete(dynamic Function()? value) => super.noSuchMethod(
-    Invocation.setter(#onConnectionComplete, value),
-    returnValueForMissingStub: null,
-  );
+  set onConnectionComplete(dynamic Function(String, int?)? value) =>
+      super.noSuchMethod(
+        Invocation.setter(#onConnectionComplete, value),
+        returnValueForMissingStub: null,
+      );
 
   @override
   set onMonitoringChanged(dynamic Function(bool)? value) => super.noSuchMethod(
@@ -1238,10 +1239,13 @@ class MockBLEConnectionManager extends _i1.Mock
           as _i4.Future<void>);
 
   @override
-  void handleCentralConnected(_i2.Central? central) => super.noSuchMethod(
-    Invocation.method(#handleCentralConnected, [central]),
-    returnValueForMissingStub: null,
-  );
+  _i4.Future<bool> handleCentralConnected(_i2.Central? central) =>
+      (super.noSuchMethod(
+            Invocation.method(#handleCentralConnected, [central]),
+            returnValue: _i4.Future<bool>.value(false),
+            returnValueForMissingStub: _i4.Future<bool>.value(false),
+          )
+          as _i4.Future<bool>);
 
   @override
   void handleCentralDisconnected(_i2.Central? central) => super.noSuchMethod(
@@ -1302,9 +1306,17 @@ class MockBLEConnectionManager extends _i1.Mock
           as _i4.Future<void>);
 
   @override
-  _i4.Future<void> connectToDeviceDirect(_i2.Peripheral? device, {int? rssi}) =>
+  _i4.Future<void> connectToDeviceDirect(
+    _i2.Peripheral? device, {
+    int? rssi,
+    int? schedulerAttemptId,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#connectToDeviceDirect, [device], {#rssi: rssi}),
+            Invocation.method(
+              #connectToDeviceDirect,
+              [device],
+              {#rssi: rssi, #schedulerAttemptId: schedulerAttemptId},
+            ),
             returnValue: _i4.Future<void>.value(),
             returnValueForMissingStub: _i4.Future<void>.value(),
           )

@@ -116,7 +116,7 @@ void main() {
         expect(find.text('LowSecurity'), findsNothing);
 
         await tester.enterText(
-          find.widgetWithText(TextFormField, 'Group Name'),
+          find.widgetWithText(TextFormField, 'List Name'),
           '  Weekend Plans  ',
         );
         await tester.enterText(
@@ -129,7 +129,9 @@ void main() {
         await tester.tap(find.text('Bob'));
         await tester.pump();
 
-        await tester.tap(find.widgetWithText(ElevatedButton, 'Create Group'));
+        await tester.tap(
+          find.widgetWithText(ElevatedButton, 'Create Broadcast List'),
+        );
         await tester.pumpAndSettle();
 
         expect(capturedCreateArgs, isNotNull);
@@ -137,7 +139,7 @@ void main() {
         expect(capturedCreateArgs!['description'], 'Hiking trip');
         expect(
           capturedCreateArgs!['memberKeys'],
-          containsAll(<String>['pk1', 'noise2']),
+          containsAll(<String>['pk1', 'pk2']),
         );
       },
     );
@@ -176,10 +178,12 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Group Name'),
+        find.widgetWithText(TextFormField, 'List Name'),
         'No Members Group',
       );
-      await tester.tap(find.widgetWithText(ElevatedButton, 'Create Group'));
+      await tester.tap(
+        find.widgetWithText(ElevatedButton, 'Create Broadcast List'),
+      );
       await tester.pumpAndSettle();
 
       expect(createInvoked, isFalse);

@@ -1608,13 +1608,6 @@ class MockMeshQueueSyncCoordinator extends _i1.Mock
           as _i13.Future<void>);
 
   @override
-  void completeAck(String? messageId, {bool? success = true}) =>
-      super.noSuchMethod(
-        Invocation.method(#completeAck, [messageId], {#success: success}),
-        returnValueForMissingStub: null,
-      );
-
-  @override
   void enableQueueSyncHandling() => super.noSuchMethod(
     Invocation.method(#enableQueueSyncHandling, []),
     returnValueForMissingStub: null,
@@ -1668,6 +1661,15 @@ class MockMeshQueueSyncCoordinator extends _i1.Mock
             ),
           )
           as _i13.Future<String>);
+
+  @override
+  _i13.Future<void> reprocessPendingDeliveries() =>
+      (super.noSuchMethod(
+            Invocation.method(#reprocessPendingDeliveries, []),
+            returnValue: _i13.Future<void>.value(),
+            returnValueForMissingStub: _i13.Future<void>.value(),
+          )
+          as _i13.Future<void>);
 
   @override
   _i13.Future<bool> retryMessage(String? messageId) =>

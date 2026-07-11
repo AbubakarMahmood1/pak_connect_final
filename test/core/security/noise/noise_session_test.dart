@@ -842,54 +842,51 @@ void main() {
       bob.destroy();
     });
 
-    test(
-      'replay of an older (non-latest) message is rejected after the '
-      'window has shifted',
-      () async {
-        final alice = NoiseSession(
-          peerID: 'Bob',
-          isInitiator: true,
-          localStaticPrivateKey: aliceStaticPrivate,
-          localStaticPublicKey: aliceStaticPublic,
+    test('replay of an older (non-latest) message is rejected after the '
+        'window has shifted', () async {
+      final alice = NoiseSession(
+        peerID: 'Bob',
+        isInitiator: true,
+        localStaticPrivateKey: aliceStaticPrivate,
+        localStaticPublicKey: aliceStaticPublic,
+      );
+      final bob = NoiseSession(
+        peerID: 'Alice',
+        isInitiator: false,
+        localStaticPrivateKey: bobStaticPrivate,
+        localStaticPublicKey: bobStaticPublic,
+      );
+
+      final msgA = await alice.startHandshake();
+      final msgB = await bob.processHandshakeMessage(msgA);
+      final msgC = await alice.processHandshakeMessage(msgB!);
+      await bob.processHandshakeMessage(msgC!);
+
+      final messages = <Uint8List>[];
+      for (int i = 0; i < 5; i++) {
+        messages.add(await alice.encrypt(Uint8List.fromList([i])));
+      }
+
+      // Deliver all five in order; every delivery shifts the replay window.
+      for (final message in messages) {
+        await bob.decrypt(message);
+      }
+
+      // Replaying each earlier message must fail even though the window
+      // has shifted several times since it was first seen.
+      for (final message in messages) {
+        await expectLater(
+          () => bob.decrypt(message),
+          throwsA(isA<Exception>()),
+          reason:
+              'an already-seen nonce must stay marked as seen after '
+              'the replay window shifts',
         );
-        final bob = NoiseSession(
-          peerID: 'Alice',
-          isInitiator: false,
-          localStaticPrivateKey: bobStaticPrivate,
-          localStaticPublicKey: bobStaticPublic,
-        );
+      }
 
-        final msgA = await alice.startHandshake();
-        final msgB = await bob.processHandshakeMessage(msgA);
-        final msgC = await alice.processHandshakeMessage(msgB!);
-        await bob.processHandshakeMessage(msgC!);
-
-        final messages = <Uint8List>[];
-        for (int i = 0; i < 5; i++) {
-          messages.add(await alice.encrypt(Uint8List.fromList([i])));
-        }
-
-        // Deliver all five in order; every delivery shifts the replay window.
-        for (final message in messages) {
-          await bob.decrypt(message);
-        }
-
-        // Replaying each earlier message must fail even though the window
-        // has shifted several times since it was first seen.
-        for (final message in messages) {
-          await expectLater(
-            () => bob.decrypt(message),
-            throwsA(isA<Exception>()),
-            reason:
-                'an already-seen nonce must stay marked as seen after '
-                'the replay window shifts',
-          );
-        }
-
-        alice.destroy();
-        bob.destroy();
-      },
-    );
+      alice.destroy();
+      bob.destroy();
+    });
 
     test(
       'out-of-order delivery within the replay window is accepted',

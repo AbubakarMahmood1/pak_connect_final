@@ -281,7 +281,8 @@ class HomeScreenFacade implements IHomeScreenFacade {
     if (intent is ChatOpenedIntent ||
         intent is ChatArchivedIntent ||
         intent is ChatDeletedIntent ||
-        intent is ChatPinToggleIntent) {
+        intent is ChatPinToggleIntent ||
+        intent is ChatReadStatusChangedIntent) {
       _logger.fine('🔄 Interaction triggered refresh');
       await _listCoordinator.loadChats();
     }
@@ -378,4 +379,7 @@ class _NullChatInteractionHandler implements IChatInteractionHandler {
 
   @override
   Future<void> markChatAsRead(ChatId chatId) async {}
+
+  @override
+  Future<void> markChatAsUnread(ChatId chatId) async {}
 }

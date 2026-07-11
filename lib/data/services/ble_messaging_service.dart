@@ -310,52 +310,34 @@ class BLEMessagingService implements IBLEMessagingService {
       return false;
     }
 
-    var targetPeerAddress = peerId == null ? null : _resolvePeerAddress(peerId);
-
-    bool globalCentralLink() =>
-        _connectionManager.hasBleConnection &&
-        _connectionManager.messageCharacteristic != null;
-    bool globalPeripheralLink() =>
-        _stateManager.isPeripheralMode &&
-        _getConnectedCentral() != null &&
-        _getPeripheralMessageCharacteristic() != null;
-
-    var hasCentralLink = targetPeerAddress == null
-        ? globalCentralLink()
-        : _connectionManager
-                  .clientConnectionForPeer(targetPeerAddress)
-                  ?.messageCharacteristic !=
-              null;
-    var hasPeripheralLink = targetPeerAddress == null
-        ? globalPeripheralLink()
-        : _connectionManager
-                  .serverConnectionForPeer(targetPeerAddress)
-                  ?.subscribedCharacteristic !=
-              null;
-
-    // Peer ids arrive in several flavors (session id, relationship hint,
-    // address); resolution can fail even though the peer is the one link we
-    // have. With exactly one active link the global route *is* that peer, so
-    // downgrade to it instead of dropping the sync. With multiple links we
-    // fail fast rather than risk sending to the wrong peer.
-    if (targetPeerAddress != null && !hasCentralLink && !hasPeripheralLink) {
-      final totalLinks =
-          _connectionManager.clientConnectionCount +
-          _connectionManager.serverConnectionCount;
-      if (totalLinks <= 1 && (globalCentralLink() || globalPeripheralLink())) {
-        _logger.fine(
-          '🔄 QUEUE SYNC: peer $peerId unresolved; using the only active link',
-        );
-        targetPeerAddress = null;
-        hasCentralLink = globalCentralLink();
-        hasPeripheralLink = globalPeripheralLink();
-      }
+    final targetPeerAddress = peerId?.trim();
+    if (targetPeerAddress == null || targetPeerAddress.isEmpty) {
+      _logger.warning('🔄 QUEUE SYNC: concrete BLE device address is required');
+      return false;
     }
+
+    // Queue sync is correlated to an exact transport address. The connection
+    // manager can also resolve identity hints, so reject a candidate unless its
+    // concrete address exactly matches the requested route.
+    final clientCandidate = _connectionManager.clientConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetClient = clientCandidate?.address == targetPeerAddress
+        ? clientCandidate
+        : null;
+    final serverCandidate = _connectionManager.serverConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetServer = serverCandidate?.address == targetPeerAddress
+        ? serverCandidate
+        : null;
+    final hasCentralLink = targetClient?.messageCharacteristic != null;
+    final hasPeripheralLink = targetServer?.subscribedCharacteristic != null;
 
     if (!hasCentralLink && !hasPeripheralLink) {
       _logger.fine(
-        '🔄 QUEUE SYNC: No active BLE route, skipping send'
-        '${peerId == null ? "" : " (peer=$peerId, resolved=$targetPeerAddress)"}',
+        '🔄 QUEUE SYNC: No exact BLE route for $targetPeerAddress; '
+        'skipping send',
       );
       return false;
     }
@@ -647,26 +629,6 @@ class BLEMessagingService implements IBLEMessagingService {
     String? peerId,
   }) => _transportHelper.sendProtocolMessage(message, peerId: peerId);
 
-  String _resolvePeerAddress(String peerId) {
-    final mapped = _nodeIdToAddress[peerId];
-    if (mapped != null) return mapped;
-
-    // Peer ids may be any identity flavor (ephemeral session id, persistent
-    // key). When it matches the active session, route to the connected
-    // device/central address.
-    if (peerId == _stateManager.currentSessionId ||
-        peerId == _stateManager.theirEphemeralId ||
-        peerId == _stateManager.theirPersistentKey) {
-      final device = _connectionManager.connectedDevice;
-      if (device != null) return device.uuid.toString();
-      final central = _getConnectedCentral() as Central?;
-      if (central != null) return central.uuid.toString();
-    }
-
-    // May already be a device address.
-    return peerId;
-  }
-
   // ============================================================================
   // MESSAGE RECEPTION & STREAM
   // ============================================================================
@@ -682,9 +644,9 @@ class BLEMessagingService implements IBLEMessagingService {
         senderDeviceId,
         providedNodeId: senderNodeId,
       );
-      // Record the mapping before processing: handlers triggered by this
-      // data (e.g. queue-sync responses) may need to route a reply to this
-      // peer immediately.
+      // Retain the identity/address mapping for binary relay echo suppression.
+      // Queue sync deliberately does not use this mutable alias map; it routes
+      // and correlates with senderDeviceId directly.
       if (inferredNodeId.isNotEmpty) {
         _nodeIdToAddress[inferredNodeId] = senderDeviceId;
       }
@@ -693,19 +655,16 @@ class BLEMessagingService implements IBLEMessagingService {
         fromDeviceId: senderDeviceId,
         fromNodeId: inferredNodeId,
       );
-      // A structural parse failure of a recognized payload must not be ACKed
-      // to the sender as a successful write (PC-GATT-002).
-      if (result == IBLEMessageHandlerFacade.processingFailedMarker) {
-        _logger.warning(
-          '⚠️ Inbound payload from $senderDeviceId failed to parse; NACKing',
-        );
-        return InboundProcessStatus.failed;
-      }
       // Non-null marker → something was produced/handled; null → legitimately
       // nothing to surface (buffered fragment, ping, not-for-us). Both ACK.
       return result != null
           ? InboundProcessStatus.handled
           : InboundProcessStatus.ignored;
+    } on InboundMessageProcessingException catch (e) {
+      _logger.warning(
+        '⚠️ Inbound payload from $senderDeviceId failed to process; NACKing: $e',
+      );
+      return InboundProcessStatus.failed;
     } catch (e) {
       _logger.warning('⚠️ Failed to process inbound peripheral data: $e');
       return InboundProcessStatus.failed;

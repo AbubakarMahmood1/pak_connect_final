@@ -9,16 +9,26 @@ import '../values/id_types.dart';
 import 'i_message_fragmentation_handler.dart';
 import 'i_seen_message_store.dart';
 
+/// Typed signal for a payload that reached the inbound messaging pipeline but
+/// could not be structurally parsed or processed.
+///
+/// This must be an exception rather than a reserved string return value:
+/// decrypted user content may contain any string, so a string sentinel can
+/// collide with valid messages and incorrectly trigger a GATT NACK.
+final class InboundMessageProcessingException implements Exception {
+  const InboundMessageProcessingException(this.message, [this.cause]);
+
+  final String message;
+  final Object? cause;
+
+  @override
+  String toString() => cause == null
+      ? 'InboundMessageProcessingException: $message'
+      : 'InboundMessageProcessingException: $message ($cause)';
+}
+
 /// Public API interface for BLE message handling
 abstract interface class IBLEMessageHandlerFacade {
-  /// Sentinel returned by [processReceivedData] when a *recognized* payload is
-  /// structurally corrupt (failed to parse). Distinct from `null`, which
-  /// covers legitimate not-for-us / buffered-fragment / handshake-consumed
-  /// cases. The messaging service maps this to a failed inbound status so the
-  /// GATT layer NACKs the write instead of silently ACKing a dropped frame
-  /// (PC-GATT-002).
-  static const String processingFailedMarker = '__INBOUND_PROCESS_FAILED__';
-
   /// Sets current node ID for this device in mesh routing
   void setCurrentNodeId(String nodeId);
 
@@ -64,6 +74,11 @@ abstract interface class IBLEMessageHandlerFacade {
   });
 
   /// Main entry point for processing received BLE data.
+  ///
+  /// Returns `null` for legitimate no-output cases (buffered fragments,
+  /// handshake-consumed frames, or traffic not addressed to this node).
+  /// Throws [InboundMessageProcessingException] when a recognized frame is
+  /// structurally corrupt or processing otherwise fails.
   Future<String?> processReceivedData({
     required Uint8List data,
     required String fromDeviceId,
@@ -158,9 +173,9 @@ abstract interface class IBLEMessageHandlerFacade {
     callback,
   );
 
-  /// Called when queue sync message received.
+  /// Called with the concrete BLE device address that carried queue sync.
   set onQueueSyncReceived(
-    Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
+    Function(QueueSyncMessage syncMessage, String fromDeviceAddress)? callback,
   );
 
   /// Called when we need to send queued messages.

@@ -17,6 +17,8 @@ import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/spy_mode_info.dart';
+import 'package:pak_connect/data/services/ble_connection_manager.dart';
+import 'package:pak_connect/data/services/ble_connection_service.dart';
 import 'package:pak_connect/data/services/ble_service_facade.dart';
 import '../../test_helpers/test_setup.dart';
 
@@ -113,6 +115,80 @@ void main() {
           await expectLater(pending, doesNotComplete);
         },
       );
+    });
+
+    group('Identity reveal routing', () {
+      ProtocolMessage reveal() => ProtocolMessage.friendReveal(
+        myPersistentKey: 'persistent-key',
+        proof: 'proof',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      Future<BLEServiceFacade> createFacadeWithRoutes(
+        List<String> routes,
+      ) async {
+        final localMessaging = _StubMessagingService();
+        final localFacade = BLEServiceFacade(
+          platformHost: platformHost,
+          messagingService: localMessaging,
+          advertisingService: advertisingStub,
+          handshakeService: handshakeStub,
+          connectionManager: _ConnectionManagerProbe(
+            centralManager: platformHost.centralManager,
+            peripheralManager: platformHost.peripheralManager,
+            addresses: routes,
+            scanResult: null,
+          ),
+        );
+        addTearDown(() async {
+          await localFacade.dispose();
+          localMessaging.dispose();
+        });
+        return localFacade;
+      }
+
+      test('sends reveal only when one BLE route is unambiguous', () async {
+        final oneRoute = await createFacadeWithRoutes(['device-a']);
+        final localMessaging =
+            oneRoute.messagingService as _StubMessagingService;
+
+        expect(await oneRoute.debugSendIdentityReveal(reveal()), isTrue);
+        expect(localMessaging.protocolMessages, hasLength(1));
+        expect(
+          localMessaging.protocolMessages.single.type,
+          ProtocolMessageType.friendReveal,
+        );
+      });
+
+      test('fails closed with zero or multiple BLE routes', () async {
+        final noRoute = await createFacadeWithRoutes(const []);
+        final manyRoutes = await createFacadeWithRoutes([
+          'device-a',
+          'device-b',
+        ]);
+
+        expect(await noRoute.debugSendIdentityReveal(reveal()), isFalse);
+        expect(await manyRoutes.debugSendIdentityReveal(reveal()), isFalse);
+        expect(
+          (noRoute.messagingService as _StubMessagingService).protocolMessages,
+          isEmpty,
+        );
+        expect(
+          (manyRoutes.messagingService as _StubMessagingService)
+              .protocolMessages,
+          isEmpty,
+        );
+      });
+
+      test('does not report success when protocol transport fails', () async {
+        final oneRoute = await createFacadeWithRoutes(['device-a']);
+        final localMessaging =
+            oneRoute.messagingService as _StubMessagingService;
+        localMessaging.protocolSendResult = false;
+
+        expect(await oneRoute.debugSendIdentityReveal(reveal()), isFalse);
+        expect(localMessaging.protocolMessages, hasLength(1));
+      });
     });
 
     // ========================================================================
@@ -282,6 +358,19 @@ void main() {
           final streamValue = await streamFuture;
           expect(received, contains('peer-123'));
           expect(streamValue, equals('peer-123'));
+        },
+      );
+
+      test(
+        'verified message-handler identity is wired to facade stream',
+        () async {
+          final streamFuture = facade.identityRevealedStream.first;
+
+          facade.messageHandler.onIdentityRevealed?.call(
+            'verified-persistent-key',
+          );
+
+          expect(await streamFuture, 'verified-persistent-key');
         },
       );
     });
@@ -682,6 +771,84 @@ void main() {
         expect(result, isA<Future<Peripheral?>>());
       });
 
+      test(
+        'manual scan and active link ids use the connection manager',
+        () async {
+          await facade.dispose();
+          final scannedPeer = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-00000000d001'),
+          );
+          final connectionManager = _ConnectionManagerProbe(
+            centralManager: platformHost.centralManager,
+            peripheralManager: platformHost.peripheralManager,
+            addresses: const ['client-a', 'client-b', 'server-a'],
+            scanResult: scannedPeer,
+          );
+          facade = BLEServiceFacade(
+            platformHost: platformHost,
+            messagingService: messagingStub,
+            advertisingService: advertisingStub,
+            handshakeService: handshakeStub,
+            connectionManager: connectionManager,
+          );
+          const timeout = Duration(milliseconds: 123);
+
+          expect(
+            await facade.scanForSpecificDevice(timeout: timeout),
+            same(scannedPeer),
+          );
+          expect(connectionManager.lastScanTimeout, timeout);
+          expect(facade.activeConnectionDeviceIds, [
+            'client-a',
+            'client-b',
+            'server-a',
+          ]);
+          expect(
+            () => facade.activeConnectionDeviceIds.add('mutated'),
+            throwsUnsupportedError,
+          );
+        },
+      );
+
+      test(
+        'strict-TDM manual scan observes scheduler windows without stopping them',
+        () async {
+          await facade.dispose();
+          final scannedPeer = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-00000000d002'),
+          );
+          final discovery = _DiscoveryProbe();
+          final connectionManager = _ConnectionManagerProbe(
+            centralManager: platformHost.centralManager,
+            peripheralManager: platformHost.peripheralManager,
+            addresses: const [],
+            scanResult: null,
+          );
+          final strictScheduler = _FakeBleRoleScheduler();
+          facade = BLEServiceFacade(
+            platformHost: platformHost,
+            messagingService: messagingStub,
+            discoveryService: discovery,
+            advertisingService: advertisingStub,
+            handshakeService: handshakeStub,
+            connectionManager: connectionManager,
+            strictTdmEnabled: true,
+            bleRoleScheduler: strictScheduler,
+          );
+
+          final scan = facade.scanForSpecificDevice(
+            timeout: const Duration(seconds: 1),
+          );
+          await Future<void>.delayed(Duration.zero);
+          discovery.emit([scannedPeer]);
+
+          expect(await scan, same(scannedPeer));
+          expect(strictScheduler.startCalls, 1);
+          expect(strictScheduler.stopCalls, 0);
+          expect(connectionManager.lastScanTimeout, isNull);
+        },
+      );
+
       test('discoveredDevicesStream returns Stream<List<Peripheral>>', () {
         // Arrange & Act
         final stream = facade.discoveredDevicesStream;
@@ -766,6 +933,103 @@ void main() {
 
         expect(strictScheduler.requestedPeerIds, [device.uuid.toString()]);
       });
+
+      test(
+        'manager outbound request preserves an existing inbound attempt',
+        () async {
+          await facade.dispose();
+          final device = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-00000000c0df'),
+          );
+          final connectionManager = _ConnectionManagerWithServerLink(
+            centralManager: platformHost.centralManager,
+            peripheralManager: platformHost.peripheralManager,
+            serverAddress: device.uuid.toString(),
+          );
+          strictScheduler = _FakeBleRoleScheduler();
+          facade = BLEServiceFacade(
+            platformHost: platformHost,
+            messagingService: messagingStub,
+            advertisingService: advertisingStub,
+            handshakeService: handshakeStub,
+            connectionManager: connectionManager,
+            strictTdmEnabled: true,
+            bleRoleScheduler: strictScheduler,
+          );
+          final inboundAttempt = strictScheduler.reportInboundConnected(
+            device.uuid.toString(),
+          );
+
+          await connectionManager.connectToDevice(device);
+
+          expect(strictScheduler.requestedPeerIds, isEmpty);
+          expect(strictScheduler.activePeerId, device.uuid.toString());
+          expect(strictScheduler.activeAttemptId, inboundAttempt);
+        },
+      );
+
+      test(
+        'inbound handshake completion is attributed to the connected central',
+        () async {
+          await facade.dispose();
+          final unrelatedClient = _FakePeripheral(
+            UUID.fromString('00000000-0000-0000-0000-00000000c111'),
+          );
+          final inboundCentral = _FakeCentral(
+            UUID.fromString('00000000-0000-0000-0000-00000000c222'),
+          );
+          final connectionManager = _ConnectionManagerWithFirstClient(
+            centralManager: platformHost.centralManager,
+            peripheralManager: platformHost.peripheralManager,
+            firstClient: unrelatedClient,
+          );
+          strictScheduler = _FakeBleRoleScheduler();
+          facade = BLEServiceFacade(
+            platformHost: platformHost,
+            messagingService: messagingStub,
+            advertisingService: advertisingStub,
+            handshakeService: handshakeStub,
+            connectionManager: connectionManager,
+            strictTdmEnabled: true,
+            bleRoleScheduler: strictScheduler,
+          );
+          final connectionService =
+              facade.connectionService as BLEConnectionService;
+          connectionService.connectedCentral = inboundCentral;
+          await facade.startScanning();
+          strictScheduler.reportInboundConnected(
+            inboundCentral.uuid.toString(),
+          );
+
+          await facade.debugCompleteHandshake(
+            ephemeralId: List<String>.filled(64, 'a').join(),
+            displayName: 'Inbound peer',
+          );
+
+          expect(strictScheduler.handshakeReadyPeerIds, [
+            inboundCentral.uuid.toString(),
+          ]);
+        },
+      );
+
+      test(
+        'handshake completion keeps the peer bound at handshake start',
+        () async {
+          const startedPeer = 'peer-started';
+          final startedAttempt = strictScheduler.reportInboundConnected(
+            startedPeer,
+          );
+          facade.debugStartHandshake(startedPeer, attemptId: startedAttempt);
+          strictScheduler.reportInboundConnected('peer-that-took-over');
+
+          await facade.debugCompleteHandshake(
+            ephemeralId: List<String>.filled(64, 'b').join(),
+            displayName: 'Started peer',
+          );
+
+          expect(strictScheduler.handshakeReadyPeerIds, [startedPeer]);
+        },
+      );
     });
 
     // ========================================================================
@@ -856,7 +1120,7 @@ void main() {
         final result = facade.performHandshake();
 
         // Assert
-        expect(result, isA<Future<void>>());
+        expect(result, isA<Future<bool>>());
       });
 
       test('performHandshake() with override parameter', () {
@@ -864,7 +1128,7 @@ void main() {
         final result = facade.performHandshake(startAsInitiatorOverride: true);
 
         // Assert
-        expect(result, isA<Future<void>>());
+        expect(result, isA<Future<bool>>());
       });
 
       test('onHandshakeComplete() is delegated', () {
@@ -1094,6 +1358,8 @@ final class _StubMessagingService implements IBLEMessagingService {
   final _messagesController = StreamController<String>.broadcast();
   final _binaryController = StreamController<BinaryPayload>.broadcast();
   String? _lastMessageId;
+  bool protocolSendResult = true;
+  final List<ProtocolMessage> protocolMessages = [];
 
   @override
   Future<bool> sendMessage(
@@ -1116,8 +1382,9 @@ final class _StubMessagingService implements IBLEMessagingService {
 
   @override
   Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    protocolMessages.add(message);
     _lastMessageId = message.textMessageId ?? 'stub-protocol';
-    return true;
+    return protocolSendResult;
   }
 
   @override
@@ -1269,10 +1536,16 @@ final class _StubHandshakeService implements IBLEHandshakeService {
   String? _phase;
 
   @override
-  Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  }) async {
+    if (_isInProgress) return false;
+    if (onStartAccepted?.call() == false) return false;
     _isInProgress = true;
     _phase = 'NOISE_HANDSHAKE';
     _phaseController.add(ConnectionPhase.noiseHandshakeComplete);
+    return true;
   }
 
   @override
@@ -1358,6 +1631,9 @@ final class _FakeBleRoleScheduler implements IBleRoleScheduler {
   final List<String> requestedPeerIds = <String>[];
   final List<String> inboundPeerIds = <String>[];
   final List<String> handshakeReadyPeerIds = <String>[];
+  String? activePeerId;
+  int? activeAttemptId;
+  int _nextAttemptId = 0;
 
   @override
   BleRoleSchedulerSnapshot get snapshot => BleRoleSchedulerSnapshot(
@@ -1365,6 +1641,8 @@ final class _FakeBleRoleScheduler implements IBleRoleScheduler {
     isRunning: startCalls > stopCalls,
     lastTransitionAt: DateTime.now(),
     nextWindowIsScan: true,
+    activePeerId: activePeerId,
+    activeAttemptId: activeAttemptId,
   );
 
   @override
@@ -1380,29 +1658,110 @@ final class _FakeBleRoleScheduler implements IBleRoleScheduler {
   @override
   Future<void> requestOutboundConnect(Peripheral peer) async {
     requestedPeerIds.add(peer.uuid.toString());
+    activePeerId = peer.uuid.toString();
+    activeAttemptId = ++_nextAttemptId;
   }
 
   @override
-  void reportDisconnect(String address, String reason) {}
+  void reportDisconnect(String address, String reason, int attemptId) {}
 
   @override
-  void reportHandshakeReady(String address) {
+  void reportHandshakeReady(String address, int attemptId) {
     handshakeReadyPeerIds.add(address);
   }
 
   @override
-  void reportHandshakeStarted(String address) {}
+  void reportHandshakeStarted(String address, int attemptId) {}
 
   @override
-  void reportInboundConnected(String address) {
+  int reportInboundConnected(String address) {
     inboundPeerIds.add(address);
+    activePeerId = address;
+    activeAttemptId = ++_nextAttemptId;
+    return activeAttemptId!;
   }
 
   @override
-  void reportMtuReady(String address, int mtu) {}
+  void reportMtuReady(String address, int mtu, int attemptId) {}
 
   @override
-  void reportNotifySubscribed(String address) {}
+  void reportNotifySubscribed(String address, int attemptId) {}
+}
+
+final class _ConnectionManagerWithFirstClient extends BLEConnectionManager {
+  _ConnectionManagerWithFirstClient({
+    required super.centralManager,
+    required super.peripheralManager,
+    required this.firstClient,
+  });
+
+  final Peripheral firstClient;
+
+  @override
+  Peripheral get connectedDevice => firstClient;
+}
+
+final class _ConnectionManagerWithServerLink extends BLEConnectionManager {
+  _ConnectionManagerWithServerLink({
+    required super.centralManager,
+    required super.peripheralManager,
+    required this.serverAddress,
+  });
+
+  final String serverAddress;
+
+  @override
+  bool hasServerLinkForPeer(String address) => address == serverAddress;
+}
+
+final class _ConnectionManagerProbe extends BLEConnectionManager {
+  _ConnectionManagerProbe({
+    required super.centralManager,
+    required super.peripheralManager,
+    required this.addresses,
+    required this.scanResult,
+  });
+
+  final List<String> addresses;
+  final Peripheral? scanResult;
+  Duration? lastScanTimeout;
+
+  @override
+  List<String> get connectedAddresses => addresses;
+
+  @override
+  Future<Peripheral?> scanForSpecificDevice({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    lastScanTimeout = timeout;
+    return scanResult;
+  }
+}
+
+final class _DiscoveryProbe implements IBLEDiscoveryService {
+  final StreamController<List<Peripheral>> _devices =
+      StreamController<List<Peripheral>>.broadcast();
+  List<Peripheral> _current = const [];
+
+  void emit(List<Peripheral> devices) {
+    _current = List<Peripheral>.unmodifiable(devices);
+    _devices.add(_current);
+  }
+
+  @override
+  List<Peripheral> get currentDiscoveredDevices => _current;
+
+  @override
+  Stream<List<Peripheral>> get discoveredDevices => _devices.stream;
+
+  @override
+  bool get isDiscoveryActive => true;
+
+  @override
+  Future<void> dispose() => _devices.close();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 final class _FakeBlePlatformHost implements IBLEPlatformHost {

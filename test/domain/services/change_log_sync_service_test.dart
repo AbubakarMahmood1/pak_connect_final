@@ -3,7 +3,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/models/change_log_entry.dart';
 import 'package:pak_connect/domain/services/change_log_sync_service.dart';
 
-/// Phase 2 tests: change_log exchange during live P2P sync.
+/// Tests for the dormant change_log peer-replay prototype.
 ///
 /// Verifies:
 /// - ChangeLogEntry model serialization
@@ -12,7 +12,7 @@ import 'package:pak_connect/domain/services/change_log_sync_service.dart';
 /// - Replay of received entries (INSERT/UPDATE/DELETE)
 /// - Cursor tracking per peer
 void main() {
-  group('Phase 2: ChangeLogEntry model', () {
+  group('ChangeLogEntry model', () {
     test('serializes to JSON and back', () {
       final entry = ChangeLogEntry(
         id: 42,
@@ -66,7 +66,7 @@ void main() {
     });
   });
 
-  group('Phase 2: ChangeLogSyncService', () {
+  group('ChangeLogSyncService prototype', () {
     final List<LogRecord> logRecords = [];
 
     late ChangeLogSyncService service;
@@ -165,10 +165,44 @@ void main() {
       expect(fakeDb.replayedEntries, isEmpty);
     });
 
+    test(
+      'missing replay callback fails closed without advancing cursor',
+      () async {
+        service.onReplayChangeLogEntries = null;
+
+        await expectLater(
+          service.processReceivedEntries(
+            fromPeerId: 'peer_A',
+            entries: [_entry(4, 'contacts', 'INSERT', 'pk_new')],
+          ),
+          throwsStateError,
+        );
+
+        expect(await fakeDb.getCursorForPeer('peer_A'), isNull);
+      },
+    );
+
+    test('replay errors do not advance cursor past failed entries', () async {
+      service.onReplayChangeLogEntries = (_) async =>
+          const ChangeLogReplayResult(
+            insertsApplied: 0,
+            updatesApplied: 0,
+            deletesApplied: 0,
+            skipped: 0,
+            errors: 1,
+          );
+
+      final result = await service.processReceivedEntries(
+        fromPeerId: 'peer_A',
+        entries: [_entry(9, 'contacts', 'INSERT', 'pk_new')],
+      );
+
+      expect(result.errors, 1);
+      expect(await fakeDb.getCursorForPeer('peer_A'), isNull);
+    });
+
     test('exchangeWithPeer sends entries', () async {
-      fakeDb.addEntries([
-        _entry(1, 'contacts', 'INSERT', 'pk_1'),
-      ]);
+      fakeDb.addEntries([_entry(1, 'contacts', 'INSERT', 'pk_1')]);
 
       await service.exchangeWithPeer('peer_B');
 
@@ -182,6 +216,25 @@ void main() {
 
       expect(fakeDb.sentEntries, isEmpty);
     });
+
+    test(
+      'exchangeWithPeer is disabled when no transport is configured',
+      () async {
+        fakeDb.addEntries([_entry(1, 'contacts', 'INSERT', 'pk_1')]);
+        service.onSendChangeLogToPeer = null;
+
+        await service.exchangeWithPeer('peer_B');
+
+        expect(fakeDb.sentEntries, isEmpty);
+        expect(
+          logRecords.any(
+            (record) =>
+                record.message.contains('no authenticated row transport'),
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test('cursor advances correctly after multiple syncs', () async {
       // First sync
@@ -329,8 +382,10 @@ void main() {
       );
 
       expect(result.totalApplied, greaterThan(0));
-      expect(result.insertsApplied + result.updatesApplied + result.deletesApplied,
-          result.totalApplied);
+      expect(
+        result.insertsApplied + result.updatesApplied + result.deletesApplied,
+        result.totalApplied,
+      );
     });
   });
 }
@@ -371,9 +426,7 @@ class _FakeChangeLogDB {
       ..sort((a, b) => a.id.compareTo(b.id));
   }
 
-  Future<List<ChangeLogEntry>> queryChangeLogSinceTime(
-    int sinceMillis,
-  ) async {
+  Future<List<ChangeLogEntry>> queryChangeLogSinceTime(int sinceMillis) async {
     return _entries.where((e) => e.changedAt >= sinceMillis).toList()
       ..sort((a, b) => a.id.compareTo(b.id));
   }

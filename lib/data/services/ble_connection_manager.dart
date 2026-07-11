@@ -101,9 +101,9 @@ class BLEConnectionManager {
   Function(Peripheral?)? onConnectionChanged;
   Function(GATTCharacteristic?)? onCharacteristicFound;
   Function(int?)? onMtuDetected;
-  Function(String address, int mtu)? onClientMtuReady;
-  Function(String address)? onClientNotifySubscribed;
-  Function()? onConnectionComplete;
+  Function(String address, int mtu, int? schedulerAttemptId)? onClientMtuReady;
+  Function(String address, int? schedulerAttemptId)? onClientNotifySubscribed;
+  Function(String address, int? schedulerAttemptId)? onConnectionComplete;
   Function(bool)? onMonitoringChanged;
   Function(ConnectionInfo)? onConnectionInfoChanged;
 
@@ -565,9 +565,8 @@ class BLEConnectionManager {
   /// 📥 Handle incoming connection (we're peripheral, they're central)
   ///
   /// Called when a remote central connects to our advertising peripheral
-  void handleCentralConnected(Central central) async {
-    await _runtimeHandleCentralConnected(central);
-  }
+  Future<bool> handleCentralConnected(Central central) =>
+      _runtimeHandleCentralConnected(central);
 
   /// 📤 Handle incoming disconnection (central disconnected from us)
   ///
@@ -623,11 +622,19 @@ class BLEConnectionManager {
     return _runtimeConnectToDevice(device, rssi: rssi);
   }
 
-  Future<void> connectToDeviceDirect(Peripheral device, {int? rssi}) async {
+  Future<void> connectToDeviceDirect(
+    Peripheral device, {
+    int? rssi,
+    int? schedulerAttemptId,
+  }) async {
     final previousValue = _bypassingOutboundConnectCoordinator;
     _bypassingOutboundConnectCoordinator = true;
     try {
-      await _runtimeConnectToDevice(device, rssi: rssi);
+      await _runtimeConnectToDevice(
+        device,
+        rssi: rssi,
+        schedulerAttemptId: schedulerAttemptId,
+      );
     } finally {
       _bypassingOutboundConnectCoordinator = previousValue;
     }

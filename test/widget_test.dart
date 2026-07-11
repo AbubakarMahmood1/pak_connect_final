@@ -5,6 +5,8 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -12,25 +14,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pak_connect/main.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
-import 'test_helpers/ble/fake_ble_service.dart';
+import 'test_helpers/app_core_test_harness.dart';
+import 'test_helpers/mocks/mock_connection_service.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
+  late Completer<void> initializationGate;
+  StreamSubscription<LogRecord>? logSubscription;
 
   setUpAll(() async {
     await TestSetup.initializeTestEnvironment(dbLabel: 'widget');
   });
 
   setUp(() {
+    AppCore.resetForTesting();
+    initializationGate = Completer<void>();
+    AppCore.initializationOverride = () => initializationGate.future;
     logRecords = [];
     allowedSevere = {};
     Logger.root.level = Level.ALL;
-    Logger.root.onRecord.listen(logRecords.add);
+    logSubscription = Logger.root.onRecord.listen(logRecords.add);
   });
 
-  tearDown(() {
+  tearDown(() async {
     final severe = logRecords.where((l) => l.level >= Level.SEVERE);
     final unexpected = severe.where(
       (l) => !allowedSevere.any(
@@ -56,11 +64,23 @@ void main() {
         reason: 'Missing expected SEVERE matching "$pattern"',
       );
     }
+    await logSubscription?.cancel();
+    logSubscription = null;
+    AppCore.instance.dispose();
+    if (!initializationGate.isCompleted) {
+      initializationGate.complete();
+    }
+    AppCore.initializationOverride = null;
+    AppCore.resetForTesting();
   });
 
   Future<void> pumpApp(WidgetTester tester) async {
-    final fakeBleService = FakeBleService();
-    addTearDown(fakeBleService.dispose);
+    final fakeBleService = MockConnectionService();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      unawaited(fakeBleService.dispose());
+    });
 
     await tester.pumpWidget(
       ProviderScope(

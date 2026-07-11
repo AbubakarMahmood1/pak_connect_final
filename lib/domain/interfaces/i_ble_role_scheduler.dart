@@ -32,6 +32,7 @@ final class BleRoleSchedulerSnapshot {
     required this.lastTransitionAt,
     required this.nextWindowIsScan,
     this.activePeerId,
+    this.activeAttemptId,
   });
 
   final BleRoleSchedulerState state;
@@ -39,17 +40,18 @@ final class BleRoleSchedulerSnapshot {
   final DateTime lastTransitionAt;
   final bool nextWindowIsScan;
   final String? activePeerId;
+  final int? activeAttemptId;
 }
 
 abstract interface class IBleRoleScheduler {
   Future<void> start();
   Future<void> stop();
   Future<void> requestOutboundConnect(Peripheral peer);
-  void reportInboundConnected(String address);
-  void reportMtuReady(String address, int mtu);
-  void reportNotifySubscribed(String address);
-  void reportHandshakeStarted(String address);
-  void reportHandshakeReady(String address);
-  void reportDisconnect(String address, String reason);
+  int reportInboundConnected(String address);
+  void reportMtuReady(String address, int mtu, int attemptId);
+  void reportNotifySubscribed(String address, int attemptId);
+  void reportHandshakeStarted(String address, int attemptId);
+  void reportHandshakeReady(String address, int attemptId);
+  void reportDisconnect(String address, String reason, int attemptId);
   BleRoleSchedulerSnapshot get snapshot;
 }

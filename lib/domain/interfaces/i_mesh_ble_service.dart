@@ -54,7 +54,8 @@ abstract interface class IMeshBleService {
   });
 
   void registerQueueSyncHandler(
-    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+    Future<bool> Function(QueueSyncMessage message, String fromDeviceAddress)
+    handler,
   );
 
   Future<bool> sendPeripheralMessage(String message, {String? messageId});

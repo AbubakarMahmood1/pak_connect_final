@@ -7,6 +7,7 @@ import 'package:mockito/mockito.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:pak_connect/data/services/ble_messaging_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
@@ -14,6 +15,7 @@ import 'package:pak_connect/domain/models/mesh_relay_models.dart'
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
+import 'package:pak_connect/data/services/message_fragmentation_handler.dart';
 import 'package:pak_connect/domain/utils/binary_fragmenter.dart';
 import 'package:pak_connect/data/models/ble_client_connection.dart';
 import 'package:pak_connect/domain/models/ble_server_connection.dart';
@@ -132,6 +134,35 @@ void main() {
       expect(service.receivedMessagesStream, emits('Hello World'));
       service.debugEmitReceivedMessage('Hello World');
     });
+
+    test('valid text equal to the retired failure sentinel is handled, not '
+        'misclassified as a GATT failure', () async {
+      mockMessageHandler.nextProcessResult = '__INBOUND_PROCESS_FAILED__';
+
+      final status = await service.processIncomingPeripheralData(
+        Uint8List.fromList([1, 2, 3]),
+        senderDeviceId: 'device-b',
+        senderNodeId: 'node-b',
+      );
+
+      expect(status, InboundProcessStatus.handled);
+    });
+
+    test(
+      'typed inbound processing failure maps to failed GATT status',
+      () async {
+        mockMessageHandler.nextProcessError =
+            const InboundMessageProcessingException('corrupt frame');
+
+        final status = await service.processIncomingPeripheralData(
+          Uint8List.fromList([9, 9, 9]),
+          senderDeviceId: 'device-b',
+          senderNodeId: 'node-b',
+        );
+
+        expect(status, InboundProcessStatus.failed);
+      },
+    );
 
     // =========================================================================
     // MESSAGE ID TRACKING
@@ -387,6 +418,14 @@ void main() {
       final peripheral = fakePeripheralFromString(
         '00000000-0000-0000-0000-00000000f2f2',
       );
+      final address = peripheral.uuid.toString();
+      final connection = BLEClientConnection(
+        address: address,
+        peripheral: peripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 60,
+      );
 
       when(mockConnectionManager.hasBleConnection).thenReturn(true);
       when(
@@ -394,6 +433,9 @@ void main() {
       ).thenReturn(characteristic);
       when(mockConnectionManager.connectedDevice).thenReturn(peripheral);
       when(mockConnectionManager.mtuSize).thenReturn(60);
+      when(
+        mockConnectionManager.clientConnectionForPeer(address),
+      ).thenReturn(connection);
 
       final writes = <Uint8List>[];
       when(
@@ -431,7 +473,7 @@ void main() {
         syncType: relay_models.QueueSyncType.request,
       );
 
-      await service.sendQueueSyncMessage(queueMessage);
+      await service.sendQueueSyncMessage(queueMessage, peerId: address);
 
       expect(writes, isNotEmpty);
       expect(
@@ -440,175 +482,174 @@ void main() {
       );
     });
 
-    test(
-      're-fragments binary forward per hop and skips relayer echo',
-      () async {
-        final handler = _ForwardingHarnessHandler();
-        final connectionManager = _MockBLEConnectionManagerWithHandshake();
-        final stateManager = MockIBLEStateManagerFacade();
-        final contactRepository = MockContactRepository();
-        final centralManager = MockCentralManager();
-        final peripheralManager = MockPeripheralManager();
+    test('re-fragments binary forward per hop and skips relayer echo', () async {
+      final handler = _ForwardingHarnessHandler();
+      final connectionManager = _MockBLEConnectionManagerWithHandshake();
+      final stateManager = MockIBLEStateManagerFacade();
+      final contactRepository = MockContactRepository();
+      final centralManager = MockCentralManager();
+      final peripheralManager = MockPeripheralManager();
 
-        when(stateManager.isPeripheralMode).thenReturn(true);
-        when(contactRepository.getAllContacts()).thenAnswer((_) async => {});
+      when(stateManager.isPeripheralMode).thenReturn(true);
+      when(contactRepository.getAllContacts()).thenAnswer((_) async => {});
 
-        final characteristic = GATTCharacteristic.mutable(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000f0f0'),
-          properties: [GATTCharacteristicProperty.write],
-          permissions: [GATTCharacteristicPermission.write],
-          descriptors: const [],
-        );
+      final characteristic = GATTCharacteristic.mutable(
+        uuid: UUID.fromString('00000000-0000-0000-0000-00000000f0f0'),
+        properties: [GATTCharacteristicProperty.write],
+        permissions: [GATTCharacteristicPermission.write],
+        descriptors: const [],
+      );
 
-        final relayPeripheral = fakePeripheralFromString(
-          '00000000-0000-0000-0000-00000000aaaa',
-        );
-        final nextHopPeripheral = fakePeripheralFromString(
-          '00000000-0000-0000-0000-00000000bbbb',
-        );
+      final relayPeripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000aaaa',
+      );
+      final nextHopPeripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000bbbb',
+      );
 
-        final relayConnection = BLEClientConnection(
-          address: relayPeripheral.uuid.toString(),
-          peripheral: relayPeripheral,
-          connectedAt: DateTime.now(),
-          messageCharacteristic: characteristic,
-          mtu: 200,
-        );
-        final nextHopConnection = BLEClientConnection(
-          address: nextHopPeripheral.uuid.toString(),
-          peripheral: nextHopPeripheral,
-          connectedAt: DateTime.now(),
-          messageCharacteristic: characteristic,
-          mtu: 64,
-        );
+      final relayConnection = BLEClientConnection(
+        address: relayPeripheral.uuid.toString(),
+        peripheral: relayPeripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 200,
+      );
+      final nextHopConnection = BLEClientConnection(
+        address: nextHopPeripheral.uuid.toString(),
+        peripheral: nextHopPeripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 64,
+      );
 
-        when(
-          connectionManager.clientConnections,
-        ).thenReturn([relayConnection, nextHopConnection]);
+      when(
+        connectionManager.clientConnections,
+      ).thenReturn([relayConnection, nextHopConnection]);
 
-        final connectedCentral = fakeCentralFromString(
-          '00000000-0000-0000-0000-00000000cccc',
-        );
-        final peripheralCharacteristic = GATTCharacteristic.mutable(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000d0d0'),
-          properties: [GATTCharacteristicProperty.notify],
-          permissions: [GATTCharacteristicPermission.read],
-          descriptors: const [],
-        );
+      final connectedCentral = fakeCentralFromString(
+        '00000000-0000-0000-0000-00000000cccc',
+      );
+      final peripheralCharacteristic = GATTCharacteristic.mutable(
+        uuid: UUID.fromString('00000000-0000-0000-0000-00000000d0d0'),
+        properties: [GATTCharacteristicProperty.notify],
+        permissions: [GATTCharacteristicPermission.read],
+        descriptors: const [],
+      );
 
-        final writes = <_WriteCall>[];
-        when(
-          centralManager.writeCharacteristic(
-            any,
-            any,
-            value: anyNamed('value'),
-            type: anyNamed('type'),
+      final writes = <_WriteCall>[];
+      when(
+        centralManager.writeCharacteristic(
+          any,
+          any,
+          value: anyNamed('value'),
+          type: anyNamed('type'),
+        ),
+      ).thenAnswer((invocation) async {
+        writes.add(
+          _WriteCall(
+            target: _Target.central,
+            deviceId: (invocation.positionalArguments[0] as Peripheral).uuid
+                .toString(),
+            value: invocation.namedArguments[#value] as Uint8List,
           ),
-        ).thenAnswer((invocation) async {
-          writes.add(
-            _WriteCall(
-              target: _Target.central,
-              deviceId: (invocation.positionalArguments[0] as Peripheral).uuid
-                  .toString(),
-              value: invocation.namedArguments[#value] as Uint8List,
-            ),
-          );
-        });
+        );
+      });
 
-        when(
-          peripheralManager.notifyCharacteristic(
-            any,
-            any,
-            value: anyNamed('value'),
+      when(
+        peripheralManager.notifyCharacteristic(
+          any,
+          any,
+          value: anyNamed('value'),
+        ),
+      ).thenAnswer((invocation) async {
+        writes.add(
+          _WriteCall(
+            target: _Target.peripheral,
+            deviceId: (invocation.positionalArguments[0] as Central).uuid
+                .toString(),
+            value: invocation.namedArguments[#value] as Uint8List,
           ),
-        ).thenAnswer((invocation) async {
-          writes.add(
-            _WriteCall(
-              target: _Target.peripheral,
-              deviceId: (invocation.positionalArguments[0] as Central).uuid
-                  .toString(),
-              value: invocation.namedArguments[#value] as Uint8List,
-            ),
-          );
-        });
-
-        final service = BLEMessagingService(
-          messageHandler: handler,
-          connectionManager: connectionManager,
-          stateManager: stateManager,
-          contactRepository: contactRepository,
-          getCentralManager: () => centralManager,
-          getPeripheralManager: () => peripheralManager,
-          getConnectedCentral: () => connectedCentral,
-          getPeripheralMessageCharacteristic: () => peripheralCharacteristic,
-          getPeripheralMtuReady: () => true,
-          getPeripheralNegotiatedMtu: () => 120,
         );
+      });
 
-        final payload = Uint8List.fromList(List.generate(140, (i) => i % 256));
-        handler.forwardPayload = ForwardReassembledPayload(
-          bytes: payload,
-          originalType: BinaryPayloadType.media,
-          recipient: 'node-c',
-          ttl: 2,
-        );
-        final upstreamFragments = BinaryFragmenter.fragment(
-          data: payload,
-          mtu: 90,
-          originalType: BinaryPayloadType.media,
-          recipient: 'node-c',
-          ttl: 2,
-        );
+      final service = BLEMessagingService(
+        messageHandler: handler,
+        connectionManager: connectionManager,
+        stateManager: stateManager,
+        contactRepository: contactRepository,
+        getCentralManager: () => centralManager,
+        getPeripheralManager: () => peripheralManager,
+        getConnectedCentral: () => connectedCentral,
+        getPeripheralMessageCharacteristic: () => peripheralCharacteristic,
+        getPeripheralMtuReady: () => true,
+        getPeripheralNegotiatedMtu: () => 120,
+      );
 
-        handler.forwardBinaryFragment?.call(
-          upstreamFragments.first,
-          'feedcafe',
-          0,
-          relayPeripheral.uuid.toString(),
-          'node-upstream',
-        );
+      final payload = Uint8List.fromList(List.generate(140, (i) => i % 256));
+      handler.forwardPayload = ForwardReassembledPayload(
+        bytes: payload,
+        originalType: BinaryPayloadType.media,
+        recipient: 'node-c',
+        ttl: 2,
+      );
+      final upstreamFragments = BinaryFragmenter.fragment(
+        data: payload,
+        mtu: 90,
+        originalType: BinaryPayloadType.media,
+        recipient: 'node-c',
+        ttl: 2,
+      );
 
-        // Allow the write queue to flush both central and peripheral sends.
-        await Future<void>.delayed(Duration(milliseconds: 150));
+      handler.forwardBinaryFragment?.call(
+        upstreamFragments.first,
+        'feedcafe',
+        0,
+        relayPeripheral.uuid.toString(),
+        'node-upstream',
+      );
 
-        final centralWrites = writes
-            .where((w) => w.target == _Target.central)
-            .toList();
-        expect(centralWrites, isNotEmpty);
-        expect(
-          centralWrites.every(
-            (w) => w.deviceId == nextHopConnection.peripheral.uuid.toString(),
-          ),
-          isTrue,
-        );
-        expect(
-          centralWrites.any(
-            (w) => w.deviceId == relayConnection.peripheral.uuid.toString(),
-          ),
-          isFalse,
-        );
+      // Allow the write queue to flush both central and peripheral sends.
+      await Future<void>.delayed(Duration(milliseconds: 150));
 
-        const ttlOffset = 1 + 8 + 2 + 2; // magic + id + idx + total
-        expect(
-          centralWrites.every((w) => w.value.length <= nextHopConnection.mtu!),
-          isTrue,
-        );
-        expect(centralWrites.first.value[ttlOffset], equals(1));
+      final centralWrites = writes
+          .where((w) => w.target == _Target.central)
+          .toList();
+      expect(centralWrites, isNotEmpty);
+      expect(
+        centralWrites.every(
+          (w) => w.deviceId == nextHopConnection.peripheral.uuid.toString(),
+        ),
+        isTrue,
+      );
+      expect(
+        centralWrites.any(
+          (w) => w.deviceId == relayConnection.peripheral.uuid.toString(),
+        ),
+        isFalse,
+      );
 
-        final peripheralWrites = writes
-            .where((w) => w.target == _Target.peripheral)
-            .toList();
-        expect(peripheralWrites, hasLength(1));
-        expect(peripheralWrites.first.value.length <= 120, isTrue);
-        expect(
-          peripheralWrites.first.value[ttlOffset],
-          equals(2), // Direct forwards preserve handler-adjusted TTL (no extra decrement)
-        );
+      const ttlOffset = 1 + 8 + 2 + 2; // magic + id + idx + total
+      expect(
+        centralWrites.every((w) => w.value.length <= nextHopConnection.mtu!),
+        isTrue,
+      );
+      expect(centralWrites.first.value[ttlOffset], equals(1));
 
-        // Keep analyzer happy about unused instance.
-        expect(service, isA<BLEMessagingService>());
-      },
-    );
+      final peripheralWrites = writes
+          .where((w) => w.target == _Target.peripheral)
+          .toList();
+      expect(peripheralWrites, hasLength(1));
+      expect(peripheralWrites.first.value.length <= 120, isTrue);
+      expect(
+        peripheralWrites.first.value[ttlOffset],
+        equals(
+          2,
+        ), // Direct forwards preserve handler-adjusted TTL (no extra decrement)
+      );
+
+      // Keep analyzer happy about unused instance.
+      expect(service, isA<BLEMessagingService>());
+    });
 
     test(
       're-fragments to the smallest downstream MTU and avoids writing back to relayer',
@@ -764,10 +805,13 @@ void main() {
       );
     }
 
-    relay_models.QueueSyncMessage buildSyncMessage() =>
+    relay_models.QueueSyncMessage buildSyncMessage({int messageCount = 1}) =>
         relay_models.QueueSyncMessage(
           queueHash: 'hash',
-          messageIds: const ['id-1'],
+          messageIds: List<String>.generate(
+            messageCount,
+            (index) => 'message-id-${index.toString().padLeft(4, '0')}',
+          ),
           syncTimestamp: DateTime.now(),
           nodeId: 'node-self',
           syncType: relay_models.QueueSyncType.request,
@@ -843,8 +887,7 @@ void main() {
         );
 
     test(
-      'unresolvable peer id falls back to the sole active link '
-      'instead of dropping the sync',
+      'unresolvable peer id never falls back to the sole active link',
       () async {
         final characteristic = writableCharacteristic(
           '00000000-0000-0000-0000-00000000e1e1',
@@ -867,18 +910,17 @@ void main() {
 
         expect(
           sent,
-          isTrue,
+          isFalse,
           reason:
-              'with exactly one link the global route is that peer; the '
-              'sync must not be dropped just because resolution failed',
+              'queue sync must fail closed instead of guessing that the sole '
+              'link is the requested peer',
         );
-        expect(writes, isNotEmpty);
+        expect(writes, isEmpty);
       },
     );
 
     test(
-      'peer id matching the active session identity resolves to the '
-      'connected device even with multiple links',
+      'session alias is not resolved through unrelated global BLE state',
       () async {
         final characteristic = writableCharacteristic(
           '00000000-0000-0000-0000-00000000e3e3',
@@ -887,14 +929,13 @@ void main() {
           '00000000-0000-0000-0000-00000000e4e4',
         );
         final address = peripheral.uuid.toString();
-        final connection = BLEClientConnection(
+        final aliasedConnection = BLEClientConnection(
           address: address,
           peripheral: peripheral,
           connectedAt: DateTime.now(),
           messageCharacteristic: characteristic,
           mtu: 200,
         );
-
         when(stateManager.currentSessionId).thenReturn('session-xyz');
         when(connectionManager.hasBleConnection).thenReturn(true);
         when(
@@ -903,48 +944,93 @@ void main() {
         when(connectionManager.connectedDevice).thenReturn(peripheral);
         when(connectionManager.clientConnectionCount).thenReturn(2);
         when(
-          connectionManager.clientConnectionForPeer(address),
-        ).thenReturn(connection);
-
+          connectionManager.clientConnectionForPeer('session-xyz'),
+        ).thenReturn(aliasedConnection);
         final service = buildService();
         final sent = await service.sendQueueSyncMessage(
           buildSyncMessage(),
           peerId: 'session-xyz',
         );
 
-        expect(sent, isTrue);
-        expect(writes, isNotEmpty);
-        expect(writes.every((w) => w.deviceId == address), isTrue);
-      },
-    );
-
-    test(
-      'unresolvable peer id with multiple links fails fast without '
-      'writing to the wrong peer',
-      () async {
-        final characteristic = writableCharacteristic(
-          '00000000-0000-0000-0000-00000000e5e5',
-        );
-        final peripheral = fakePeripheralFromString(
-          '00000000-0000-0000-0000-00000000e6e6',
-        );
-        when(connectionManager.hasBleConnection).thenReturn(true);
-        when(
-          connectionManager.messageCharacteristic,
-        ).thenReturn(characteristic);
-        when(connectionManager.connectedDevice).thenReturn(peripheral);
-        when(connectionManager.clientConnectionCount).thenReturn(2);
-
-        final service = buildService();
-        final sent = await service.sendQueueSyncMessage(
-          buildSyncMessage(),
-          peerId: 'unknown-node-id-flavor',
-        );
-
         expect(sent, isFalse);
         expect(writes, isEmpty);
       },
     );
+
+    test('large targeted client payload uses exact route and no global '
+        'recipient', () async {
+      final characteristic = writableCharacteristic(
+        '00000000-0000-0000-0000-00000000e4e5',
+      );
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000e4e6',
+      );
+      final address = peripheral.uuid.toString();
+      final targetConnection = BLEClientConnection(
+        address: address,
+        peripheral: peripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 80,
+      );
+
+      // Simulate another first/global client with a much larger MTU.
+      when(stateManager.getRecipientId()).thenReturn('unrelated-global-peer');
+      when(connectionManager.mtuSize).thenReturn(512);
+      when(connectionManager.clientConnectionCount).thenReturn(2);
+      when(
+        connectionManager.clientConnectionForPeer(address),
+      ).thenReturn(targetConnection);
+
+      final service = buildService();
+      final sent = await service.sendQueueSyncMessage(
+        buildSyncMessage(messageCount: 80),
+        peerId: address,
+      );
+
+      expect(sent, isTrue);
+      expect(writes.length, greaterThan(1));
+      expect(writes.every((write) => write.deviceId == address), isTrue);
+      expect(
+        writes.every((write) => write.value.length <= targetConnection.mtu!),
+        isTrue,
+        reason: 'every targeted write must respect the target client MTU',
+      );
+      final envelopes = writes
+          .map((write) => BinaryFragmentEnvelope.decode(write.value))
+          .toList(growable: false);
+      expect(envelopes, everyElement(isNotNull));
+      expect(
+        envelopes.every((envelope) => envelope!.recipient == null),
+        isTrue,
+        reason:
+            'an exact point-to-point protocol route must reassemble locally '
+            'instead of inheriting an unrelated global recipient',
+      );
+    });
+
+    test('unresolvable peer id with multiple links fails fast without '
+        'writing to the wrong peer', () async {
+      final characteristic = writableCharacteristic(
+        '00000000-0000-0000-0000-00000000e5e5',
+      );
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000e6e6',
+      );
+      when(connectionManager.hasBleConnection).thenReturn(true);
+      when(connectionManager.messageCharacteristic).thenReturn(characteristic);
+      when(connectionManager.connectedDevice).thenReturn(peripheral);
+      when(connectionManager.clientConnectionCount).thenReturn(2);
+
+      final service = buildService();
+      final sent = await service.sendQueueSyncMessage(
+        buildSyncMessage(),
+        peerId: 'unknown-node-id-flavor',
+      );
+
+      expect(sent, isFalse);
+      expect(writes, isEmpty);
+    });
 
     test('transport failure returns false instead of throwing', () async {
       final characteristic = writableCharacteristic(
@@ -953,10 +1039,21 @@ void main() {
       final peripheral = fakePeripheralFromString(
         '00000000-0000-0000-0000-00000000e8e8',
       );
+      final address = peripheral.uuid.toString();
+      final connection = BLEClientConnection(
+        address: address,
+        peripheral: peripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 128,
+      );
       when(connectionManager.hasBleConnection).thenReturn(true);
       when(connectionManager.messageCharacteristic).thenReturn(characteristic);
       when(connectionManager.connectedDevice).thenReturn(peripheral);
       when(connectionManager.clientConnectionCount).thenReturn(1);
+      when(
+        connectionManager.clientConnectionForPeer(address),
+      ).thenReturn(connection);
       when(
         centralManager.writeCharacteristic(
           any,
@@ -967,7 +1064,10 @@ void main() {
       ).thenThrow(Exception('GATT write failed'));
 
       final service = buildService();
-      final sent = await service.sendQueueSyncMessage(buildSyncMessage());
+      final sent = await service.sendQueueSyncMessage(
+        buildSyncMessage(),
+        peerId: address,
+      );
 
       expect(
         sent,
@@ -978,18 +1078,95 @@ void main() {
       );
     });
 
+    test('route lost after preflight returns false instead of reporting the '
+        'queued sync as sent', () async {
+      final characteristic = writableCharacteristic(
+        '00000000-0000-0000-0000-00000000e8e9',
+      );
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000e8ea',
+      );
+      final address = peripheral.uuid.toString();
+      final connection = BLEClientConnection(
+        address: address,
+        peripheral: peripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 128,
+      );
+
+      when(connectionManager.clientConnectionCount).thenReturn(2);
+      when(
+        connectionManager.clientConnectionForPeer(address),
+      ).thenReturnInOrder([
+        connection, // sendQueueSyncMessage preflight
+        null, // serialized write executes after the route disappears
+      ]);
+
+      final service = buildService();
+      final sent = await service.sendQueueSyncMessage(
+        buildSyncMessage(),
+        peerId: address,
+      );
+
+      expect(sent, isFalse);
+      expect(writes, isEmpty);
+    });
+
+    test('targeted server route is used even when the legacy global link '
+        'checks see no connection', () async {
+      final notifyCharacteristic = GATTCharacteristic.mutable(
+        uuid: UUID.fromString('00000000-0000-0000-0000-00000000e9e9'),
+        properties: [GATTCharacteristicProperty.notify],
+        permissions: [GATTCharacteristicPermission.read],
+        descriptors: const [],
+      );
+      final central = fakeCentralFromString(
+        '00000000-0000-0000-0000-00000000eaea',
+      );
+      final address = central.uuid.toString();
+      final serverConnection = BLEServerConnection(
+        address: address,
+        central: central,
+        connectedAt: DateTime.now(),
+        subscribedCharacteristic: notifyCharacteristic,
+      );
+
+      // Legacy global checks all say "no link": not in peripheral mode,
+      // no client connection. Only the peer-targeted server route exists.
+      when(connectionManager.serverConnectionCount).thenReturn(1);
+      when(
+        connectionManager.serverConnectionForPeer(address),
+      ).thenReturn(serverConnection);
+
+      final service = buildService();
+      final sent = await service
+          .sendQueueSyncMessage(buildSyncMessage(), peerId: address)
+          .timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => fail(
+              'sendQueueSyncMessage hung: the write queue dropped the '
+              'targeted write and its completer never completed',
+            ),
+          );
+
+      expect(sent, isTrue);
+      expect(writes, hasLength(1));
+      expect(writes.single.target, _Target.peripheral);
+      expect(writes.single.deviceId, address);
+    });
+
     test(
-      'targeted server route is used even when the legacy global link '
-      'checks see no connection',
+      'peer-targeted server fragmentation respects the target server MTU',
       () async {
         final notifyCharacteristic = GATTCharacteristic.mutable(
-          uuid: UUID.fromString('00000000-0000-0000-0000-00000000e9e9'),
+          uuid: UUID.fromString('00000000-0000-0000-0000-00000000ebeb'),
           properties: [GATTCharacteristicProperty.notify],
           permissions: [GATTCharacteristicPermission.read],
           descriptors: const [],
         );
         final central = fakeCentralFromString(
-          '00000000-0000-0000-0000-00000000eaea',
+          '00000000-0000-0000-0000-00000000ecec',
         );
         final address = central.uuid.toString();
         final serverConnection = BLEServerConnection(
@@ -997,30 +1174,33 @@ void main() {
           central: central,
           connectedAt: DateTime.now(),
           subscribedCharacteristic: notifyCharacteristic,
+          mtu: 80,
         );
 
-        // Legacy global checks all say "no link": not in peripheral mode,
-        // no client connection. Only the peer-targeted server route exists.
+        when(connectionManager.mtuSize).thenReturn(512);
         when(connectionManager.serverConnectionCount).thenReturn(1);
         when(
           connectionManager.serverConnectionForPeer(address),
         ).thenReturn(serverConnection);
 
         final service = buildService();
-        final sent = await service
-            .sendQueueSyncMessage(buildSyncMessage(), peerId: address)
-            .timeout(
-              const Duration(seconds: 3),
-              onTimeout: () => fail(
-                'sendQueueSyncMessage hung: the write queue dropped the '
-                'targeted write and its completer never completed',
-              ),
-            );
+        final sent = await service.sendQueueSyncMessage(
+          buildSyncMessage(messageCount: 80),
+          peerId: address,
+        );
 
         expect(sent, isTrue);
-        expect(writes, hasLength(1));
-        expect(writes.single.target, _Target.peripheral);
-        expect(writes.single.deviceId, address);
+        expect(writes, isNotEmpty);
+        expect(
+          writes.every((write) => write.target == _Target.peripheral),
+          isTrue,
+        );
+        expect(writes.every((write) => write.deviceId == address), isTrue);
+        expect(
+          writes.every((write) => write.value.length <= serverConnection.mtu!),
+          isTrue,
+          reason: 'every targeted notification must respect the server MTU',
+        );
       },
     );
   });
@@ -1062,6 +1242,21 @@ class _ForwardingHarnessHandler extends Mock
   forwardBinaryFragment;
 
   ForwardReassembledPayload? forwardPayload;
+  String? nextProcessResult;
+  Object? nextProcessError;
+
+  @override
+  Future<String?> processReceivedData({
+    required Uint8List data,
+    required String fromDeviceId,
+    required String fromNodeId,
+  }) async {
+    final error = nextProcessError;
+    if (error != null) {
+      throw error;
+    }
+    return nextProcessResult;
+  }
 
   @override
   set onForwardBinaryFragment(

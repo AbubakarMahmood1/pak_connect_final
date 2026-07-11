@@ -72,6 +72,8 @@ abstract class IBLEMessagingService {
   ///
   /// Args:
   ///   queueMessage - Queue sync message with routing info
+  ///   peerId - Exact concrete BLE device address. Identity aliases and null
+  ///   are rejected so a sync cannot be delivered on an ambiguous link.
   /// Returns false when no usable route exists or the handshake is not complete.
   Future<bool> sendQueueSyncMessage(
     QueueSyncMessage queueMessage, {
@@ -178,8 +180,10 @@ abstract class IBLEMessagingService {
   /// Called by MeshNetworkingService to intercept and process relay messages
   ///
   /// Args:
-  ///   handler - Callback that returns true if message was handled by mesh layer
+  ///   handler - Callback that receives the exact BLE sender address and
+  ///   returns true if the message was handled by the mesh layer.
   void registerQueueSyncMessageHandler(
-    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+    Future<bool> Function(QueueSyncMessage message, String fromDeviceAddress)
+    handler,
   );
 }

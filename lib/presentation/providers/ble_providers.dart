@@ -7,6 +7,7 @@ import 'package:pak_connect/presentation/providers/app_permission_providers.dart
 import 'dart:async';
 import '../../domain/models/connection_info.dart';
 import '../../domain/models/spy_mode_info.dart';
+import '../../domain/models/identity_reveal_info.dart';
 import '../../domain/services/burst_scanning_controller.dart';
 import '../../domain/services/adaptive_power_manager.dart';
 import '../../domain/entities/enhanced_contact.dart';
@@ -24,7 +25,7 @@ import '../../domain/models/ble_server_connection.dart';
 import 'ble_provider_models.dart';
 import 'mesh_networking_provider.dart';
 import 'runtime_providers.dart';
-import '../../domain/utils/string_extensions.dart';
+import 'contact_provider.dart';
 
 export 'ble_provider_models.dart';
 
@@ -40,7 +41,7 @@ class BleRuntimeState {
   final List<Peripheral> discoveredDevices;
   final Map<String, DiscoveredEventArgs> discoveryData;
   final SpyModeInfo? lastSpyModeEvent;
-  final String? lastIdentityReveal;
+  final IdentityRevealInfo? lastIdentityReveal;
   final BluetoothStateInfo? bluetoothState;
   final BluetoothStatusMessage? bluetoothMessage;
   final bool isBluetoothReady;
@@ -74,7 +75,7 @@ class BleRuntimeState {
     List<Peripheral>? discoveredDevices,
     Map<String, DiscoveredEventArgs>? discoveryData,
     SpyModeInfo? lastSpyModeEvent,
-    String? lastIdentityReveal,
+    IdentityRevealInfo? lastIdentityReveal,
     BluetoothStateInfo? bluetoothState,
     BluetoothStatusMessage? bluetoothMessage,
     bool? isBluetoothReady,
@@ -154,16 +155,16 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
       });
     });
 
-    ref.listen<AsyncValue<String>>(bleIdentityRevealedStreamProvider, (
-      previous,
-      next,
-    ) {
-      next.whenData((value) {
-        final current = state.asData?.value;
-        if (current == null) return;
-        state = AsyncValue.data(current.copyWith(lastIdentityReveal: value));
-      });
-    });
+    ref.listen<AsyncValue<IdentityRevealInfo>>(
+      bleVerifiedIdentityRevealedStreamProvider,
+      (previous, next) {
+        next.whenData((value) {
+          final current = state.asData?.value;
+          if (current == null) return;
+          state = AsyncValue.data(current.copyWith(lastIdentityReveal: value));
+        });
+      },
+    );
 
     ref.listen<AsyncValue<BluetoothStateInfo>>(
       bleBluetoothStateStreamProvider,
@@ -191,14 +192,14 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
     );
 
     // Identity revealed (post-handshake) → propagate to dedup so UI shows name
-    ref.listen<AsyncValue<String>>(bleIdentityRevealedStreamProvider, (
-      previous,
-      next,
-    ) {
-      next.whenData((_) {
-        unawaited(_propagateIdentityResolution());
-      });
-    });
+    ref.listen<AsyncValue<IdentityRevealInfo>>(
+      bleVerifiedIdentityRevealedStreamProvider,
+      (previous, next) {
+        next.whenData((reveal) {
+          unawaited(_propagateIdentityResolution(reveal));
+        });
+      },
+    );
   }
 
   Future<void> _awaitInitialization(IConnectionService service) async {
@@ -214,17 +215,13 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
     }
   }
 
-  Future<void> _propagateIdentityResolution() async {
+  Future<void> _propagateIdentityResolution(IdentityRevealInfo reveal) async {
     try {
       final connectionService = ref.read(connectionServiceProvider);
       final device = connectionService.connectedDevice;
       if (device == null) return;
 
-      final persistentKey =
-          connectionService.theirPersistentPublicKey ??
-          connectionService.theirPersistentKey ??
-          connectionService.currentSessionId;
-      if (persistentKey == null || persistentKey.isEmpty) return;
+      final persistentKey = reveal.persistentPublicKey;
 
       final contactRepo =
           maybeResolveFromAppServicesOrServiceLocator<IContactRepository>(
@@ -233,10 +230,7 @@ class BleRuntimeNotifier extends AsyncNotifier<BleRuntimeState> {
       if (contactRepo == null) return;
       final contact = await contactRepo.getContactByAnyId(persistentKey);
 
-      final displayName =
-          contact?.displayName ??
-          connectionService.otherUserName ??
-          'User ${persistentKey.shortId(8)}';
+      final displayName = contact?.displayName ?? reveal.contactName;
 
       final enhanced = EnhancedContact(
         contact:
@@ -317,6 +311,27 @@ final bleIdentityRevealedStreamProvider = StreamProvider<String>((ref) {
   final service = ref.watch(connectionServiceProvider);
   return service.identityRevealed;
 });
+
+/// Converts the low-level verified persistent-key event into a stable UI event
+/// while the contact binding is still available. This snapshot remains safe to
+/// use after the BLE link disconnects.
+final bleVerifiedIdentityRevealedStreamProvider =
+    StreamProvider<IdentityRevealInfo>((ref) {
+      final repository = ref.watch(contactRepositoryProvider);
+      final rawStream = ref.watch(connectionServiceProvider).identityRevealed;
+      return rawStream.asyncMap((verifiedPersistentKey) async {
+        final contact = await repository.getContactByAnyId(
+          verifiedPersistentKey,
+        );
+        if (contact == null) {
+          throw StateError('Verified identity reveal has no contact binding');
+        }
+        return IdentityRevealInfo.fromVerifiedContact(
+          verifiedPersistentPublicKey: verifiedPersistentKey,
+          contact: contact,
+        );
+      });
+    });
 
 final bleBluetoothStateStreamProvider = StreamProvider<BluetoothStateInfo>((
   ref,
@@ -604,21 +619,20 @@ final spyModeDetectedProvider = Provider.autoDispose<AsyncValue<SpyModeInfo>>((
       );
 });
 
-final identityRevealedProvider = Provider.autoDispose<AsyncValue<String>>((
-  ref,
-) {
-  return ref
-      .watch(bleRuntimeProvider)
-      .when(
-        data: (state) {
-          final identity = state.lastIdentityReveal;
-          if (identity != null) return AsyncValue.data(identity);
-          return const AsyncValue.loading();
-        },
-        loading: () => const AsyncValue.loading(),
-        error: (error, stack) => AsyncValue.error(error, stack),
-      );
-});
+final identityRevealedProvider =
+    Provider.autoDispose<AsyncValue<IdentityRevealInfo>>((ref) {
+      return ref
+          .watch(bleRuntimeProvider)
+          .when(
+            data: (state) {
+              final identity = state.lastIdentityReveal;
+              if (identity != null) return AsyncValue.data(identity);
+              return const AsyncValue.loading();
+            },
+            loading: () => const AsyncValue.loading(),
+            error: (error, stack) => AsyncValue.error(error, stack),
+          );
+    });
 
 final chatsRepositoryProvider = Provider<IChatsRepository>((ref) {
   return resolveFromAppServicesOrServiceLocator<IChatsRepository>(

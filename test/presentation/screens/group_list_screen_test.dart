@@ -12,17 +12,17 @@ void main() {
     testWidgets('shows loading and empty states', (tester) async {
       final completer = Completer<List<ContactGroup>>();
 
-      await _pumpGroupScreen(
-        tester,
-        groupsLoader: () => completer.future,
-      );
+      await _pumpGroupScreen(tester, groupsLoader: () => completer.future);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       completer.complete(<ContactGroup>[]);
       await tester.pumpAndSettle();
 
-      expect(find.text('No groups yet'), findsOneWidget);
-      expect(find.text('Create a group to get started'), findsOneWidget);
+      expect(find.text('No broadcast lists yet'), findsOneWidget);
+      expect(
+        find.text('Create a list to message several contacts separately'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows error state with retry action', (tester) async {
@@ -32,7 +32,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Error loading groups:'), findsOneWidget);
+      expect(
+        find.textContaining('Error loading broadcast lists:'),
+        findsOneWidget,
+      );
       expect(find.widgetWithText(ElevatedButton, 'Retry'), findsOneWidget);
     });
 
@@ -60,7 +63,7 @@ void main() {
 
       expect(find.text('Family'), findsOneWidget);
       expect(find.text('Private family group'), findsOneWidget);
-      expect(find.text('3 members'), findsOneWidget);
+      expect(find.text('3 recipients'), findsOneWidget);
 
       await tester.tap(find.byType(PopupMenuButton<String>).first);
       await tester.pumpAndSettle();
@@ -84,7 +87,9 @@ void main() {
       expect(observer.pushedRouteNames, contains('/create-group'));
     });
 
-    testWidgets('deletes group successfully and shows snackbar', (tester) async {
+    testWidgets('deletes group successfully and shows snackbar', (
+      tester,
+    ) async {
       final deleted = <String>[];
       final groups = <ContactGroup>[
         ContactGroup(
@@ -112,7 +117,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(deleted, <String>['grp-2']);
-      expect(find.text('Group deleted'), findsOneWidget);
+      expect(find.text('Broadcast list deleted'), findsOneWidget);
     });
 
     testWidgets('shows failure snackbar when delete throws', (tester) async {
@@ -141,7 +146,10 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, 'Delete'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Failed to delete group:'), findsOneWidget);
+      expect(
+        find.textContaining('Failed to delete broadcast list:'),
+        findsOneWidget,
+      );
     });
   });
 }

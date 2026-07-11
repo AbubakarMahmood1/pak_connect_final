@@ -690,6 +690,7 @@ class ChatScreenController extends ChangeNotifier {
     disposed: () => _disposed,
     onSuccessMessage: _showSuccess,
     onErrorMessage: _showError,
+    expectedPeerId: _contactPublicKey ?? _chatId.value,
   );
 
   Future<void> _loadMessages() async {

@@ -1,4 +1,4 @@
-// Screen to list all contact groups
+// Screen to list local broadcast lists.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,7 +14,7 @@ class GroupListScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Groups'),
+        title: const Text('Broadcast Lists'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -33,14 +33,14 @@ class GroupListScreen extends ConsumerWidget {
                   Icon(Icons.group_outlined, size: 64, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
-                    'No groups yet',
+                    'No broadcast lists yet',
                     style: Theme.of(
                       context,
                     ).textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Create a group to get started',
+                    'Create a list to message several contacts separately',
                     style: Theme.of(
                       context,
                     ).textTheme.bodyMedium?.copyWith(color: Colors.grey[500]),
@@ -65,7 +65,7 @@ class GroupListScreen extends ConsumerWidget {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.red),
               const SizedBox(height: 16),
-              Text('Error loading groups: $error'),
+              Text('Error loading broadcast lists: $error'),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () => ref.refresh(allGroupsProvider),
@@ -80,7 +80,7 @@ class GroupListScreen extends ConsumerWidget {
           // Navigate to create group screen
           Navigator.pushNamed(context, '/create-group');
         },
-        tooltip: 'Create Group',
+        tooltip: 'Create Broadcast List',
         child: const Icon(Icons.add),
       ),
     );
@@ -119,7 +119,7 @@ class _GroupListTile extends ConsumerWidget {
               ),
             const SizedBox(height: 4),
             Text(
-              '${group.memberCount} member${group.memberCount != 1 ? 's' : ''}',
+              '${group.memberCount} recipient${group.memberCount != 1 ? 's' : ''}',
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
@@ -140,7 +140,7 @@ class _GroupListTile extends ConsumerWidget {
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text('Delete Group'),
+                    title: const Text('Delete Broadcast List'),
                     content: Text(
                       'Are you sure you want to delete "${group.name}"?',
                     ),
@@ -166,13 +166,15 @@ class _GroupListTile extends ConsumerWidget {
                     await deleteGroup(group.id);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Group deleted')),
+                        const SnackBar(content: Text('Broadcast list deleted')),
                       );
                     }
                   } catch (e) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Failed to delete group: $e')),
+                        SnackBar(
+                          content: Text('Failed to delete broadcast list: $e'),
+                        ),
                       );
                     }
                   }
@@ -204,7 +206,7 @@ class _GroupListTile extends ConsumerWidget {
           ],
         ),
         onTap: () {
-          // Navigate to group chat screen
+          // Open the sender-side broadcast history.
           Navigator.pushNamed(context, '/group-chat', arguments: group.id);
         },
       ),

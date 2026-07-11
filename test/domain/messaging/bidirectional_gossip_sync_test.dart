@@ -12,6 +12,22 @@ import '../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 /// - GossipSyncManager sends excess queued messages via callback (Gap 2 fix)
 /// - QueueSyncManager reverse-sends excess after processSyncResponse (Gap 3 fix)
 /// - Two managers with different message sets converge in one sync round
+Future<({QueueSyncMessage request, Future<QueueSyncResult> completion})>
+_beginPendingRound(
+  QueueSyncManager manager,
+  String target, {
+  void Function(List<QueuedMessage>, String)? onSendMessages,
+}) async {
+  late QueueSyncMessage request;
+  await manager.initialize(
+    onSyncRequest: (message, _) => request = message,
+    onSendMessages: onSendMessages,
+  );
+  final completion = manager.initiateSync(target);
+  await Future<void>.delayed(Duration.zero);
+  return (request: request, completion: completion);
+}
+
 void main() {
   group('Phase 1: Bidirectional Gossip Sync', () {
     final List<LogRecord> logRecords = [];
@@ -163,10 +179,7 @@ void main() {
 
       setUp(() async {
         queue = _TestQueue();
-        syncManager = QueueSyncManager(
-          messageQueue: queue,
-          nodeId: 'node_A',
-        );
+        syncManager = QueueSyncManager(messageQueue: queue, nodeId: 'node_A');
       });
 
       tearDown(() => syncManager.dispose());
@@ -177,27 +190,31 @@ void main() {
         queue.addMessage(msgA);
 
         final sentBatches = <(List<QueuedMessage>, String)>[];
-        await syncManager.initialize(
+        final round = await _beginPendingRound(
+          syncManager,
+          'node_B',
           onSendMessages: (messages, toNodeId) {
             sentBatches.add((List.of(messages), toNodeId));
           },
         );
 
         // Peer B's response includes msg_B in its message list
-        final responseMessage = QueueSyncMessage.createRequest(
-          messageIds: ['msg_B'],
+        final responseMessage = QueueSyncMessage(
+          messageIds: const ['msg_B'],
           nodeId: 'node_B',
           queueHash: 'peer_hash',
+          syncTimestamp: DateTime(2024),
+          syncType: QueueSyncType.response,
+          syncId: round.request.syncId,
         );
 
         final receivedMsgB = _makeQueuedMessage('msg_B', 'chat_1');
 
         // Act
-        await syncManager.processSyncResponse(
-          responseMessage,
-          [receivedMsgB],
-          'node_B',
-        );
+        await syncManager.processSyncResponse(responseMessage, [
+          receivedMsgB,
+        ], 'node_B');
+        await round.completion;
 
         // Assert: node A should have reverse-sent msg_A to node B
         expect(sentBatches, hasLength(1));
@@ -211,24 +228,26 @@ void main() {
         queue.addMessage(msg);
 
         final sentBatches = <(List<QueuedMessage>, String)>[];
-        await syncManager.initialize(
+        final round = await _beginPendingRound(
+          syncManager,
+          'node_B',
           onSendMessages: (messages, toNodeId) {
             sentBatches.add((messages, toNodeId));
           },
         );
 
         // Peer's response already lists msg_shared → no excess
-        final responseMessage = QueueSyncMessage.createRequest(
-          messageIds: ['msg_shared'],
+        final responseMessage = QueueSyncMessage(
+          messageIds: const ['msg_shared'],
           nodeId: 'node_B',
           queueHash: 'peer_hash',
+          syncTimestamp: DateTime(2024),
+          syncType: QueueSyncType.response,
+          syncId: round.request.syncId,
         );
 
-        await syncManager.processSyncResponse(
-          responseMessage,
-          [],
-          'node_B',
-        );
+        await syncManager.processSyncResponse(responseMessage, [], 'node_B');
+        await round.completion;
 
         expect(sentBatches, isEmpty);
       });
@@ -290,7 +309,9 @@ void main() {
           );
 
           // Wire callbacks: messages sent by A go to B's queue and vice versa
-          await managerA.initialize(
+          final round = await _beginPendingRound(
+            managerA,
+            'node_B',
             onSendMessages: (messages, toNodeId) {
               for (final m in messages) {
                 queueB.addMessage(m);
@@ -307,7 +328,7 @@ void main() {
           );
 
           // Step 1: Node A sends sync request to Node B
-          final syncRequestFromA = queueA.createSyncMessage('node_A');
+          final syncRequestFromA = round.request;
 
           // Step 2: Node B handles A's request (sends B's excess to A)
           final responseFromB = await managerB.handleSyncRequest(
@@ -324,6 +345,7 @@ void main() {
               'node_B',
             );
           }
+          await round.completion;
 
           // Assert: both queues should now have all 4 messages
           final aIds = queueA.allMessageIds..sort();
@@ -350,7 +372,9 @@ void main() {
 
           queueA.addMessage(shared);
           queueA.addMessage(msgA);
-          queueB.addMessage(_makeQueuedMessage('msg_shared', 'chat')); // same id
+          queueB.addMessage(
+            _makeQueuedMessage('msg_shared', 'chat'),
+          ); // same id
           queueB.addMessage(msgB);
 
           final managerA = QueueSyncManager(
@@ -362,7 +386,9 @@ void main() {
             nodeId: 'node_B',
           );
 
-          await managerA.initialize(
+          final round = await _beginPendingRound(
+            managerA,
+            'node_B',
             onSendMessages: (messages, toNodeId) {
               for (final m in messages) {
                 queueB.addMessage(m);
@@ -379,7 +405,7 @@ void main() {
           );
 
           // Sync round
-          final syncRequest = queueA.createSyncMessage('node_A');
+          final syncRequest = round.request;
           final response = await managerB.handleSyncRequest(
             syncRequest,
             'node_A',
@@ -393,6 +419,7 @@ void main() {
               'node_B',
             );
           }
+          await round.completion;
 
           // Both should have exactly 3 unique messages
           final aIds = queueA.allMessageIds..sort();
@@ -419,7 +446,9 @@ void main() {
           nodeId: 'node_B',
         );
 
-        await managerB.initialize(
+        final round = await _beginPendingRound(
+          managerB,
+          'node_A',
           onSendMessages: (messages, toNodeId) {
             for (final m in messages) {
               queueA.addMessage(m);
@@ -429,17 +458,17 @@ void main() {
 
         // B receives A's excess (msg_1)
         final received = [_makeQueuedMessage('msg_1', 'chat')];
-        final responseMessage = QueueSyncMessage.createRequest(
-          messageIds: ['msg_1'],
+        final responseMessage = QueueSyncMessage(
+          messageIds: const ['msg_1'],
           nodeId: 'node_A',
           queueHash: 'a_hash',
+          syncTimestamp: DateTime(2024),
+          syncType: QueueSyncType.response,
+          syncId: round.request.syncId,
         );
 
-        await managerB.processSyncResponse(
-          responseMessage,
-          received,
-          'node_A',
-        );
+        await managerB.processSyncResponse(responseMessage, received, 'node_A');
+        await round.completion;
 
         // msg_1 should NOT appear in B's queue (deletion is final)
         expect(queueB.allMessageIds, isEmpty);
@@ -503,9 +532,7 @@ class _TestQueue extends InMemoryOfflineMessageQueue {
   @override
   List<QueuedMessage> getExcessMessages(List<String> otherMessageIds) {
     final other = otherMessageIds.toSet();
-    return _directMessages.values
-        .where((m) => !other.contains(m.id))
-        .toList();
+    return _directMessages.values.where((m) => !other.contains(m.id)).toList();
   }
 
   @override
@@ -521,9 +548,7 @@ class _TestQueue extends InMemoryOfflineMessageQueue {
 
   @override
   List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) {
-    return _directMessages.values
-        .where((m) => m.status == status)
-        .toList();
+    return _directMessages.values.where((m) => m.status == status).toList();
   }
 
   @override

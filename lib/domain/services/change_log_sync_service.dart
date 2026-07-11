@@ -1,10 +1,8 @@
-// Live peer-to-peer change_log exchange service (Phase 2).
+// Dormant prototype for a future peer-to-peer change_log exchange.
 //
-// Bridges the gap between the change_log table (which only served
-// file-based export/import) and live BLE gossip sync. During each
-// sync round, peers exchange change_log entries since their last
-// sync cursor so that contacts, chats, and message status changes
-// propagate across the mesh.
+// This is deliberately not composed into the production gossip/BLE runtime.
+// Change_log rows contain change metadata, not the affected row payload, and
+// there is no authenticated row transport or convergence protocol yet.
 //
 // This service is callback-driven — actual DB and BLE operations are
 // injected so it stays in the domain layer.
@@ -19,13 +17,18 @@ const Map<String, String> pkColumnByTable = {
   'messages': 'id',
 };
 
+/// Prototype cursor/replay mechanics for a future authenticated transport.
+///
+/// Production currently uses `change_log` only for local capture,
+/// export/import and pruning. Callers must not treat this class as a live
+/// PakConnect capability.
 class ChangeLogSyncService {
   static final _logger = Logger('ChangeLogSyncService');
 
-  /// Maximum entries to exchange per sync round (prevents BLE overload).
+  /// Maximum entries in a future prototype round.
   static const int maxEntriesPerSync = 500;
 
-  /// Default age limit for first-sync (no cursor): last 30 days.
+  /// Default age limit for a prototype first round with no cursor.
   static const Duration firstSyncWindow = Duration(days: 30);
 
   // ─── Callbacks (wired by the coordinator / runtime helper) ───────
@@ -33,28 +36,28 @@ class ChangeLogSyncService {
   /// Query local change_log for entries with id > cursor.
   /// Returns entries ordered by id ASC, capped at [maxEntriesPerSync].
   Future<List<ChangeLogEntry>> Function(int sinceCursorId)?
-      onQueryChangeLogSince;
+  onQueryChangeLogSince;
 
   /// Query local change_log for entries changed after [sinceMillis].
   /// Used for first-sync when no cursor exists.
   Future<List<ChangeLogEntry>> Function(int sinceMillis)?
-      onQueryChangeLogSinceTime;
+  onQueryChangeLogSinceTime;
 
   /// Replay a list of received change_log entries against the local DB.
   /// Handles INSERT/UPDATE → upsert, DELETE → delete.
   Future<ChangeLogReplayResult> Function(List<ChangeLogEntry> entries)?
-      onReplayChangeLogEntries;
+  onReplayChangeLogEntries;
 
   /// Get the last synced change_log ID for a specific peer.
   Future<int?> Function(String peerId)? onGetLastSyncedCursorForPeer;
 
   /// Update the last synced change_log ID for a specific peer.
   Future<void> Function(String peerId, int cursorId)?
-      onSetLastSyncedCursorForPeer;
+  onSetLastSyncedCursorForPeer;
 
-  /// Send change_log entries to a peer over BLE.
+  /// Send change_log entries through a future authenticated row transport.
   Future<void> Function(String peerId, List<ChangeLogEntry> entries)?
-      onSendChangeLogToPeer;
+  onSendChangeLogToPeer;
 
   // ─── Core sync logic ─────────────────────────────────────────────
 
@@ -74,8 +77,9 @@ class ChangeLogSyncService {
     }
 
     // First sync: exchange entries from the last 30 days
-    final sinceMillis =
-        DateTime.now().subtract(firstSyncWindow).millisecondsSinceEpoch;
+    final sinceMillis = DateTime.now()
+        .subtract(firstSyncWindow)
+        .millisecondsSinceEpoch;
     final entries = await onQueryChangeLogSinceTime?.call(sinceMillis) ?? [];
     _logger.info(
       '🔄 First sync with ${peerId.shortId(8)}...: ${entries.length} change_log entries (last ${firstSyncWindow.inDays} days)',
@@ -98,15 +102,31 @@ class ChangeLogSyncService {
       '📥 Processing ${entries.length} change_log entries from ${fromPeerId.shortId(8)}...',
     );
 
-    // Replay entries against local DB
-    final result =
-        await onReplayChangeLogEntries?.call(entries) ??
-        const ChangeLogReplayResult.empty();
+    final replay = onReplayChangeLogEntries;
+    final setCursor = onSetLastSyncedCursorForPeer;
+    if (replay == null || setCursor == null) {
+      throw StateError(
+        'Change_log replay is not configured with an applying replay and '
+        'cursor store',
+      );
+    }
 
-    // Update cursor to the highest received entry ID
-    final maxId = entries.fold<int>(0, (max, e) => e.id > max ? e.id : max);
-    if (maxId > 0) {
-      await onSetLastSyncedCursorForPeer?.call(fromPeerId, maxId);
+    // A replay callback must report actual row mutations/skips, not merely
+    // awareness that a remote row changed.
+    final result = await replay(entries);
+
+    final accounted = result.totalApplied + result.skipped;
+    if (result.errors == 0 && accounted == entries.length) {
+      final maxId = entries.fold<int>(0, (max, e) => e.id > max ? e.id : max);
+      if (maxId > 0) {
+        await setCursor(fromPeerId, maxId);
+      }
+    } else {
+      _logger.warning(
+        '⚠️ Change_log cursor not advanced for ${fromPeerId.shortId(8)}...: '
+        '$accounted/${entries.length} entries accounted, '
+        '${result.errors} errors',
+      );
     }
 
     _logger.info(
@@ -118,10 +138,19 @@ class ChangeLogSyncService {
     return result;
   }
 
-  /// Perform a full change_log exchange with a peer.
+  /// Perform a prototype change_log exchange with a peer.
   ///
-  /// Call this after the hash-based message sync completes.
+  /// This is not called by production gossip while row transport is absent.
   Future<void> exchangeWithPeer(String peerId) async {
+    final send = onSendChangeLogToPeer;
+    if (send == null) {
+      _logger.fine(
+        '⏭️ Change_log exchange with ${peerId.shortId(8)}... disabled '
+        '(no authenticated row transport configured)',
+      );
+      return;
+    }
+
     try {
       // Get our entries for this peer
       final outgoing = await getEntriesForPeer(peerId);
@@ -131,7 +160,7 @@ class ChangeLogSyncService {
         _logger.info(
           '📤 Sending ${outgoing.length} change_log entries to ${peerId.shortId(8)}...',
         );
-        await onSendChangeLogToPeer?.call(peerId, outgoing);
+        await send(peerId, outgoing);
       }
     } catch (e) {
       _logger.warning(
@@ -148,6 +177,7 @@ class ChangeLogReplayResult {
   final int deletesApplied;
   final int skipped;
   final int errors;
+
   /// Phase 3: Count of LWW conflicts detected (remote was newer).
   final int conflicts;
 
@@ -161,21 +191,21 @@ class ChangeLogReplayResult {
   });
 
   const ChangeLogReplayResult.empty()
-      : insertsApplied = 0,
-        updatesApplied = 0,
-        deletesApplied = 0,
-        skipped = 0,
-        errors = 0,
-        conflicts = 0;
+    : insertsApplied = 0,
+      updatesApplied = 0,
+      deletesApplied = 0,
+      skipped = 0,
+      errors = 0,
+      conflicts = 0;
 
   int get totalApplied => insertsApplied + updatesApplied + deletesApplied;
 
   Map<String, dynamic> toJson() => {
-        'insertsApplied': insertsApplied,
-        'updatesApplied': updatesApplied,
-        'deletesApplied': deletesApplied,
-        'skipped': skipped,
-        'errors': errors,
-        'conflicts': conflicts,
-      };
+    'insertsApplied': insertsApplied,
+    'updatesApplied': updatesApplied,
+    'deletesApplied': deletesApplied,
+    'skipped': skipped,
+    'errors': errors,
+    'conflicts': conflicts,
+  };
 }

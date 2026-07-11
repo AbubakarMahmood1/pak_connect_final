@@ -27,7 +27,14 @@ abstract class IBLEHandshakeService {
   /// Throws:
   ///   StateError if not connected or connection manager unavailable
   ///   HandshakeException if any phase fails
-  Future<void> performHandshake({bool? startAsInitiatorOverride});
+  /// Starts a handshake and returns false when another coordinator already
+  /// owns the session. [onStartAccepted] runs after the new coordinator is
+  /// created but before buffered messages or the first wire frame are handled;
+  /// returning false aborts that new coordinator.
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  });
 
   /// Handle successful handshake completion
   /// Dequeues buffered messages, broadcasts identity-established event

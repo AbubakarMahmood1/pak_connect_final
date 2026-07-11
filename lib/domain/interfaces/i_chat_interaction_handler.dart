@@ -83,6 +83,9 @@ abstract class IChatInteractionHandler {
   /// Mark a chat as read
   Future<void> markChatAsRead(ChatId chatId);
 
+  /// Mark a chat as unread
+  Future<void> markChatAsUnread(ChatId chatId);
+
   /// Get stream of interaction intents/events
   /// Facade listens to this to know when to refresh chat list
   Stream<ChatInteractionIntent> get interactionIntentStream;
@@ -115,6 +118,13 @@ class ChatDeletedIntent extends ChatInteractionIntent {
 class ChatPinToggleIntent extends ChatInteractionIntent {
   final String chatId;
   ChatPinToggleIntent(this.chatId);
+}
+
+class ChatReadStatusChangedIntent extends ChatInteractionIntent {
+  final String chatId;
+  final bool isUnread;
+
+  ChatReadStatusChangedIntent(this.chatId, {required this.isUnread});
 }
 
 class NavigationIntent extends ChatInteractionIntent {

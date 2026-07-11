@@ -40,7 +40,6 @@ import '../domain/entities/preference_keys.dart';
 import '../domain/interfaces/i_archive_repository.dart';
 import '../domain/interfaces/i_chats_repository.dart';
 import '../domain/interfaces/i_contact_repository.dart';
-import '../domain/interfaces/i_database_provider.dart';
 import '../domain/interfaces/i_ble_service_facade.dart';
 import '../domain/interfaces/i_message_repository.dart';
 import '../domain/interfaces/i_preferences_repository.dart';
@@ -56,9 +55,6 @@ import 'di/service_locator.dart';
 import '../domain/interfaces/i_connection_service.dart';
 
 import '../domain/values/id_types.dart';
-import 'package:pak_connect/domain/models/change_log_entry.dart';
-import 'package:pak_connect/domain/services/change_log_sync_service.dart'
-    show ChangeLogReplayResult;
 
 /// Main application core that coordinates all enhanced messaging features
 class AppCore {
@@ -748,165 +744,16 @@ class AppCore {
     await meshNetworkingService.initialize();
     _logger.info('🌐 MeshNetworkingService initialized successfully');
 
-    // Phase 2: Wire change_log sync DB callbacks
-    _wireChangeLogSync(meshNetworkingService);
+    _scheduleLocalChangeLogPrune();
   }
 
-  /// Wire change_log sync callbacks into the mesh networking service.
-  ///
-  /// Bridges the domain-layer [ChangeLogSyncService] to the data-layer DB
-  /// using the [IDatabaseProvider] for raw SQL queries against the change_log
-  /// and queue_sync_state tables.
-  void _wireChangeLogSync(MeshNetworkingService meshService) {
+  /// Apply the bounded retention policy for the local export/import log.
+  void _scheduleLocalChangeLogPrune() {
     final databaseProvider = _bootstrap.databaseProvider;
 
-    meshService.configureChangeLogSync(
-      onQueryChangeLogSince: (int sinceCursorId) async {
-        final db = await databaseProvider.database;
-        final rows = await db.query(
-          'change_log',
-          where: 'id > ?',
-          whereArgs: [sinceCursorId],
-          orderBy: 'id ASC',
-          limit: 500,
-        );
-        return rows.map((r) => ChangeLogEntry.fromMap(r)).toList();
-      },
-      onQueryChangeLogSinceTime: (int sinceMillis) async {
-        final db = await databaseProvider.database;
-        final rows = await db.query(
-          'change_log',
-          where: 'changed_at >= ?',
-          whereArgs: [sinceMillis],
-          orderBy: 'id ASC',
-          limit: 500,
-        );
-        return rows.map((r) => ChangeLogEntry.fromMap(r)).toList();
-      },
-      onReplayChangeLogEntries: (List<ChangeLogEntry> entries) async {
-        final db = await databaseProvider.database;
-        int inserts = 0, updates = 0, deletes = 0, skipped = 0, errors = 0;
-
-        for (final entry in entries) {
-          try {
-            final pkCol = _pkColumnForTable(entry.tableName);
-            if (pkCol == null) {
-              skipped++;
-              continue;
-            }
-
-            if (entry.operation == 'DELETE') {
-              // Security: peer-supplied DELETEs are not trusted. A rogue BLE
-              // peer could craft entries to wipe contacts/chats/messages.
-              // Only allow deletes through authenticated import/restore paths.
-              _logger.fine(
-                '⏭️ Skipping peer-supplied DELETE for '
-                '${entry.tableName}:${entry.rowKey} (untrusted)',
-              );
-              skipped++;
-            } else if (entry.operation == 'UPDATE') {
-              // Phase 3 LWW: compare changed_at vs local updated_at.
-              // If remote is newer, the local row is stale. We can't apply
-              // the update (we don't have the row data), but we track the
-              // conflict so the next full sync can resolve it.
-              final local = await db.query(
-                entry.tableName,
-                columns: ['updated_at'],
-                where: '$pkCol = ?',
-                whereArgs: [entry.rowKey],
-                limit: 1,
-              );
-              if (local.isEmpty) {
-                // Row doesn't exist locally — skip (will be handled by INSERT)
-                skipped++;
-              } else {
-                final localUpdatedAt = local.first['updated_at'] as int? ?? 0;
-                if (entry.changedAt > localUpdatedAt) {
-                  // Remote is newer — mark as stale awareness
-                  // The actual data will arrive via queue sync or next round
-                  updates++;
-                } else {
-                  skipped++;
-                }
-              }
-            } else {
-              // INSERT — row may not exist locally. We don't have the data
-              // to insert, but we acknowledge the event.
-              final exists = await db.query(
-                entry.tableName,
-                columns: [pkCol],
-                where: '$pkCol = ?',
-                whereArgs: [entry.rowKey],
-                limit: 1,
-              );
-              if (exists.isEmpty) {
-                // New row on remote — will arrive via full sync
-                inserts++;
-              } else {
-                skipped++;
-              }
-            }
-          } catch (e) {
-            _logger.warning('Change_log replay error for ${entry.rowKey}: $e');
-            errors++;
-          }
-        }
-
-        return ChangeLogReplayResult(
-          insertsApplied: inserts,
-          updatesApplied: updates,
-          deletesApplied: deletes,
-          skipped: skipped,
-          errors: errors,
-        );
-      },
-      onGetLastSyncedCursorForPeer: (String peerId) async {
-        final db = await databaseProvider.database;
-        final rows = await db.query(
-          'queue_sync_state',
-          columns: ['last_synced_changelog_id'],
-          where: 'device_id = ?',
-          whereArgs: [peerId],
-          limit: 1,
-        );
-        if (rows.isEmpty) return null;
-        return rows.first['last_synced_changelog_id'] as int?;
-      },
-      onSetLastSyncedCursorForPeer: (String peerId, int cursorId) async {
-        final db = await databaseProvider.database;
-        final updatedAt = DateTime.now().millisecondsSinceEpoch;
-        // Upsert: update if row exists, else insert
-        final updated = await db.update(
-          'queue_sync_state',
-          {'last_synced_changelog_id': cursorId, 'updated_at': updatedAt},
-          where: 'device_id = ?',
-          whereArgs: [peerId],
-        );
-        if (updated == 0) {
-          // No existing row for this peer — insert one
-          await db.insert('queue_sync_state', {
-            'device_id': peerId,
-            'last_synced_changelog_id': cursorId,
-            'updated_at': updatedAt,
-          });
-        }
-      },
-      onSendChangeLogToPeer: (String peerId, List<ChangeLogEntry> entries) async {
-        // NOT IMPLEMENTED: change_log entries are not transmitted over BLE
-        // yet. Queue sync moves messages; change_log replication awaits a
-        // dedicated protocol payload. Logged at fine so nobody debugs a
-        // "sent" batch that never left the device.
-        _logger.fine(
-          '⏭️ Change_log send to ${peerId.shortId(8)}... skipped '
-          '(${entries.length} entries; BLE transport not implemented)',
-        );
-      },
-    );
-    _logger.info('🔄 Change_log sync wired to mesh networking service');
-
-    // The change_log is fed by triggers on every contact/chat/message write
-    // and had no pruning path wired in, so it grew without bound. Entries
-    // older than the sync horizon are useless once peer cursors passed them.
+    // Triggers append on every contact/chat/message write. Retain a bounded
+    // local history for incremental export/import without implying live peer
+    // replay, which has no authenticated row transport.
     unawaited(() async {
       try {
         final db = await databaseProvider.database;
@@ -925,16 +772,6 @@ class AppCore {
         _logger.fine('Change_log prune skipped: $e');
       }
     }());
-  }
-
-  /// Map table name to its primary key column for DELETE replay.
-  static String? _pkColumnForTable(String tableName) {
-    const mapping = {
-      'contacts': 'public_key',
-      'chats': 'chat_id',
-      'messages': 'id',
-    };
-    return mapping[tableName];
   }
 
   /// Initialize message queue (must be called early - before BLE services)

@@ -414,7 +414,7 @@ class DatabaseSchemaBuilder {
     ''');
 
     // =========================
-    // 19. CHANGE LOG (incremental sync tracking)
+    // 19. CHANGE LOG (local incremental export/import tracking)
     // =========================
     // Captures INSERT/UPDATE/DELETE operations on contacts, messages, and
     // chats so that incremental backups can replay deletions that the simple

@@ -28,6 +28,7 @@ class QueueSyncManager {
   final Map<String, DateTime> _lastSyncWithNode = {};
   final Map<String, Timer> _activeSyncs = {};
   final Map<String, Completer<QueueSyncResult>> _pendingSyncs = {};
+  final Map<String, String> _pendingTargetBySyncId = {};
   final Map<String, Stopwatch> _syncStopwatches = {};
   final Map<String, int> _syncAttempts = {};
   final Set<String> _syncInProgress = {};
@@ -98,7 +99,9 @@ class QueueSyncManager {
     _syncInProgress.add(targetNodeId);
 
     try {
-      final syncMessage = _messageQueue.createSyncMessage(_nodeId);
+      final syncMessage = _messageQueue
+          .createSyncMessage(_nodeId)
+          .ensureSyncId();
       final result = await _performSync(targetNodeId, syncMessage);
 
       if (result.success) {
@@ -143,7 +146,9 @@ class QueueSyncManager {
       // Check if synchronization is needed
       if (!_messageQueue.needsSynchronization(syncMessage.queueHash)) {
         _logger.info('Queues already synchronized with $fromNodeId');
-        return QueueSyncResponse.alreadySynced();
+        return QueueSyncResponse.alreadySynced(
+          responseMessage: _createResponseMessage(syncMessage.syncId),
+        );
       }
 
       // Determine what needs to be synchronized
@@ -178,18 +183,13 @@ class QueueSyncManager {
         _logger.info(
           'No messages to sync - queues already synchronized with $fromNodeId',
         );
-        return QueueSyncResponse.alreadySynced();
+        return QueueSyncResponse.alreadySynced(
+          responseMessage: _createResponseMessage(syncMessage.syncId),
+        );
       }
 
       // Create response with our queue state
-      final responseMessage = QueueSyncMessage.createResponseWithIds(
-        messageIds: _messageQueue
-            .getMessagesByStatus(QueuedMessageStatus.pending)
-            .map((m) => MessageId(m.id))
-            .toList(),
-        nodeId: _nodeId,
-        stats: _createSyncStats(),
-      );
+      final responseMessage = _createResponseMessage(syncMessage.syncId);
 
       return QueueSyncResponse.success(
         responseMessage: responseMessage,
@@ -202,8 +202,30 @@ class QueueSyncManager {
     }
   }
 
+  QueueSyncMessage _createResponseMessage(String? syncId) =>
+      QueueSyncMessage.createResponseWithIds(
+        messageIds: _messageQueue
+            .getMessagesByStatus(QueuedMessageStatus.pending)
+            .map((m) => MessageId(m.id))
+            .toList(),
+        nodeId: _nodeId,
+        stats: _createSyncStats(),
+        syncId: syncId,
+      );
+
   /// True when an initiated sync is still awaiting a response from [nodeId].
   bool hasPendingSyncWith(String nodeId) => _pendingSyncs.containsKey(nodeId);
+
+  /// Whether [responseMessage] can be correlated to a live initiated round
+  /// carried by the exact BLE device address used for the request.
+  ///
+  /// The token identifies the round; it is not a substitute for transport
+  /// identity. A peer that received a misrouted or replayed token must not be
+  /// able to complete another device's pending sync.
+  bool canAcceptSyncResponse(
+    QueueSyncMessage responseMessage,
+    String fromDeviceAddress,
+  ) => _pendingKeyForResponse(responseMessage, fromDeviceAddress) != null;
 
   /// Fail a pending initiated sync immediately, e.g. when the transport
   /// reports there is no usable route to the peer. Without this the
@@ -212,6 +234,7 @@ class QueueSyncManager {
     final pending = _pendingSyncs.remove(nodeId);
     _syncStopwatches.remove(nodeId);
     _activeSyncs.remove(nodeId)?.cancel();
+    _removeSyncIdsForTarget(nodeId);
     if (pending != null && !pending.isCompleted) {
       pending.complete(QueueSyncResult.error(reason));
       onSyncFailed?.call(nodeId, reason);
@@ -222,9 +245,21 @@ class QueueSyncManager {
   Future<QueueSyncResult> processSyncResponse(
     QueueSyncMessage responseMessage,
     List<QueuedMessage> receivedMessages,
-    String fromNodeId,
+    String fromDeviceAddress,
   ) async {
     try {
+      final pendingKey = _pendingKeyForResponse(
+        responseMessage,
+        fromDeviceAddress,
+      );
+      if (pendingKey == null) {
+        _logger.warning(
+          'Rejecting uncorrelated sync response from $fromDeviceAddress',
+        );
+        return QueueSyncResult.error(
+          'Uncorrelated sync response from $fromDeviceAddress',
+        );
+      }
       int messagesAdded = 0;
       int messagesSkipped = 0;
       int messagesUpdated = 0;
@@ -264,11 +299,12 @@ class QueueSyncManager {
         );
         if (ourExcess.isNotEmpty) {
           _logger.info(
-            '📤 Reverse-sending ${ourExcess.length} excess messages to $fromNodeId',
+            '📤 Reverse-sending ${ourExcess.length} excess messages to '
+            '$fromDeviceAddress',
           );
           onSendMessages!.call(
             List<QueuedMessage>.from(ourExcess),
-            fromNodeId,
+            fromDeviceAddress,
           );
           reverseMessagesSent = ourExcess.length;
           _messagesTransferred += reverseMessagesSent;
@@ -284,20 +320,14 @@ class QueueSyncManager {
       );
 
       _logger.info(
-        'Sync completed with $fromNodeId: +$messagesAdded, ~$messagesUpdated, -$messagesSkipped',
+        'Sync completed with $fromDeviceAddress: +$messagesAdded, '
+        '~$messagesUpdated, -$messagesSkipped',
       );
 
-      // The transport-level sender id and the id the sync was initiated with
-      // can be different flavors of the same peer identity. Fall back to the
-      // responder's self-declared node id before giving up on the completer.
-      var pendingKey = fromNodeId;
-      if (!_pendingSyncs.containsKey(pendingKey) &&
-          _pendingSyncs.containsKey(responseMessage.nodeId)) {
-        pendingKey = responseMessage.nodeId;
-      }
       final pending = _pendingSyncs.remove(pendingKey);
       final stopwatch = _syncStopwatches.remove(pendingKey);
       _activeSyncs.remove(pendingKey)?.cancel();
+      _removeSyncIdsForTarget(pendingKey);
       final elapsed = stopwatch?.elapsed ?? Duration.zero;
 
       if (pending != null && !pending.isCompleted) {
@@ -309,6 +339,28 @@ class QueueSyncManager {
       _logger.severe('Failed to process sync response: $e');
       return QueueSyncResult.error('Failed to process response: $e');
     }
+  }
+
+  String? _pendingKeyForResponse(
+    QueueSyncMessage responseMessage,
+    String fromDeviceAddress,
+  ) {
+    final syncId = responseMessage.syncId;
+    if (syncId != null && syncId.isNotEmpty) {
+      final target = _pendingTargetBySyncId[syncId];
+      if (target == fromDeviceAddress && _pendingSyncs.containsKey(target)) {
+        return target;
+      }
+      return null;
+    }
+    // Every locally initiated round carries a random syncId. Accepting a
+    // tokenless response merely because its transport address has a pending
+    // round would let a stale or forged frame complete the wrong attempt.
+    return null;
+  }
+
+  void _removeSyncIdsForTarget(String targetNodeId) {
+    _pendingTargetBySyncId.removeWhere((_, target) => target == targetNodeId);
   }
 
   /// Check if we can sync with a specific node
@@ -387,10 +439,15 @@ class QueueSyncManager {
       final completer = Completer<QueueSyncResult>();
       _pendingSyncs[targetNodeId] = completer;
       _syncStopwatches[targetNodeId] = stopwatch;
+      final syncId = syncMessage.syncId;
+      if (syncId != null && syncId.isNotEmpty) {
+        _pendingTargetBySyncId[syncId] = targetNodeId;
+      }
 
       final timeoutTimer = Timer(_syncTimeout, () {
         final pending = _pendingSyncs.remove(targetNodeId);
         _syncStopwatches.remove(targetNodeId);
+        _removeSyncIdsForTarget(targetNodeId);
         if (pending != null && !pending.isCompleted) {
           pending.complete(QueueSyncResult.timeout());
           onSyncFailed?.call(targetNodeId, 'Timeout');
@@ -413,6 +470,7 @@ class QueueSyncManager {
       final pending = _pendingSyncs.remove(targetNodeId);
       pending?.complete(QueueSyncResult.error('Sync failed: $e'));
       _syncStopwatches.remove(targetNodeId);
+      _removeSyncIdsForTarget(targetNodeId);
       _activeSyncs.remove(targetNodeId)?.cancel();
       return QueueSyncResult.error('Sync failed: $e');
     }
@@ -582,6 +640,7 @@ class QueueSyncManager {
       }
     }
     _pendingSyncs.clear();
+    _pendingTargetBySyncId.clear();
     _syncStopwatches.clear();
 
     _logger.info('Queue sync manager disposed');
@@ -605,6 +664,7 @@ class QueueSyncManager {
       }
     }
     _pendingSyncs.clear();
+    _pendingTargetBySyncId.clear();
     _syncInProgress.clear();
     _logger.fine(
       '🔄 Queue sync timers cleared${reason != null ? " ($reason)" : ""}',
@@ -730,8 +790,11 @@ class QueueSyncResponse {
     type: QueueSyncResponseType.success,
   );
 
-  factory QueueSyncResponse.alreadySynced() => QueueSyncResponse._(
+  factory QueueSyncResponse.alreadySynced({
+    QueueSyncMessage? responseMessage,
+  }) => QueueSyncResponse._(
     success: true,
+    responseMessage: responseMessage,
     type: QueueSyncResponseType.alreadySynced,
   );
 
