@@ -16,7 +16,9 @@ The code work is done. The automated test work is done. What remains is the real
 
 `PAKCONNECT_STRICT_TDM` is **not** a UI toggle.
 
-It is a **build-time Dart define**, read in [ble_service_facade.dart](C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_service_facade.dart). That means:
+It is a **build-time Dart define**, read in
+[ble_service_facade.dart](../../lib/data/services/ble_service_facade.dart). That
+means:
 
 - normal run: concurrent mode
 - rebuilt run with `--dart-define=PAKCONNECT_STRICT_TDM=true`: strict TDM mode
@@ -28,7 +30,8 @@ The metrics recorder logs `BLE_EXPERIMENT_SUMMARY` with:
 - `sessionMode: "concurrent"`
 - or `sessionMode: "strict_tdm"`
 
-That log line is emitted by [ble_experiment_metrics_recorder.dart](C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_experiment_metrics_recorder.dart).
+That log line is emitted by
+[ble_experiment_metrics_recorder.dart](../../lib/data/services/ble_experiment_metrics_recorder.dart).
 
 ## What You Need
 

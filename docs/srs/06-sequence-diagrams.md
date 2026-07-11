@@ -358,72 +358,59 @@ sequenceDiagram
 ### Participants
 - App Startup
 - DatabaseHelper
-- SharedPreferences
+- Platform secure storage (Android/iOS)
 - SQLite Database
-- MigrationService
 
 ### Flow
 ```
 1. App Startup → DatabaseHelper.database (first access)
-2. DatabaseHelper → Check if database exists
-3. IF exists:
-   4. DatabaseHelper → Open database
-   5. DatabaseHelper → Check current version
-   6. IF version < latest (9):
-      7. DatabaseHelper → _onUpgrade(db, oldVersion, newVersion)
-      8. FOR EACH version upgrade (e.g., v7 → v8 → v9):
-         9. Apply migration SQL (ALTER TABLE, CREATE INDEX, etc.)
-         10. Log migration completion
-   11. DatabaseHelper → Set new version
-12. IF not exists:
-   13. DatabaseHelper → _onCreate(db, version=9)
-   14. Create all 17 tables + indexes + FTS5
-15. DatabaseHelper → Enable foreign keys (PRAGMA)
-16. DatabaseHelper → Enable WAL mode (PRAGMA)
-17. [OPTIONAL: SharedPreferences → SQLite migration]
-18. IF migration needed:
-   19. MigrationService → Check migration_metadata table
-   20. IF not migrated:
-      21. MigrationService → Read SharedPreferences data
-      22. MigrationService → Convert to SQLite format
-      23. MigrationService → Insert into tables
-      24. MigrationService → Verify checksums
-      25. MigrationService → Mark migration complete
-26. DatabaseHelper → Return database instance
+2. DatabaseHelper selects the platform factory:
+   - Android/iOS: SQLCipher
+   - desktop/test: plaintext `sqflite_common`
+3. On Android/iOS, load or create the random 256-bit credential in platform
+   secure storage; abort if it cannot be obtained.
+4. If an existing mobile database is plaintext, run the one-time encrypted
+   database copy before the normal open.
+5. Open database at version 12.
+6. `_onConfigure` enables foreign keys, requests WAL mode, and sets cache size.
+7. IF the database is new:
+   - `_onCreate(db, version=12)` creates 18 ordinary tables, 35 explicit
+     indexes, and one FTS5 virtual table.
+8. ELSE IF the existing version is below 12:
+   - `_onUpgrade` runs sequential migrations through v12.
+9. Return the database instance.
 ```
+
+`MigrationService` is a retired, explicitly invoked cleanup shim. It is not
+part of `DatabaseHelper` startup and does not import SharedPreferences data into
+SQLite.
 
 ### Mermaid Syntax
 ```mermaid
 sequenceDiagram
     participant App as App Startup
     participant DH as DatabaseHelper
-    participant SP as SharedPreferences
+    participant SS as Platform Secure Storage
     participant DB as SQLite Database
-    participant MS as MigrationService
 
     App->>DH: Get database instance
-    DH->>DH: Check if exists
-    alt Database Exists
-        DH->>DB: Open database
-        DH->>DB: Check version
-        alt Version < 9
-            DH->>DH: _onUpgrade(old, new)
-            loop For each version
-                DH->>DB: Apply migration SQL
-            end
-            DH->>DB: Set version = 9
-        end
-    else New Database
-        DH->>DB: _onCreate(version=9)
-        DH->>DB: Create 17 tables + FTS5
+    alt Android or iOS
+        DH->>SS: Load/create random SQLCipher credential
+        SS-->>DH: Credential or error
+        Note over DH: Fail closed on credential error
+    else Desktop or test
+        Note over DH: Use plaintext sqflite_common fallback
     end
-    DH->>DB: PRAGMA foreign_keys=ON
-    DH->>DB: PRAGMA journal_mode=WAL
-    opt SharedPreferences Migration
-        DH->>MS: Check if migration needed
-        MS->>SP: Read old data
-        MS->>DB: Insert into SQLite
-        MS->>MS: Verify checksums
+    DH->>DB: Open at version 12
+    DH->>DB: Configure foreign keys, WAL, cache
+    alt New database
+        DH->>DB: _onCreate(version=12)
+        DH->>DB: Create 18 ordinary tables + FTS5 virtual table
+    else Existing version below 12
+        DH->>DH: _onUpgrade(old, 12)
+        loop Sequential migrations
+            DH->>DB: Apply migration SQL
+        end
     end
     DH-->>App: Database ready
 ```
@@ -431,4 +418,4 @@ sequenceDiagram
 ---
 
 **Total Sequence Diagrams**: 6 key flows
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11

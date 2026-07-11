@@ -1,12 +1,13 @@
 # Security Guarantees (Milestone 0)
 
-This document describes the current, implemented guarantees in this repository.
+This document describes the current, implemented guarantees in this repository. Device-only guarantees still require the evidence recorded in `docs/testing/DEVICE_VALIDATION_STATUS.md`.
 
 ## Guaranteed
 
 1. Mobile database encryption at rest
 - On Android/iOS, `DatabaseHelper` opens SQLCipher with a password from secure storage (`DatabaseEncryption.getOrCreateEncryptionKey()`).
 - If secure storage key retrieval fails on mobile, initialization fails closed.
+- The key is a randomly generated 256-bit value stored in platform secure storage; it is not derived from an application login passphrase.
 
 2. Fail-closed message encryption for outbound transport
 - Outbound text and binary send paths call `SecurityManager` encryption first.

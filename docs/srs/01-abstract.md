@@ -10,7 +10,8 @@
 - **Dual-Role BLE**: Simultaneous central and peripheral operation
 - **Offline Message Queue**: Persistent storage for unreachable recipients with retry logic
 - **Contact Management**: Three-tier security model (LOW/MEDIUM/HIGH) with identity verification
-- **Group Messaging**: Secure multi-unicast messaging to contact groups
+- **Broadcast Lists**: Sender-local lists that queue one encrypted direct
+  message per recipient; no shared recipient-side group conversation
 - **Archive System**: Full-text search (FTS5) for archived conversations
 - **Adaptive Power Management**: Battery-aware scanning and advertising strategies
 
@@ -45,5 +46,5 @@
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
-**Based on**: PakConnect Database Schema v9
+**Last Updated**: 2026-07-11
+**Based on**: PakConnect Database Schema v12

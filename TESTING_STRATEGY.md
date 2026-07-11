@@ -1,38 +1,43 @@
-# pak_connect Testing Strategy & Roadmap
-## Comprehensive Test Suite Overhaul - Future-Proof Investment Plan
+# PakConnect Testing Strategy and Historical Roadmap
 
-**Status**: Phase 1 (desktop suites) COMPLETE | **Target**: 100% Pass Rate + >80% Coverage | **Hardware track**: single-device validation complete, two-device validation next, three-device relay validation after that
+**Live execution status**: See
+`docs/status/ENGINEERING_STATUS.md` and
+`docs/testing/DEVICE_VALIDATION_STATUS.md`. This document defines testing
+policy and retains the earlier phase roadmap as historical planning context; it
+is not the live pass-count, coverage, or hardware-evidence ledger.
 
 ---
 
 ## Current Hardware Validation Status
 
-This section is the current source of truth for hardware testing status as of
-April 11, 2026. Older review/session artifacts were removed during repo docs
-cleanup and should not be treated as the live status tracker.
-
-- Single-device real-device validation: complete
-- Two-device validation: next required gate
-- Three-device relay validation: only after two-device stability is confirmed
-- Recommended execution order: XX first-contact, KK returning-contact,
-  bidirectional messaging, reconnect/offline queue, large-message
-  fragmentation, then three-device relay
+`docs/testing/DEVICE_VALIDATION_STATUS.md` is the source of truth. During the
+2026-07-11 reconciliation pass no Android/iOS phone was attached, so radio,
+mobile SQLCipher, background lifecycle, and two-/three-device claims remain
+blocked or not run there. Do not promote an old session note or a green desktop
+suite into hardware evidence.
 
 ---
 
 ## Executive Summary
 
 ### Current State
-- **Test Pass Rate**: 100% for all VM-friendly suites (`flutter test` is green)
-- **File Coverage**: ~40% (56 test files / 138 production files) — desktop scope only
-- **Service Coverage**: ~70% (desktop-accessible services). Remaining gaps are radio-/device-bound.
-- **Critical Issue (RESOLVED)**: Logger conflicts, missing SQLite/secure storage shims, and BLE platform-channel calls no longer block tests.
+- The VM-friendly suite has a recorded clean baseline; use the engineering
+  status ledger and `flutter_test_latest.log` for the current branch result.
+- Test-file counts are not line or branch coverage. No current LCOV percentage
+  is asserted here, and CI does not enforce a numeric threshold.
+- Desktop database tests may use plaintext SQLite. They validate schema and
+  migration behavior, not SQLCipher bytes at rest.
+- BLE radio interoperability and OS lifecycle behavior require physical-device
+  evidence.
 
 ### Target State
 - **Test Pass Rate**: 100% including hardware suites (post-device validation)
-- **Coverage**: >80% for critical paths, >70% overall after adding device tests & additional specs
-- **Test Count**: ~300+ comprehensive tests
-- **CI/CD Ready**: Fast, reliable, isolated tests (KK/database/shared-pref smokes wired in once hardware is validated)
+- **Coverage**: capture an LCOV baseline, define exclusions, then ratchet a
+  reviewed threshold; the SRS's >85% figure remains aspirational until that
+  policy is implemented
+- **CI**: deterministic VM-friendly tests plus repository policy gates
+- **Device gate**: two-device direct/reconnect/queue validation before
+  three-device relay work
 
 ### Investment ROI
 - **Time**: 3-5 days for desktop; separate hardware window TBD
@@ -163,13 +168,21 @@ setUp(() async {
 
 - **Native SQLite Loader**: `TestSetup` now delegates to `NativeSqliteLoader` (`test/test_helpers/sqlite/native_sqlite_loader.dart`) which locates `libsqlite3` (or the Windows/macOS equivalents) even when the sandbox lacks the usual unversioned symlinks. Override the path via `SQLITE_FFI_LIB_PATH` if you need a custom build (e.g., SQLCipher).
 - **Deterministic secure storage**: `InMemorySecureStorage` (`test/test_helpers/mocks/in_memory_secure_storage.dart`) registers itself through `FlutterSecureStoragePlatform.instance`, eliminating the `MissingPluginException` that used to break protocol suites. Populate it through the public `FlutterSecureStorage` API exactly as production code would.
-- **Single entry point**: Always call `await TestSetup.initializeTestEnvironment();` in `setUpAll`—it wires up the loader, sqflite factory, secure storage mock, logging, and mock SharedPreferences in one spot so new tests inherit the full environment automatically.
+- **Shared entry point**: DB-heavy and service-level suites should call
+  `await TestSetup.initializeTestEnvironment(dbLabel: ...)` in `setUpAll`. It
+  wires up the loader, sqflite factory, secure-storage mock, logging, and mock
+  SharedPreferences.
 
-### CI Smoke Tests (run before pushing)
-- `flutter test test/kk_protocol_integration_test.dart` — exercises Noise XX/KK flows, secure storage, and contact persistence end-to-end.
-- `flutter test test/database_migration_test.dart` — validates the SQLCipher schema, archive tables, and incremental migrations.
-- `flutter test test/migration_service_smoke_test.dart` — runs the SharedPreferences → SQLite migration against a representative data snapshot to ensure Phase 3 upgrades succeed.
-- These suites now run cleanly inside the sandbox thanks to the shared test harness; wire them into CI to catch regressions in crypto/migration stacks early.
+### Targeted Local Smoke Tests
+- `flutter test test/core/bluetooth/kk_protocol_integration_test.dart` —
+  exercises simulated Noise XX/KK flows, mocked secure storage, and contact
+  persistence.
+- `flutter test test/database_migration_test.dart` — validates desktop SQLite
+  schema upgrades, archive tables, and migration behavior; it is not mobile
+  SQLCipher evidence.
+- `flutter test test/data/database/database_migration_runner_test.dart` —
+  verifies ordered schema upgrades from v1 and from an intermediate version.
+- These files are already included by CI's full `flutter test --coverage` run.
 
 ### AAA Pattern (Arrange-Act-Assert)
 
@@ -191,7 +204,11 @@ test('descriptive name of what is being tested', () async {
 
 ---
 
-## Phase-by-Phase Implementation Plan
+## Historical Phase-by-Phase Implementation Plan
+
+The counts, day estimates, example paths, and checklists below came from an
+older expansion plan. Treat them as idea inventory only. Current completion and
+coverage must be proved by the live ledgers and generated test/LCOV artifacts.
 
 ### Phase 1: Fix Foundation (Day 1) ⚡ CRITICAL
 
@@ -1136,21 +1153,19 @@ test('ChatRepository.addMessage should persist to database', () {
 - [ ] Performance benchmarks established
 - [ ] Edge cases covered
 
-### Overall Success Criteria
+### Historical Target Criteria
 
-**Quantitative**:
-- ✅ 100% test pass rate (0 failures)
-- ✅ >80% code coverage overall
-- ✅ >90% coverage on core/security/messaging
-- ✅ 400+ total tests
-- ✅ <5 minute total test suite runtime
+**Quantitative targets (not current claims)**:
+- 100% pass rate for the selected verification scope
+- Measured coverage targets set from an LCOV baseline
+- Explicit critical-path coverage review
+- A suite runtime suitable for CI
 
-**Qualitative**:
-- ✅ Every major service has comprehensive tests
-- ✅ Every critical path has integration test
-- ✅ Edge cases and error paths covered
-- ✅ Tests serve as living documentation
-- ✅ New developers can understand app from tests
+**Qualitative targets**:
+- Every major service has proportionate tests
+- Critical paths have integration-style and device evidence where applicable
+- Edge cases and error paths are covered
+- Tests serve as living documentation
 
 ---
 
@@ -1224,8 +1239,9 @@ Logger.root.level = Level.WARNING;
 
 **Solution**:
 - Use `flutter test --no-pub` to skip dependency resolution
-- Run specific test files: `flutter test test/my_test.dart`
-- Use test tags: `flutter test --tags=fast`
+- Run a specific test file, for example:
+  `flutter test test/database_migration_test.dart`
+- Use `--tags` only after declaring actual test-runner tags in the repository
 
 ### Issue: Flaky tests (pass sometimes, fail sometimes)
 
@@ -1249,14 +1265,14 @@ Logger.root.level = Level.WARNING;
 - [AAA Pattern](https://medium.com/@pjbgf/title-testing-code-ocd-and-the-aaa-pattern-df453975ab80)
 - [Test Doubles (Mocks, Stubs, Fakes)](https://martinfowler.com/articles/mocksArentStubs.html)
 
-### pak_connect Specific
-- `CLAUDE.md` - Project overview and architecture
+### PakConnect-specific
+- `AGENTS.md` - Canonical repository guidance and invariants
 - `lib/*/` - Production code to be tested
 - `test/` - Existing test suite
 
 ---
 
-## Final Checklist: Test Suite Complete ✅
+## Historical Final Checklist
 
 **Foundation**:
 - [ ] All 270 existing tests passing
@@ -1285,9 +1301,8 @@ Logger.root.level = Level.WARNING;
 
 ---
 
-**Status**: Ready to begin Phase 1
-**Next Action**: Fix logger conflicts in existing test suite
-**Estimated Completion**: 5 days from start
+**Current status and next action**: See the live engineering and device
+validation ledgers. The old Phase 1/logger estimate is retired.
 
 ---
 

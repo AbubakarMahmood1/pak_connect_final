@@ -16,17 +16,21 @@ This document details system capabilities extracted from actual implemented code
 | FR-1.1.4 | Store message history persistently | `MessageRepository.saveMessage()` with SQLite |
 | FR-1.1.5 | Display sent/received timestamps | `Message.timestamp` field |
 
-### FR-1.2: Group Messaging
+### FR-1.2: Sender-Local Broadcast Lists
 **Priority**: High
-**Status**: Implemented
+**Status**: Implemented within the boundary stated below
+
+Each recipient receives an ordinary encrypted direct message and can reply
+only in that direct chat. The current wire payload contains no list/group ID or
+membership state, so this is not a synchronized group conversation.
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-1.2.1 | Send messages to multiple recipients (multi-unicast) | `GroupMessagingService.sendGroupMessage()` |
-| FR-1.2.2 | Track per-member delivery status | `GroupMessage.deliveryStatus` map |
-| FR-1.2.3 | Create and manage contact groups | `GroupRepository` with `contact_groups` table |
-| FR-1.2.4 | Add/remove members from groups | `GroupRepository.addMember()`, `removeMember()` |
-| FR-1.2.5 | Retrieve group message history | `GroupMessagingService.getGroupMessages()` |
+| FR-1.2.1 | Queue the same content as one direct message per selected recipient | `GroupMessagingService.sendGroupMessage()` |
+| FR-1.2.2 | Track sender-local queue submission as pending, queued (persisted enum `sent`), or failed | `GroupMessage.deliveryStatus` map |
+| FR-1.2.3 | Create and manage local recipient lists | `GroupRepository` with legacy `contact_groups` table names |
+| FR-1.2.4 | Add/remove recipients from local lists | `GroupRepository.addMember()`, `removeMember()` |
+| FR-1.2.5 | Retrieve sender-local broadcast history | `GroupMessagingService.getGroupMessages()` |
 
 ### FR-1.3: Offline Message Queue
 **Priority**: Critical
@@ -296,7 +300,7 @@ This document details system capabilities extracted from actual implemented code
 | FR-9.1.1 | SQLite storage with SQLCipher encryption | `DatabaseHelper` with encryption |
 | FR-9.1.2 | WAL mode for concurrency | `PRAGMA journal_mode = WAL` |
 | FR-9.1.3 | Foreign key constraints | `PRAGMA foreign_keys = ON` |
-| FR-9.1.4 | Database migrations | `DatabaseHelper._onUpgrade()` (v1-v9) |
+| FR-9.1.4 | Database migrations | `DatabaseMigrationRunner` (v1-v12) |
 | FR-9.1.5 | Database vacuum | `DatabaseHelper.vacuum()` (monthly) |
 
 ### FR-9.2: Data Export/Import
@@ -367,5 +371,5 @@ This document details system capabilities extracted from actual implemented code
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11
 **Total Functional Requirements**: 137

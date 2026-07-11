@@ -24,6 +24,16 @@
 **Components**:
 - **Services**: `mesh_networking_service.dart`, `contact_management_service.dart`, `chat_management_service.dart`, `group_messaging_service.dart`, `archive_management_service.dart`, `notification_service.dart`
 - **Entities**: `message.dart`, `enhanced_message.dart`, `contact.dart`, `chat_list_item.dart`, `archived_message.dart`
+- **Routing** (`lib/domain/routing/`): `smart_mesh_router.dart`,
+  `route_calculator.dart`, `network_topology_analyzer.dart`,
+  `connection_quality_monitor.dart`
+- **Messaging** (`lib/domain/messaging/`): `gossip_sync_manager.dart`
+- **Infrastructure policies/services**: `adaptive_power_manager.dart`,
+  `battery_optimizer.dart`, `burst_scanning_controller.dart`,
+  `ephemeral_key_manager.dart`, `message_router.dart`,
+  `peripheral_initializer.dart`
+- **Utilities** (`lib/domain/utils/`): `message_fragmenter.dart`,
+  `chat_utils.dart`, `gcs_filter.dart`
 
 **Responsibilities**:
 - Business logic orchestration
@@ -31,7 +41,9 @@
 - Entity definitions
 - Service coordination
 
-**Dependencies**: Core Layer + Data Layer
+**Dependencies**: The domain layer has no imports from core, data, or
+presentation. Core/data/presentation consume its entities, interfaces, and
+services.
 
 ---
 
@@ -45,39 +57,16 @@
   - `noise_session_manager.dart`
   - `noise_session.dart`
   - `primitives/` - DHState, CipherState, HandshakeState
-- `security_manager.dart` - Security level management
-- `ephemeral_key_manager.dart` - Key rotation
+- `lib/core/services/security_manager.dart` - Security level management
 
 **B. Messaging** (`lib/core/messaging/`)
 - `mesh_relay_engine.dart` - Message relay logic
 - `offline_message_queue.dart` - Queue management
-- `message_router.dart` - Routing decisions
 - `relay_policy.dart` - Relay configuration
-- `gossip_sync_manager.dart` - Network sync
 
 **C. Bluetooth** (`lib/core/bluetooth/`)
 - `handshake_coordinator.dart` - 4-phase handshake
-- `peripheral_initializer.dart` - Advertising
 - `smart_handshake_manager.dart` - Connection management
-
-**D. Routing** (`lib/core/routing/`)
-- `smart_mesh_router.dart` - Intelligent routing
-- `route_calculator.dart` - Path computation
-- `network_topology_analyzer.dart` - Network analysis
-- `connection_quality_monitor.dart` - Link quality
-
-**E. Power** (`lib/core/power/`)
-- `adaptive_power_manager.dart` - Power mode switching
-- `battery_optimizer.dart` - Battery monitoring
-- `ephemeral_power_manager.dart` - Ephemeral power states
-
-**F. Scanning** (`lib/core/scanning/`)
-- `burst_scanning_controller.dart` - Duty cycling
-
-**G. Utilities** (`lib/core/utils/`)
-- `message_fragmenter.dart` - MTU-based fragmentation
-- `chat_utils.dart` - Chat ID generation
-- `gcs_filter.dart` - Golomb-coded sets
 
 **Responsibilities**:
 - Infrastructure services
@@ -85,7 +74,8 @@
 - Networking logic
 - Security primitives
 
-**Dependencies**: Platform APIs (BLE, Secure Storage, Crypto libraries)
+**Dependencies**: Domain contracts plus platform APIs (BLE, secure storage,
+crypto libraries); no data or presentation imports
 
 ---
 
@@ -104,14 +94,14 @@
 - `contact_repository.dart` - Contact persistence
 - `message_repository.dart` - Message storage
 - `chats_repository.dart` - Chat management
-- `group_repository.dart` - Group storage
+- `group_repository.dart` - Sender-local broadcast-list storage (legacy Group* schema/API names)
 - `archive_repository.dart` - Archive access
 - `preferences_repository.dart` - Settings
 
 **C. Database** (`lib/data/database/`)
 - `database_helper.dart` - SQLite schema & migrations
 - `database_encryption.dart` - SQLCipher key management
-- `migration_service.dart` - Data migration
+- `database_migration_runner.dart` - Ordered schema migrations
 - `database_backup_service.dart` - Backup/restore
 
 **Responsibilities**:
@@ -120,7 +110,8 @@
 - External service integration
 - Data access patterns
 
-**Dependencies**: Platform APIs (SQLite, BLE, File system)
+**Dependencies**: Domain contracts, selected core utilities, and platform APIs
+(SQLite, BLE, file system); no presentation imports
 
 ---
 
@@ -176,7 +167,8 @@ C4Component
 
 3. **Domain Services**
    - Provides: Business logic APIs
-   - Consumes: Core services + Repositories
+   - Consumes: Injected domain interfaces. Runtime composition connects those
+     interfaces to core/data collaborators without domain-to-core/data imports.
    - Examples: MeshNetworkingService, ContactManagementService
 
 4. **Noise Protocol**
@@ -201,14 +193,14 @@ C4Component
 
 8. **Database**
    - Provides: Encrypted persistence
-   - Technology: SQLite + SQLCipher
-   - Schema: 17 tables, 9 versions
+   - Technology: SQLCipher-backed SQLite on Android/iOS; plaintext desktop/test fallback
+   - Schema: v12, 18 ordinary tables plus one FTS5 virtual table
 
 **Connectors**:
 - UI ↔ Providers: Bidirectional (read state, trigger actions)
 - Providers → Domain Services: Unidirectional (call methods)
-- Domain Services → Core: Unidirectional (orchestration)
-- Core → Data: Unidirectional (persistence)
+- Core/Data → Domain: Compile-time dependency on contracts/entities
+- Runtime composition: Wires domain services to core/data implementations
 - Mesh ↔ BLE: Bidirectional (send/receive messages)
 
 ---
@@ -413,7 +405,7 @@ graph TB
     end
 
     subgraph "Networking"
-        BLE[bluetooth_low_energy 6.1]
+        BLE[bluetooth_low_energy 6.2.1]
     end
 
     subgraph "Data Persistence"
@@ -443,4 +435,4 @@ graph TB
 
 **Document Coverage**: Architecture, Component, Data Flow
 **Abstraction Levels**: Context (Level 0), Major Processes (Level 1)
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11

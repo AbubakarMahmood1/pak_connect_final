@@ -1,15 +1,22 @@
-# Real Device Testing Guide - Phase 2B.1
+# PakConnect Real-Device Testing Guide
 
-**Phase:** 2B.1 - Mesh Routing Service Extraction
-**Purpose:** Validate routing service behavior on actual BLE hardware
+**Purpose:** Validate BLE, Noise, queue, relay, lifecycle, and mobile storage
+behavior on actual hardware
 **Duration:** 45-90 minutes (depending on device count)
 **Devices:** 2-3 Android devices with BLE support
+
+`docs/testing/DEVICE_VALIDATION_STATUS.md` is the live source of truth. This
+guide supplies procedures; its unchecked/check-mark examples are not evidence.
+For the next baseline-bound two-phone run, use the exact commands, payloads,
+evidence rules, and stop conditions in
+[TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
 ---
 
 ## Overview
 
-Real device testing validates that Phase 2B.1 changes work correctly on actual hardware. Unit tests passed 50/50, but BLE mesh networking requires real devices to verify:
+Desktop tests cannot establish radio interoperability or mobile at-rest
+encryption. Real-device testing is required to verify:
 
 - ✅ Direct message delivery (Device A ↔ B when both online)
 - ✅ Relay with offline queue (Device A → B when B offline)
@@ -25,7 +32,8 @@ Real device testing validates that Phase 2B.1 changes work correctly on actual h
 ### Hardware Requirements
 - **Minimum:** 2 Android devices with BLE support
 - **Recommended:** 3 Android devices (enables multi-hop testing)
-- **Android Version:** 8.0+ (Android Oreo or later)
+- **Android Version:** API 24+; include the oldest claimed version in the
+  compatibility matrix
 - **Battery:** ≥50% charge on all devices
 
 ### Software Requirements
@@ -47,7 +55,8 @@ adb devices
 ```
 
 ### Network Requirements
-- All devices on same WiFi network (for log collection)
+- USB ADB connections are sufficient for log collection; Wi-Fi is not part of
+  the PakConnect transport requirement
 - BLE range: Devices within 10-30 meters line-of-sight
 - No major BLE interference (minimize other BLE devices)
 
@@ -112,22 +121,27 @@ Create labels for your devices (on sticky notes):
 
 ## Build & Deploy Test APK
 
-### Step 1: Build Release APK
+### Step 1: Build Debug APK
 
 ```bash
 # Navigate to project root
-cd /home/abubakar/dev/pak_connect
+cd /path/to/pak_connect
 
 # Clean build artifacts
 flutter clean
 
-# Build APK (optimized for testing)
-flutter build apk --release
+# Build APK used by the default device runner
+flutter build apk --debug
 
 # Expected output:
 # ✓ Building APK...
-# ✓ APK written to: build/app/outputs/flutter-app.apk (XX.X MB)
+# ✓ APK written to: build/app/outputs/flutter-apk/app-debug.apk (XX.X MB)
 ```
+
+For a release-path check, configure `android/key.properties` (see the example)
+or all four `ANDROID_*` signing variables, then use
+`bash scripts/real_device_test.sh --release`. Release builds intentionally fail
+without signing configuration.
 
 **Build time:** 3-5 minutes
 
@@ -135,12 +149,12 @@ flutter build apk --release
 
 ```bash
 # Check APK exists
-ls -lh build/app/outputs/flutter-app.apk
+ls -lh build/app/outputs/flutter-apk/app-debug.apk
 
 # Expected: ~50-100 MB file
 
 # Verify APK is valid
-aapt dump badging build/app/outputs/flutter-app.apk | grep package
+aapt dump badging build/app/outputs/flutter-apk/app-debug.apk | grep package
 # Expected: package: name='com.pakconnect.app'
 ```
 
@@ -159,7 +173,7 @@ adb devices
 # Deploy to all devices
 for device in $(adb devices | grep device$ | awk '{print $1}'); do
   echo "Installing APK on $device..."
-  adb -s $device install -r build/app/outputs/flutter-app.apk
+  adb -s $device install -r build/app/outputs/flutter-apk/app-debug.apk
 done
 
 # Expected: "Success" message for each device
@@ -183,23 +197,12 @@ adb -s <device_serial> shell dumpsys package com.pakconnect.app | grep versionNa
 
 ## Logging Setup for Testing
 
-### Enable Enhanced Logging
+### Use Existing Structured Logging
 
-Before testing, ensure logging is configured. Edit `lib/main.dart`:
-
-```dart
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Set up logging for testing
-  Logger.root.level = Level.ALL;
-  Logger.root.onRecord.listen((record) {
-    print('${record.level.name}: ${record.loggerName}: ${record.message}');
-  });
-
-  // ... rest of initialization
-}
-```
+Do not edit `lib/main.dart` or add `print()` calls for a device run. Use the
+existing structured logging in a debug build and capture logcat. If the current
+logs cannot prove a matrix row, add a bounded, redaction-safe structured event
+through the normal code-review path.
 
 ### Log Collection Strategy
 
@@ -598,7 +601,7 @@ grep "No routes found" testing_logs/device_*.log
 | Routing Service | MeshRoutingService invoked | [ ] Pass |
 | Topology Changes | Routing adapts, recovery <5s | [ ] Pass |
 | No Crashes | Zero errors in logs | [ ] Pass |
-| Phase 2B.1 Valid | Behavior identical to Phase 2A | [ ] Pass |
+| Regression check | Behavior matches the current documented runtime contract | [ ] Pass |
 
 ---
 
@@ -648,7 +651,7 @@ adb -s <device> logcat -s "flutter" > logs/device.log &
 After completing all scenarios, create test report:
 
 ```markdown
-# Phase 2B.1 Real Device Test Report
+# PakConnect Real-Device Test Report
 
 **Test Date:** [Date]
 **Devices:** [Device list]
@@ -679,9 +682,9 @@ After completing all scenarios, create test report:
 
 ## Conclusion
 
-Overall Status: ✅ READY FOR PRODUCTION / ❌ NEEDS FIXES
+Scenario Set: ✅ PASS / ❌ FAIL / ⏸ PARTIAL
 
-Phase 2B.1 validation: ✅ COMPLETE / ❌ INCOMPLETE
+Readiness impact: [which exact device-matrix rows changed state]
 ```
 
 ---
@@ -689,10 +692,11 @@ Phase 2B.1 validation: ✅ COMPLETE / ❌ INCOMPLETE
 ## Next Steps
 
 ### After Successful Testing
-1. ✅ Commit Phase 2B.1 to git
-2. ✅ Merge to main branch
-3. ✅ Create release notes
-4. ✅ Plan Phase 2B.2
+1. Preserve and redact the evidence bundle.
+2. Update only the observed rows in the device validation matrix.
+3. Run the remaining matrix rows; do not infer production readiness from this
+   smoke subset.
+4. Submit any code/documentation change through the normal review process.
 
 ### After Failed Testing
 1. ❌ Collect logs and analyze root cause
@@ -700,7 +704,3 @@ Phase 2B.1 validation: ✅ COMPLETE / ❌ INCOMPLETE
 3. ❌ Fix issues
 4. ❌ Re-run failed scenario
 5. ❌ Repeat until all pass
-
----
-
-**Ready to start real device testing? Follow the checklist above and let me know when you complete each scenario!**

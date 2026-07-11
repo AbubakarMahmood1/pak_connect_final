@@ -67,6 +67,121 @@ Before finishing a multi-step task:
 
 ---
 
+# Canonical reconciliation + FYP readiness (Codex, 2026-07-11)
+
+## Goal
+
+Reconcile the authoritative repository with the freshest preserved work, vet
+the inherited BLE/Noise/mesh patch adversarially, close demonstrable defects,
+and leave PakConnect with durable architecture/status/device/debt evidence and
+a defensible FYP/portfolio readiness verdict.
+
+## Constraints
+
+- Preserve the identity, Noise, mesh, BLE and database invariants in
+  `AGENTS.md`.
+- Keep the compressed source checkpoint as recovery evidence; make new changes
+  only in the canonical repository.
+- Prefer focused fixes and red/green regressions over broad rewrites.
+- Desktop success cannot substitute for two-device BLE or SQLCipher evidence.
+- Do not promote placeholder transports or UI affordances as completed.
+
+## Facts
+
+- Canonical remote is `AbubakarMahmood/pak_connect`; reconciled branch is
+  `codex/reconcile-pakconnect`.
+- The pre-patch desktop suite passed 5,748 tests and static analysis.
+- The post-patch desktop suite passes 5,534 tests in 3m13s. The count changed
+  because six isolated dead implementations and their dedicated test clusters
+  were removed; output is saved in `flutter_test_latest.log`.
+- `flutter analyze --no-pub`, enforced Dart reachability, `git diff --check`
+  and runner shell syntax all pass.
+- The debug Android APK builds at
+  `build/app/outputs/flutter-apk/app-debug.apk` (203,988,860 bytes; SHA-256
+  `3B541A9C734977BF43E2621BFE300EB7CB316DFA391430722E6375DD6CF1F040`).
+- The exact verified code/test/tooling tree is committed as `a5c2b08`
+  (`fix: harden runtime and prune unreachable code`) and has not been pushed.
+- No Android device is attached; Windows/Chrome/Edge are visible and Visual
+  Studio is absent.
+- Desktop database tests can fall back to plaintext SQLite; SQLCipher remains
+  a device gate.
+- The preserved patch had seven promotion blockers in queue correlation,
+  targeted MTU/routing, strict-TDM attempt ownership, resume aliases, active
+  link inventory and failure signaling.
+- Direct user payload state is global rather than per-link. The safe current
+  policy is single-link delivery; exact multi-link control routing does not
+  imply multi-link payload readiness.
+- Change-log peer replay is explicitly absent from production composition;
+  local capture, export/import and bounded pruning remain active.
+
+## Approach
+
+1. Checkpoint the exact source tree and rebase its commits onto canonical main.
+2. Establish a clean baseline before changing semantics.
+3. Review high-risk diffs as an adversary, add focused regressions, then patch.
+4. Promote live architecture/status/device/debt documents from verified code.
+5. Reconcile misleading docs/tooling and fix remaining bounded defects.
+6. Run full verification, Android build and finally the physical-device matrix.
+
+## Steps
+
+1. **Complete:** preserve compressed source and reconcile canonical history.
+2. **Complete:** analyze, run critical suites and capture a full baseline.
+3. **Complete for desktop promotion:** harden queue correlation, single-link
+   payload containment, shared ACK ownership, BLE routing/TDM, GATT failure
+   signaling, reconnect/resume identity and fragment reassembly.
+4. **Complete:** maintain the live codebase/runtime/status/device/debt maps.
+5. **Complete:** reconcile security/testing/SRS/README/tooling claims and
+   close remaining `Now` debt.
+6. **Complete for local evidence:** analyzer, reachability enforcement, full
+   suite, runner syntax and Android debug APK.
+7. **Hardware/environment gate:** two-device BLE, Android SQLCipher-at-rest,
+   native background lifecycle, signed release and install evidence.
+
+## Verification
+
+- `flutter analyze --no-pub`: clean
+- Focused queue-sync, BLE lifecycle/TDM, messaging, fragment, reveal,
+  change-log and broadcast-list suites: green
+- Full `flutter test` with output saved to `flutter_test_latest.log`: 5,534
+  passed, 0 failed
+- `flutter build apk --debug --no-pub`: green
+- Two-device Android matrix in
+  `docs/testing/DEVICE_VALIDATION_STATUS.md`, executed with
+  `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`
+
+## Risks
+
+- BLE plugin inbound events do not expose a native connection generation.
+- A large formatting delta exists in inherited previously-unformatted tests;
+  review semantic diffs with whitespace ignored and commit mechanically where
+  practical.
+- Native background delivery, release signing and SQLCipher proof remain
+  external/device work.
+- Multi-link user payloads remain disabled until address/generation,
+  handshake identity, Noise readiness and ACK routing are one link-owned
+  record.
+
+## Resolved decisions
+
+- Root Node/MCP manifests were orphan research tooling and were removed.
+- Whole-library reachability is enforced: 433 runtime libraries plus four
+  reviewed test-only/dormant candidates, with zero unreviewed candidates.
+- The Group* implementation is a sender-local Broadcast Lists feature, not a
+  shared group protocol; product copy and SRS now state that boundary.
+- Metadata-only change-log peer replay remains out of production until it has
+  authenticated row transport and convergence semantics.
+
+## Closeout boundary
+
+Local implementation and build evidence is green. Final FYP demo/release
+readiness is still unproven until the hardware rows in
+`docs/testing/DEVICE_VALIDATION_STATUS.md` pass. The objective remains active;
+the next work is device evidence against code baseline `a5c2b08`, not
+speculative feature expansion.
+
+---
+
 # Bug-hunt + fix pass (Claude Fable 5, 2026-07-07)
 
 ## Goal

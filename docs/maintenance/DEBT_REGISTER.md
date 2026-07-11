@@ -1,0 +1,69 @@
+# PakConnect debt register
+
+Last reconciled: 2026-07-11
+
+This register contains confirmed liabilities that are not silently promoted as
+working features. `Now` means required before the current FYP/portfolio
+readiness gate; `Later` is bounded and accepted; `Investigate` needs evidence
+before a design decision.
+
+| ID | Priority | Status | Liability and evidence | Decision / exit condition |
+|---|---|---|---|---|
+| DEBT-SYNC-001 | P2 | Later | Live change-log replay is intentionally disabled; the dormant prototype carries metadata rather than full rows and has no authenticated transport or convergence contract | Enable only with row payloads, exact authenticated peer routing, partial-failure cursor rules and convergence tests; keep local capture/export/import/prune meanwhile |
+| DEBT-BG-001 | P1 | Later/device | Resume hook flushes pending messages, but there is no native Android WorkManager/service or iOS BGTask execution | Do not claim background delivery while suspended; choose platform design only after device lifecycle evidence |
+| DEBT-SQLCIPHER-001 | P1 | Device | Desktop tests fall back to plaintext SQLite; no current at-rest device proof | Complete the SQLCipher device proof in the validation ledger |
+| DEBT-QUEUE-LINK-001 | P1 | Later/device | Queue control frames route by exact address, but user-payload identity, send handles and ACK return remain globally scoped; the runtime now fails closed unless one unambiguous link is active | Record `address + connection generation -> verified ephemeral/persistent aliases + Noise-ready` at handshake completion, clear it on exact disconnect, target text and ACK by that binding, and prove A/B concurrent-link isolation on devices |
+| DEBT-RECONNECT-001 | P2 | Later | Manual reconnect now works but selects the first PakConnect service advertiser, not a requested contact | Add target hint/contact filtering before claiming reliable multi-peer manual reconnect |
+| DEBT-BLE-GEN-001 | P2 | Device | BLE plugin inbound events expose address but no native connection generation | Validate same-address rapid reconnect on hardware; upstream/extend plugin if delayed old-link events can cross a new connected event |
+| DEBT-BLE-API-001 | P2 | Investigate | BLE contract surface is large (many interfaces and phase markers), with partial static/service-locator fallbacks | Refactor only along measured ownership seams after two-device stabilization; no pre-test rewrite |
+| DEBT-GROUP-001 | P2 | Later | The shipped feature is now honestly bounded as sender-local broadcast lists: recipients get ordinary direct messages, with no group ID on the wire, synchronized membership, shared transcript/replies, or correlated broadcast receipts | Keep the current label and fail-safe direct-message behavior; implement a true group protocol only with authenticated membership/versioning, inbound persistence/dedup, reply/admin rules, mixed-version handling, and device tests |
+| DEBT-DI-001 | P2 | Investigate | Some services retain static resolver/service-locator fallbacks beside constructor DI | Migrate opportunistically when touching an owner; do not create a broad DI rewrite |
+| DEBT-FRAG-001 | P3 | Accepted | Legacy fragment envelope has no independent CRC | Noise authenticates encrypted traffic and conflicting duplicates are rejected; add checksum only if an unauthenticated transport use case is retained |
+| DEBT-RELAY-PRIV-001 | P1 | Later/device | All live outgoing relay callers omit `sealedSender`, no runtime caller generates a stealth envelope, and the production relay factory injects no `MessageCostPolicy`, so PoW is not enforced | Public claims are corrected; enable any feature only through an explicit policy backed by privacy, mixed-version, abuse, performance, and two-device tests |
+| DEBT-PLATFORM-001 | P3 | Environment | Windows desktop build cannot run here because Visual Studio is absent | Not an Android release blocker; validate if Windows is a claimed target |
+
+## Closed in the 2026-07-10/11 hardening pass
+
+- Queue responses can no longer complete the wrong target's pending round via
+  a claimed node ID or global alias.
+- Already-synchronized queue rounds emit a response.
+- Tokenless/uncorrelated responses cannot mutate queues or trigger reverse send.
+- Direct queue payloads fail closed on ambiguous multi-link state; central and
+  peripheral sends share the inbound ACK tracker and return ACK truth.
+- Targeted writes use the selected route's MTU and fail on route loss.
+- Strict-TDM milestones and cleanup are attempt-bound.
+- Resume delivery recognizes session/ephemeral/persistent aliases.
+- Active link IDs include every client and server route.
+- Manual reconnect no longer delegates to a permanent-null placeholder.
+- Inbound structural failure uses a typed exception, not a plaintext sentinel.
+- Fragment IDs are collision-resistant and reassembly state is validated and
+  bounded.
+- Archive/search results open persisted archive detail.
+- Mark-unread persists and refreshes in both HomeScreen interaction paths.
+- Production gossip no longer instantiates or invokes metadata-only change-log
+  peer replay; local capture/export/import/prune remains active.
+- Friend reveal is verified only in the authenticated handler, binds the
+  claimed key to the contact's chat identity, rejects stale/future proofs, and
+  routes `VIEW` by a typed stable snapshot even after disconnect.
+- Friend reveal transport reports success only after one unambiguous BLE route
+  accepts the protocol frame.
+- The former group surface is labeled and documented as Broadcast Lists;
+  sender/peer rendering uses the exact local key and queue acceptance is not
+  misreported as recipient delivery or a shared conversation.
+- Security, testing, SRS, CI and runtime docs now distinguish implemented
+  behavior, historical targets and device-gated claims. No numeric coverage
+  threshold or device CI job is claimed.
+- Whole-library reachability enforcement passes at 437 libraries: 433 runtime
+  reachable and four explicitly reviewed test-only candidates. Forty-four
+  unjustified libraries and six island-only test clusters were removed.
+- The orphan root Node/MCP research manifests were removed; Flutter remains the
+  only project runtime/toolchain manifest at the repository root.
+- The device runner uses the selected Flutter APK path and validates release
+  signing before build/install.
+- Payload-preview logging outside the fragmenter was removed.
+
+## Triage rule
+
+Promote a row to `Now` only with a concrete failure, misleading product claim,
+security/reliability gate, or demo-visible defect. Large architectural ideas
+stay `Investigate` until a narrow test or measurement proves the benefit.

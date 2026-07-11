@@ -97,30 +97,32 @@ Brief summaries of all use cases for quick reference.
 **Description**: User marks message as starred/important
 **Outcome**: Message accessible via starred messages list
 
-## UC-20: Create Group
+## UC-20: Create Broadcast List
 **Actor**: User
-**Description**: User creates a new contact group
-**Outcome**: Empty group created, ready for members
+**Description**: User creates a local named recipient list
+**Outcome**: Empty sender-local list created, ready for recipients
 
-## UC-21: Add Member to Group
+## UC-21: Add Recipient to List
 **Actor**: User
-**Description**: User adds contact to existing group
-**Outcome**: Contact becomes group member
+**Description**: User adds a contact to an existing local list
+**Outcome**: Contact receives future broadcasts as ordinary direct messages
 
-## UC-22: Remove Member from Group
+## UC-22: Remove Recipient from List
 **Actor**: User
-**Description**: User removes contact from group
-**Outcome**: Contact no longer receives group messages
+**Description**: User removes a contact from the local list
+**Outcome**: Contact no longer receives future broadcasts from that list
 
-## UC-23: Send Group Message
+## UC-23: Send Broadcast
 **Actor**: User
-**Description**: User sends message to all group members
-**Outcome**: Individual encrypted messages sent to each member
+**Description**: User queues the same content for all list recipients
+**Outcome**: Individual direct messages are queued for each recipient; no
+shared group conversation is created on recipient devices
 
-## UC-24: View Group Delivery Status
+## UC-24: View Recipient Queue Status
 **Actor**: User
-**Description**: User checks per-member delivery status
-**Outcome**: Delivery matrix displayed (pending/sent/delivered/failed)
+**Description**: User checks each recipient's local queue-submission status
+**Outcome**: Status list displays pending, queued, or failed; correlated
+delivery receipts are not currently wired
 
 ## UC-25: Generate Identity Keys
 **Actor**: System

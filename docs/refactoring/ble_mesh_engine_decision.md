@@ -1,7 +1,12 @@
 # BLE Mesh Engine Decision Note
 
 **Date:** 2026-03-24  
-**Status:** Architecture assessment based on current PakConnect code plus local reference material
+**Status:** Historical architecture assessment based on PakConnect plus local
+reference checkouts. Since this note, the strict-TDM scheduler was implemented
+and hardened with attempt generations, exact milestone ownership and focused
+tests. It remains behind `PAKCONNECT_STRICT_TDM` and still needs the comparative
+Android device runbook; current truth is in `PLANS.md`,
+`docs/architecture/RUNTIME_FLOWS.md` and the device ledger.
 
 ## Why This Exists
 
@@ -32,10 +37,10 @@ My recommendation:
 
 The code explicitly treats scan and advertise as something that should coexist:
 
-- [ble_advertising_service.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_advertising_service.dart:66) logs `"Starting peripheral advertising (dual-role mode)"`
-- [ble_advertising_service.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_advertising_service.dart:71) says `"NO mode switching"`
-- [ble_advertising_service.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_advertising_service.dart:72) says central and peripheral `"coexist"`
-- [burst_scanning_controller.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/domain/services/burst_scanning_controller.dart:161) says the peripheral mode check was removed because scanning and advertising coexist
+- [ble_advertising_service.dart](../../lib/data/services/ble_advertising_service.dart) logs `"Starting peripheral advertising (dual-role mode)"`
+- [ble_advertising_service.dart](../../lib/data/services/ble_advertising_service.dart) says `"NO mode switching"`
+- [ble_advertising_service.dart](../../lib/data/services/ble_advertising_service.dart) says central and peripheral `"coexist"`
+- [burst_scanning_controller.dart](../../lib/domain/services/burst_scanning_controller.dart) says the peripheral mode check was removed because scanning and advertising coexist
 
 That means the current design is **not** using time-sliced role separation. It is trying to sustain simultaneous scan + advertise behavior.
 
@@ -43,13 +48,13 @@ That means the current design is **not** using time-sliced role separation. It i
 
 The production host directly exposes both plugin roles:
 
-- [ble_platform_host.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/domain/services/ble_platform_host.dart:24) lazily creates `CentralManager()`
-- [ble_platform_host.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/domain/services/ble_platform_host.dart:27) lazily creates `PeripheralManager()`
+- [ble_platform_host.dart](../../lib/domain/services/ble_platform_host.dart) lazily creates `CentralManager()`
+- [ble_platform_host.dart](../../lib/domain/services/ble_platform_host.dart) lazily creates `PeripheralManager()`
 
 The connection manager also owns both roles independently:
 
-- [ble_connection_manager.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager.dart:31) `final CentralManager centralManager;`
-- [ble_connection_manager.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager.dart:32) `final PeripheralManager peripheralManager;`
+- [ble_connection_manager.dart](../../lib/data/services/ble_connection_manager.dart) `final CentralManager centralManager;`
+- [ble_connection_manager.dart](../../lib/data/services/ble_connection_manager.dart) `final PeripheralManager peripheralManager;`
 
 This matters because the app is currently coordinating two role-specific control surfaces, not one unified mesh engine.
 
@@ -57,16 +62,16 @@ This matters because the app is currently coordinating two role-specific control
 
 The repo is full of logic that exists specifically to manage scan/connect/race instability after the fact:
 
-- [ble_connection_manager_runtime_collision_policy.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager_runtime_collision_policy.dart:4) waits on inbound viability before deciding whether to yield
-- [ble_connection_manager_runtime_collision_policy.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager_runtime_collision_policy.dart:55) logs a collision tie-breaker that yields to inbound
-- [ble_connection_manager_runtime_collision_policy.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager_runtime_collision_policy.dart:81) compares local and remote collision tokens
-- [ble_connection_manager.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/data/services/ble_connection_manager.dart:74) tracks collision resolutions in flight
+- [ble_connection_manager_runtime_collision_policy.dart](../../lib/data/services/ble_connection_manager_runtime_collision_policy.dart) waits on inbound viability before deciding whether to yield
+- [ble_connection_manager_runtime_collision_policy.dart](../../lib/data/services/ble_connection_manager_runtime_collision_policy.dart) logs a collision tie-breaker that yields to inbound
+- [ble_connection_manager_runtime_collision_policy.dart](../../lib/data/services/ble_connection_manager_runtime_collision_policy.dart) compares local and remote collision tokens
+- [ble_connection_manager.dart](../../lib/data/services/ble_connection_manager.dart) tracks collision resolutions in flight
 
 This is not bad engineering. It is useful evidence. It shows the codebase has already been forced to build its own tie-break layer because the BLE role boundary is not naturally stable.
 
 ### 4. Burst scanning is not the same thing as radio scheduling
 
-PakConnect already has [BurstScanningController](/C:/Users/theab/Compressed/pak_connect_final/lib/domain/services/burst_scanning_controller.dart), but it only governs **scan bursts**. It does not act as a single owner of:
+PakConnect already has [BurstScanningController](../../lib/domain/services/burst_scanning_controller.dart), but it only governs **scan bursts**. It does not act as a single owner of:
 
 - scan windows
 - advertise windows
@@ -85,15 +90,14 @@ you have burst scanning inside a concurrent dual-role design.
 
 On Android, the plugin initializes separate native managers:
 
-- [BluetoothLowEnergyAndroidPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/android/src/main/kotlin/dev/zeekr/bluetooth_low_energy_android/BluetoothLowEnergyAndroidPlugin.kt:15) creates `CentralManagerImpl`
-- [BluetoothLowEnergyAndroidPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/android/src/main/kotlin/dev/zeekr/bluetooth_low_energy_android/BluetoothLowEnergyAndroidPlugin.kt:16) creates `PeripheralManagerImpl`
-- [BluetoothLowEnergyAndroidPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/android/src/main/kotlin/dev/zeekr/bluetooth_low_energy_android/BluetoothLowEnergyAndroidPlugin.kt:17) wires `CentralManagerHostApi`
-- [BluetoothLowEnergyAndroidPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/android/src/main/kotlin/dev/zeekr/bluetooth_low_energy_android/BluetoothLowEnergyAndroidPlugin.kt:18) wires `PeripheralManagerHostApi`
+- Historical external checkout `BluetoothLowEnergyAndroidPlugin.kt` creates
+  `CentralManagerImpl` and `PeripheralManagerImpl`, then wires both generated
+  host APIs.
 
 On the Dart side, the plugin mirrors that split:
 
-- [central_manager_impl.dart](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/lib/src/central_manager_impl.dart:15) defines `CentralManagerImpl`
-- [peripheral_manager_impl.dart](/C:/Users/theab/Compressed/pak_connect_final/reference/bluetooth_low_energy/bluetooth_low_energy_android/lib/src/peripheral_manager_impl.dart:16) defines `PeripheralManagerImpl`
+- Historical external `central_manager_impl.dart` and
+  `peripheral_manager_impl.dart` define the two Dart-side roles.
 
 That validates the core concern: this plugin gives you **two role controllers**, not a unified mesh coordinator.
 
@@ -113,11 +117,10 @@ So the exact sentence "MethodChannel causes everything" is too blunt, but the co
 
 The local Bitchat source strongly supports the idea that its BLE stack is built around a native mesh coordinator.
 
-- [BluetoothMeshService.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bitchat-android/app/src/main/java/com/bitchat/android/mesh/BluetoothMeshService.kt:28) describes itself as a coordinator over dedicated components
-- [BluetoothMeshService.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bitchat-android/app/src/main/java/com/bitchat/android/mesh/BluetoothMeshService.kt:34) lists `BluetoothConnectionManager` as one of those core components
-- [BluetoothConnectionManager.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bitchat-android/app/src/main/java/com/bitchat/android/mesh/BluetoothConnectionManager.kt:17) defines a native connection manager
-- [BluetoothConnectionManager.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bitchat-android/app/src/main/java/com/bitchat/android/mesh/BluetoothConnectionManager.kt:75) creates a `BluetoothGattServerManager`
-- [BluetoothConnectionManager.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bitchat-android/app/src/main/java/com/bitchat/android/mesh/BluetoothConnectionManager.kt:78) creates a `BluetoothGattClientManager`
+- In the historical external Bitchat checkout, `BluetoothMeshService.kt`
+  describes a coordinator over dedicated components and names
+  `BluetoothConnectionManager`; that manager creates both GATT server and GATT
+  client managers.
 
 That is a very different architecture from "Flutter app owns two plugin managers and keeps them coordinated from Dart."
 
@@ -129,12 +132,10 @@ I did **not** verify from the inspected source that Bitchat specifically solves 
 
 The local Bridgefy Flutter repo finished downloading, and it supports a more precise conclusion:
 
-- [bridgefy_method_channel.dart](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/lib/bridgefy_method_channel.dart:9) explicitly says the Flutter side uses method channels
-- [bridgefy_method_channel.dart](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/lib/bridgefy_method_channel.dart:13) creates `MethodChannel('bridgefy')`
-- [BridgefyPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/android/src/main/kotlin/me/bridgefy/plugin/flutter/BridgefyPlugin.kt:22) implements `FlutterPlugin, MethodCallHandler`
-- [BridgefyPlugin.kt](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/android/src/main/kotlin/me/bridgefy/plugin/flutter/BridgefyPlugin.kt:31) creates `MethodChannel(..., "bridgefy")`
-- [android/build.gradle](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/android/build.gradle:61) depends on `me.bridgefy:android-sdk:1.2.4@aar`
-- [bridgefy.podspec](/C:/Users/theab/Compressed/pak_connect_final/reference/bridgefy_flutter/ios/bridgefy.podspec:15) depends on `BridgefySDK`
+- In the historical external Bridgefy checkout,
+  `bridgefy_method_channel.dart` creates `MethodChannel('bridgefy')`, the
+  Android plugin implements `FlutterPlugin, MethodCallHandler`, and its Android
+  and iOS manifests depend on the native Bridgefy SDKs.
 
 That means the Flutter package is a **thin wrapper** over Bridgefy's native SDKs. It is useful as evidence for architecture shape, but it does **not** give you a transparent open-source mesh engine to study end to end from Flutter code alone. The real radio/mesh behavior lives underneath the wrapper.
 
@@ -354,7 +355,7 @@ That keeps your existing Flutter investment while removing the weakest boundary.
 
 Your anti-spam layer is real, but the "algorithmic token bucket with gas pricing" description is more aspirational than literal based on current code.
 
-What I verified in [spam_prevention_manager.dart](/C:/Users/theab/Compressed/pak_connect_final/lib/domain/services/spam_prevention_manager.dart:1):
+What I verified in [spam_prevention_manager.dart](../../lib/domain/services/spam_prevention_manager.dart):
 
 - rate limiting
 - trust scoring

@@ -1,7 +1,9 @@
 # Next Build Roadmap
 
 **Date:** 2026-03-25  
-**Status:** Practical short-term roadmap for PakConnect
+**Status:** Historical roadmap. Its TDM spike and local panic-wipe work have
+since moved into the live code/readiness program; use `PLANS.md` and
+`docs/status/READINESS_AUDIT.md` for current sequencing.
 
 ## Goal
 
@@ -44,7 +46,7 @@ Use the external model as a second opinion, not as a replacement for local verif
 Send:
 
 - the project zip
-- [ble_mesh_engine_decision.md](/C:/Users/theab/Compressed/pak_connect_final/docs/refactoring/ble_mesh_engine_decision.md)
+- [ble_mesh_engine_decision.md](ble_mesh_engine_decision.md)
 - the architecture-review prompt
 
 ### Expected Output
@@ -236,7 +238,8 @@ Do not implement the whole thing blindly first. Define:
 
 ### Step 3
 
-After the external review comes back, compare it with [ble_mesh_engine_decision.md](/C:/Users/theab/Compressed/pak_connect_final/docs/refactoring/ble_mesh_engine_decision.md).
+After the external review comes back, compare it with
+[ble_mesh_engine_decision.md](ble_mesh_engine_decision.md).
 
 If the external review does not materially change the recommendation, start the **Android TDM spike** next.
 
@@ -255,4 +258,3 @@ That gives you:
 - one clean decision point
 
 without getting trapped in premature full-duress complexity.
-

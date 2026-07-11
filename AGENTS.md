@@ -165,7 +165,9 @@ These must not be violated.
 1. Foreign keys use `ON DELETE CASCADE`.
 2. WAL mode remains enabled.
 3. Schema changes are tracked in migrations.
-4. SQLCipher keys derive from user passphrase -> PBKDF2 -> SQLCipher key.
+4. On Android/iOS, the SQLCipher credential is a random 256-bit value created
+   once and stored in platform secure storage. It is not derived from an app
+   passphrase; export/import passphrases use PBKDF2 separately.
 
 ## Common Pitfalls
 

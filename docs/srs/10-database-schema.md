@@ -3,12 +3,18 @@
 ## Overview
 
 **Database**: `pak_connect.db`
-**Version**: 9
-**Type**: SQLite 3 with SQLCipher encryption
-**Encryption**: AES-256-CBC
+**Version**: 12
+**Type**: SQLCipher-backed SQLite on Android/iOS; plaintext SQLite fallback on
+desktop/test
+**Encryption**: SQLCipher on Android/iOS (device proof required)
 **Journal Mode**: WAL (Write-Ahead Logging)
 **Foreign Keys**: Enabled
-**Total Tables**: 17 core tables + 1 FTS5 virtual table
+**Total Tables**: 18 ordinary tables + 1 FTS5 virtual table
+
+Counts and SQL below describe a fresh v12 database. Sequential upgrades can
+retain semantically equivalent named indexes (notably
+`idx_contacts_persistent_key`) that a fresh database represents with an
+implicit UNIQUE index.
 
 ---
 
@@ -17,7 +23,8 @@
 ### Entity Relationships
 
 **contacts** (1) ----< (M) **chats**
-- One contact can have one chat
+- A chat may reference one contact; the schema does not declare
+  `chats.contact_public_key` unique
 - Foreign Key: chats.contact_public_key → contacts.public_key
 
 **chats** (1) ----< (M) **messages**
@@ -25,9 +32,8 @@
 - Foreign Key: messages.chat_id → chats.chat_id
 - CASCADE DELETE
 
-**messages** (1) ----< (M) **messages** (self-referencing)
-- Messages can reply to other messages
-- Foreign Key: messages.reply_to_message_id → messages.id
+`messages.reply_to_message_id` stores an optional logical reply reference. The
+current schema indexes it but does not declare a self-referencing foreign key.
 
 **contacts** (1) ----< (M) **contact_last_seen**
 - One contact has one last_seen record
@@ -41,16 +47,18 @@
 
 **contact_groups** (1) ----< (M) **group_members** (M) >---- (1) **contacts**
 - Many-to-many relationship via junction table
+- Legacy table names store sender-local broadcast lists; they are not synced
+  membership records on recipient devices
 - Foreign Keys:
   - group_members.group_id → contact_groups.id (CASCADE DELETE)
   - group_members.member_key → implicit contacts lookup
 
 **contact_groups** (1) ----< (M) **group_messages**
-- One group contains many messages
+- One local broadcast list contains many sender-side dispatch records
 - Foreign Key: group_messages.group_id → contact_groups.id (CASCADE DELETE)
 
 **group_messages** (1) ----< (M) **group_message_delivery**
-- One group message has many delivery records (one per member)
+- One dispatch has one local queue-status record per recipient
 - Foreign Key: group_message_delivery.message_id → group_messages.id (CASCADE DELETE)
 
 ---
@@ -88,7 +96,9 @@ CREATE TABLE contacts (
 - `idx_contacts_security` ON (security_level)
 - `idx_contacts_last_seen` ON (last_seen DESC)
 - `idx_contacts_favorite` ON (is_favorite) WHERE is_favorite = 1
-- `idx_contacts_persistent_key` ON (persistent_public_key) WHERE persistent_public_key IS NOT NULL
+- UNIQUE constraint on `persistent_public_key` (fresh installs use SQLite's
+  implicit unique index; the v8 upgrade creates the named partial index
+  `idx_contacts_persistent_key`)
 
 **Constraints**:
 - PRIMARY KEY: public_key
@@ -262,7 +272,8 @@ CREATE TABLE queue_sync_state (
   consecutive_failures INTEGER DEFAULT 0,
   sync_enabled INTEGER DEFAULT 1,
   metadata_json TEXT,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  last_synced_changelog_id INTEGER DEFAULT 0
 );
 ```
 
@@ -306,7 +317,7 @@ CREATE TABLE archived_chats (
 
   -- Archive metadata
   archive_reason TEXT,
-  estimated_size INTEGER NOT NULL,
+  estimated_size INTEGER,
   is_compressed INTEGER DEFAULT 0,
   compression_ratio REAL,
 
@@ -335,7 +346,7 @@ CREATE TABLE archived_chats (
 CREATE TABLE archived_messages (
   id TEXT PRIMARY KEY,
   archive_id TEXT NOT NULL,
-  original_message_id TEXT NOT NULL,
+  original_message_id TEXT,
   chat_id TEXT NOT NULL,
 
   -- Basic message fields
@@ -349,7 +360,7 @@ CREATE TABLE archived_messages (
   thread_id TEXT,
   is_starred INTEGER DEFAULT 0,
   is_forwarded INTEGER DEFAULT 0,
-  priority INTEGER DEFAULT 1,
+  priority INTEGER DEFAULT 0,
   edited_at INTEGER,
   original_content TEXT,
   has_media INTEGER DEFAULT 0,
@@ -403,6 +414,11 @@ CREATE VIRTUAL TABLE archived_messages_fts USING fts5(
 - `archived_msg_fts_delete` - On DELETE
 - `archived_msg_fts_update` - On UPDATE
 
+**Migration parity risk**: Fresh v12 databases use the `porter unicode61`
+tokenizer. The historical v1→v2 migration currently rebuilds this FTS table
+with `porter` only, so upgraded and fresh databases are not yet proven to have
+identical Unicode search behavior.
+
 ---
 
 ### 10. device_mappings
@@ -447,7 +463,9 @@ CREATE TABLE contact_last_seen (
 
 ### 12. migration_metadata
 
-**Purpose**: Track data migration progress from SharedPreferences → SQLite
+**Purpose**: Retain generic migration metadata. The historical
+SharedPreferences-to-SQLite importer is retired; the surviving shim only
+removes obsolete preference keys.
 
 **Schema**:
 ```sql
@@ -482,7 +500,7 @@ CREATE TABLE app_preferences (
 
 ### 14. contact_groups
 
-**Purpose**: Contact group definitions for multi-unicast messaging
+**Purpose**: Sender-local broadcast-list definitions (legacy table name)
 
 **Schema**:
 ```sql
@@ -502,7 +520,7 @@ CREATE TABLE contact_groups (
 
 ### 15. group_members
 
-**Purpose**: Junction table for group membership (many-to-many)
+**Purpose**: Junction table for local list recipients (many-to-many)
 
 **Schema**:
 ```sql
@@ -526,7 +544,7 @@ CREATE TABLE group_members (
 
 ### 16. group_messages
 
-**Purpose**: Group message storage
+**Purpose**: Sender-local broadcast history (legacy schema name)
 
 **Schema**:
 ```sql
@@ -548,7 +566,9 @@ CREATE TABLE group_messages (
 
 ### 17. group_message_delivery
 
-**Purpose**: Per-member delivery tracking for group messages
+**Purpose**: Per-recipient sender-local queue status. The persisted `sent`
+value currently means accepted by the ordinary direct-message queue; direct
+ACKs are not correlated back to this table.
 
 **Schema**:
 ```sql
@@ -571,6 +591,45 @@ CREATE TABLE group_message_delivery (
 
 ---
 
+### 18. seen_messages
+
+**Purpose**: Persist mesh duplicate-detection entries by message ID and seen
+type.
+
+```sql
+CREATE TABLE seen_messages (
+  message_id TEXT NOT NULL,
+  seen_type TEXT NOT NULL,
+  seen_at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, seen_type)
+);
+```
+
+**Indexes**: `idx_seen_messages_type`, `idx_seen_messages_time`
+
+---
+
+### 19. change_log
+
+**Purpose**: Record insert/update/delete keys for incremental export and the
+currently deferred peer change-log protocol.
+
+```sql
+CREATE TABLE change_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_name TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  row_key TEXT NOT NULL,
+  changed_at INTEGER NOT NULL
+);
+```
+
+Nine triggers capture changes to `contacts`, `chats`, and `messages`.
+
+**Indexes**: `idx_change_log_table_time`, `idx_change_log_time`
+
+---
+
 ## Database Configuration
 
 **PRAGMAs Applied**:
@@ -581,13 +640,21 @@ PRAGMA cache_size = -10000;                -- 10MB cache
 ```
 
 **Encryption** (SQLCipher):
-- Algorithm: AES-256-CBC
-- Key Derivation: PBKDF2 with SHA-512
-- Key stored in: FlutterSecureStorage
+- Android/iOS application credential: random 256-bit value generated once
+- Credential storage: platform secure storage via `FlutterSecureStorage`
+- The application credential is not derived from a user passphrase; SQLCipher
+  applies its own library-level cipher/KDF configuration internally
+- Desktop/test databases may use plaintext SQLite and are not evidence of
+  mobile at-rest encryption
 
 ---
 
 ## Migration History
+
+`DatabaseMigrationRunner` implements the sequence through v12. Fresh-schema
+tests cover the v11 change-log objects, but no direct v10→v11→v12 upgrade-path
+test was found during this audit; physical-device migration evidence is also
+pending.
 
 **v1 → v2**: Added `chat_id` to `archived_messages`
 **v2 → v3**: Removed unused `user_preferences` table, enabled SQLCipher
@@ -596,7 +663,10 @@ PRAGMA cache_size = -10000;                -- 10MB cache
 **v5 → v6**: Added `is_favorite` field to `contacts`
 **v6 → v7**: Added `ephemeral_id` to `contacts`
 **v7 → v8**: Added `persistent_public_key` and `current_ephemeral_id` to `contacts` (three-ID model)
-**v8 → v9**: Added group messaging tables (`contact_groups`, `group_members`, `group_messages`, `group_message_delivery`)
+**v8 → v9**: Added the legacy Group*-named tables now used for sender-local broadcast lists (`contact_groups`, `group_members`, `group_messages`, `group_message_delivery`)
+**v9 → v10**: Added `seen_messages` and duplicate-detection indexes
+**v10 → v11**: Added `change_log` plus nine triggers
+**v11 → v12**: Added `queue_sync_state.last_synced_changelog_id`
 
 ---
 
@@ -609,8 +679,6 @@ erDiagram
     contacts }o--o{ contact_groups : "member of"
 
     chats ||--o{ messages : "contains"
-
-    messages ||--o{ messages : "replies to"
 
     archived_chats ||--o{ archived_messages : "contains"
 
@@ -661,7 +729,7 @@ erDiagram
 
 ---
 
-**Total Tables**: 17 + 1 FTS5
-**Total Indexes**: 30+
-**Total Foreign Keys**: 11
-**Last Updated**: 2025-01-19
+**Total Tables**: 18 ordinary + 1 FTS5 virtual table
+**Total Explicit Indexes**: 35
+**Total Declared Foreign Keys**: 7
+**Last Updated**: 2026-07-11

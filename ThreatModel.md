@@ -16,7 +16,7 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 - **Local filesystem**: Export bundles and backups are user-selected files; imports must be treated as untrusted input.
 - **OS secure storage**: `FlutterSecureStorage` is trusted to protect static identity keys and SQLCipher keys; compromise of the device or keychain breaks confidentiality.
 - **Local database**: SQLCipher is used on Android/iOS; desktop/test builds may be plaintext and should not be treated as secure.
-- **Build-time configuration**: Flags can enable legacy crypto or relax signature requirements (e.g., `PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT`, `PAKCONNECT_REQUIRE_V2_SIGNATURE`).
+- **Build-time configuration**: `PAKCONNECT_REQUIRE_V2_SIGNATURE=false` can relax v2 signature enforcement, and `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD=false` can disable the per-peer protocol floor. There is no active legacy-decryption build flag.
 
 ### Attacker-controlled inputs
 - BLE handshake messages, Noise frames, protocol envelopes, relay metadata, and message fragments.
@@ -30,7 +30,7 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 - Local user preferences that influence relay queue behavior or power modes.
 
 ### Developer-controlled inputs
-- Build-time flags for legacy crypto/decrypt and downgrade guards.
+- Build-time flags for signature enforcement and the protocol downgrade guard.
 - Test fixtures, mocks, and debug logging overrides.
 - Desktop/test configuration that disables SQLCipher encryption.
 
@@ -44,7 +44,7 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 ### 3.1 BLE handshake, identity establishment, and key management
 **Surface**: `lib/data/services/ble_handshake_service.dart`, `lib/core/security/noise/*`, `lib/core/services/security_manager.dart`, `lib/domain/services/ephemeral_key_manager.dart`.
 
-**Threats**: MITM during first contact, identity spoofing with ephemeral IDs, replay of handshake frames, downgrade attempts to legacy crypto, or abusive handshake flooding.
+**Threats**: MITM/identity confusion during an unverified first contact, identity spoofing with ephemeral IDs, replay of handshake frames, protocol downgrade attempts, or abusive handshake flooding.
 
 **Mitigations**:
 - Noise XX/KK handshake with static identity keys stored in secure storage (`NoiseEncryptionService`).
@@ -58,18 +58,19 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 - An attacker replays old handshake frames or floods handshakes to exhaust resources. The handshake coordinator and connection limits reduce, but do not eliminate, DoS risk.
 
 ### 3.2 Protocol parsing, encryption metadata, and signatures
-**Surface**: `lib/domain/models/protocol_message.dart`, `lib/domain/models/crypto_header.dart`, `lib/data/services/protocol_message_handler.dart`, `lib/domain/services/signing_manager.dart`, `lib/domain/services/simple_crypto.dart`.
+**Surface**: `lib/domain/models/protocol_message.dart`, `lib/domain/models/crypto_header.dart`, `lib/data/services/protocol_message_handler.dart`, `lib/data/services/inbound_text_processor.dart`, and the signing/conversation crypto services. `simple_crypto.dart` is a compatibility alias, not a separate legacy decrypt lane.
 
 **Threats**: Crafted payloads that bypass signature checks, malformed compressed frames causing memory spikes, or downgrade to legacy formats to avoid encryption.
 
 **Mitigations**:
 - Canonical signing of v2+ messages and explicit signature verification (`SigningManager`).
-- Default requirement for v2 signatures and explicit opt-in for legacy decryption via build flags (`ProtocolMessageHandler`).
-- Plaintext markers for legacy compatibility to avoid silent insecurity (`SimpleCrypto`).
+- Default requirement for v2 signatures; a build can explicitly relax it only with `PAKCONNECT_REQUIRE_V2_SIGNATURE=false` (`ProtocolMessageHandler`, `InboundTextProcessor`).
+- A per-peer protocol floor rejects v1 frames after that peer has been observed using v2+, unless the downgrade guard is explicitly disabled (`PeerProtocolVersionGuard`).
+- The `SimpleCrypto` name remains only as a compatibility facade over the active signing, contact, and conversation crypto services; its old legacy wrapper/decrypt lane is removed.
 - Crypto metadata embedded in message envelopes (`CryptoHeader`) and fail-closed encryption on send (`SecurityManager`).
 
 **Attacker stories**:
-- A malicious peer sends legacy v1 frames to bypass signatures. The downgrade guard and build defaults reject these unless developers explicitly weaken enforcement.
+- A new or not-yet-upgraded peer can still send migration-compatible v1 frames. After a stable peer identity is observed at v2+, later v1 frames for that identity are rejected by default. A build with signature enforcement or the downgrade guard disabled weakens this boundary.
 - A crafted compressed payload attempts to trigger decompression overhead. The protocol parser handles errors gracefully, but compression ratio limits are not globally enforced, so large payloads remain a DoS vector.
 
 ### 3.3 Mesh relay, fragmentation, and DoS resistance
@@ -136,15 +137,15 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 - Avoids embedded web views for untrusted content.
 
 ### 3.8 Build, CI, and debug configuration
-**Surface**: Build-time flags, test overrides, and debug logging (`SimpleCrypto`, `ProtocolMessageHandler`, `DatabaseEncryption`).
+**Surface**: Build-time flags, test overrides, and debug logging (`ProtocolMessageHandler`, `InboundTextProcessor`, `PeerProtocolVersionGuard`, `DatabaseEncryption`).
 
-**Threats**: Insecure builds that enable legacy decryption or disable signature requirements, or test overrides that disable secure storage.
+**Threats**: Insecure builds that disable signature/downgrade enforcement, or test overrides that replace secure storage.
 
 **Mitigations**:
-- Secure defaults: legacy decrypt disabled; v2 signatures required by default.
+- Secure defaults: v2 signatures are required and the per-peer v2 downgrade guard is enabled. No active legacy-decryption flag exists.
 - Test-only overrides are gated by `@visibleForTesting` or build flags.
 
-**Attacker story**: A misconfigured build shipped to production with `PAKCONNECT_ALLOW_LEGACY_V2_DECRYPT=true` would downgrade security even without an attacker controlling runtime inputs.
+**Attacker story**: A production build shipped with `PAKCONNECT_REQUIRE_V2_SIGNATURE=false` or `PAKCONNECT_ENFORCE_V2_DOWNGRADE_GUARD=false` would weaken message authentication/downgrade resistance even without an attacker controlling runtime inputs.
 
 ## 4. Criticality calibration (critical, high, medium, low)
 **Critical**

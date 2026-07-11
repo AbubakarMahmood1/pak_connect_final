@@ -41,7 +41,7 @@ Problem statement, project motivation, objectives, scope, and stakeholder analys
 Detailed functional requirements extracted from implemented code.
 
 **Sections**:
-- **FR-1: Messaging** (1-to-1, groups, offline queue, features)
+- **FR-1: Messaging** (1-to-1, sender-local broadcast lists, offline queue, features)
   - 26 requirements
 - **FR-2: Mesh Networking** (relay, topology, queue sync)
   - 15 requirements
@@ -101,7 +101,7 @@ Use case context for diagram generation.
 1. Core Messaging (send, receive, relay)
 2. Contact Management (add, verify, delete, search)
 3. Chat Management (open, archive, pin, export)
-4. Group Messaging (create, add members, send)
+4. Broadcast Lists (create local list, add recipients, multi-unicast into direct chats)
 5. Security & Keys (identity, handshake, upgrade, rekey)
 6. Mesh Networking (relay, sync, spam prevention)
 
@@ -193,10 +193,10 @@ Process flows and state transitions.
 Complete database documentation.
 
 **Contents**:
-- 17 core tables + 1 FTS5 virtual table
+- 18 ordinary tables + 1 FTS5 virtual table
 - All SQL CREATE statements
 - ER diagram (Mermaid)
-- Migration history (v1 → v9)
+- Migration history (v1 → v12)
 
 **Key Tables**:
 - **contacts**: Three-ID model (publicKey, persistentPublicKey, currentEphemeralId)
@@ -204,7 +204,9 @@ Complete database documentation.
 - **messages**: Enhanced message storage with JSON blobs
 - **offline_message_queue**: Persistent queue with retry logic
 - **archived_chats** + **archived_messages**: Archive system with FTS5
-- **contact_groups** + **group_members** + **group_messages** + **group_message_delivery**: Group messaging (v9)
+- **contact_groups** + **group_members** + **group_messages** + **group_message_delivery**: sender-local broadcast lists/status (legacy v9 names)
+- **seen_messages**: Persistent mesh duplicate detection (v10)
+- **change_log**: Incremental change tracking (v11)
 
 **Features**:
 - SQLCipher encryption (AES-256)
@@ -238,7 +240,7 @@ Complete database documentation.
 | Class Diagrams | 5 |
 | Activity Diagrams | 3 |
 | State Machines | 3 |
-| Database Tables | 17 + 1 FTS5 |
+| Database Tables | 18 ordinary + 1 FTS5 virtual table |
 | Classes Documented | 25+ |
 | Total Pages (estimated) | 100+ |
 
@@ -246,12 +248,14 @@ Complete database documentation.
 
 ## Document Generation Metadata
 
-**Extraction Method**: Direct code analysis using AST parsing, grep, and file reading
-**Verification**: All claims cross-referenced with actual implementation
-**Codebase Version**: Database Schema v9, Git commit b3aa452
+**Extraction Method**: Direct code analysis and file reading
+**Verification**: Database/toolchain/testing claims were revalidated on
+2026-07-11; feature-status claims elsewhere in the SRS may still require
+runtime or device evidence
+**Codebase Version**: Database Schema v12
 **Excluded**: UI implementation details, test files, future/planned features
 **Included**: Core, Domain, Data layers; all business logic and infrastructure
-**Documentation Date**: Originally extracted 2025-01-19, last updated 2026-04
+**Documentation Date**: Originally extracted 2025-01-19, last updated 2026-07-11
 
 ---
 
