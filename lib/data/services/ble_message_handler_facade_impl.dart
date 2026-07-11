@@ -313,11 +313,16 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         senderPublicKey: fromNodeId,
         contactRepository: _contactRepository,
       );
+    } on InboundMessageProcessingException {
+      rethrow;
     } catch (e) {
       _logger.warning('⚠️ processReceivedData failed: $e');
-      // Surface genuine processing failures so the GATT layer can NACK
-      // instead of silently ACKing a dropped frame (PC-GATT-002).
-      return IBLEMessageHandlerFacade.processingFailedMarker;
+      // Surface genuine processing failures through a typed channel so valid
+      // plaintext can never collide with a reserved failure string.
+      throw InboundMessageProcessingException(
+        'BLE message facade processing failed',
+        e,
+      );
     }
   }
 
@@ -562,7 +567,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   @override
   set onIdentityRevealed(Function(String contactName)? callback) {
     _handler.onIdentityRevealed = callback;
-    _splitFacade.onIdentityRevealed = callback;
   }
 
   @override
@@ -582,6 +586,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       stateManagerProvider: () => legacyStateManager,
       onMessageOperationChanged: _onMessageOperationChanged,
       logger: Logger('BleWriteAdapter'),
+      ackTracker: _handler.messageAckTracker,
     );
     if (_currentNodeId != null) {
       adapter.setCurrentNodeId(_currentNodeId!);

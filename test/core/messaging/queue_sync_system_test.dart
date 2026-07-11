@@ -231,6 +231,8 @@ void main() {
         expect(syncMessage.messageIds, equals(messageIds));
         expect(syncMessage.nodeId, equals(testNodeId1));
         expect(syncMessage.queueHash, isNotEmpty);
+        expect(syncMessage.syncId, isNotNull);
+        expect(syncMessage.syncId, isNotEmpty);
       });
 
       test('should create sync response message', () {
@@ -273,6 +275,24 @@ void main() {
         );
         expect(deserializedMessage.nodeId, equals(originalMessage.nodeId));
         expect(deserializedMessage.syncType, equals(originalMessage.syncType));
+        expect(deserializedMessage.syncId, equals(originalMessage.syncId));
+      });
+
+      test('direct request construction can be upgraded with a sync id', () {
+        final legacyRequest = QueueSyncMessage(
+          queueHash: 'hash',
+          messageIds: const [],
+          syncTimestamp: DateTime(2024, 1, 1),
+          nodeId: testNodeId1,
+          syncType: QueueSyncType.request,
+        );
+
+        final upgraded = legacyRequest.ensureSyncId();
+
+        expect(upgraded.syncId, isNotNull);
+        expect(upgraded.syncId, isNotEmpty);
+        expect(upgraded.queueHash, legacyRequest.queueHash);
+        expect(upgraded.nodeId, legacyRequest.nodeId);
       });
 
       test('should detect queue synchronization status', () {
@@ -406,6 +426,12 @@ void main() {
       });
 
       test('should handle sync responses', () async {
+        late QueueSyncMessage request;
+        await syncManager1.initialize(
+          onSyncRequest: (message, _) => request = message,
+        );
+        final completion = syncManager1.initiateSync(testNodeId2);
+        await Future<void>.delayed(Duration.zero);
         final responseMessage = QueueSyncMessage.createResponse(
           messageIds: ['msg1', 'msg2'],
           nodeId: testNodeId2,
@@ -416,6 +442,7 @@ void main() {
             lastSyncTime: DateTime.now(),
             successRate: 1.0,
           ),
+          syncId: request.syncId,
         );
 
         final result = await syncManager1.processSyncResponse(
@@ -423,6 +450,7 @@ void main() {
           [], // No received messages for this test
           testNodeId2,
         );
+        await completion;
 
         expect(result.success, isTrue);
         expect(result.messagesReceived, equals(0));
@@ -684,28 +712,31 @@ void main() {
       await TestSetup.nukeDatabase();
     });
 
-    test('should calculate and cache large queue hashes deterministically', () async {
-      const int messageCount = 1000;
+    test(
+      'should calculate and cache large queue hashes deterministically',
+      () async {
+        const int messageCount = 1000;
 
-      // Add many messages
-      for (int i = 0; i < messageCount; i++) {
-        await largeQueue.queueMessage(
-          chatId: 'test_chat_$i',
-          content: 'Message content $i',
-          recipientPublicKey: 'recipient_key_$i',
-          senderPublicKey: 'sender_key_$i',
-        );
-      }
+        // Add many messages
+        for (int i = 0; i < messageCount; i++) {
+          await largeQueue.queueMessage(
+            chatId: 'test_chat_$i',
+            content: 'Message content $i',
+            recipientPublicKey: 'recipient_key_$i',
+            senderPublicKey: 'sender_key_$i',
+          );
+        }
 
-      final hash = largeQueue.calculateQueueHash(forceRecalculation: true);
-      final cachedHash = largeQueue.calculateQueueHash();
-      final performanceStats = largeQueue.getPerformanceStats();
+        final hash = largeQueue.calculateQueueHash(forceRecalculation: true);
+        final cachedHash = largeQueue.calculateQueueHash();
+        final performanceStats = largeQueue.getPerformanceStats();
 
-      expect(hash, isNotEmpty);
-      expect(cachedHash, equals(hash));
-      expect(performanceStats['totalMessages'], equals(messageCount));
-      expect(performanceStats['hashCached'], isTrue);
-    });
+        expect(hash, isNotEmpty);
+        expect(cachedHash, equals(hash));
+        expect(performanceStats['totalMessages'], equals(messageCount));
+        expect(performanceStats['hashCached'], isTrue);
+      },
+    );
 
     test('should reuse cached hashes until queue state changes', () async {
       // Add some messages

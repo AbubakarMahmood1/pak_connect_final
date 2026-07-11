@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/entities/archived_chat.dart';
+import 'package:pak_connect/domain/entities/archived_message.dart';
+import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/models/archive_models.dart';
 import 'package:pak_connect/domain/services/archive_management_service.dart';
 import 'package:pak_connect/domain/services/archive_search_service.dart';
@@ -26,6 +28,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
   int archiveChatCalls = 0;
   int restoreChatCalls = 0;
   int getSummariesCalls = 0;
+  int getArchivedChatCalls = 0;
 
   ArchiveSearchFilter? lastFilter;
   int? lastLimit;
@@ -35,6 +38,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
   Map<String, dynamic>? lastArchiveMetadata;
   bool? lastArchiveForce;
   ArchiveId? lastRestoreArchiveId;
+  ArchiveId? lastReadArchiveId;
   String? lastRestoreTargetChatId;
   bool? lastRestoreOverwriteExisting;
 
@@ -58,6 +62,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
     bool overwriteExisting,
   })?
   restoreHandler;
+  Future<ArchivedChat?> Function(ArchiveId archiveId)? archivedChatHandler;
 
   @override
   Future<void> initialize() async {
@@ -97,6 +102,13 @@ class _TestArchiveManagementService implements ArchiveManagementService {
       return summariesHandler!(filter: filter, limit: limit, offset: offset);
     }
     return const [];
+  }
+
+  @override
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) async {
+    getArchivedChatCalls++;
+    lastReadArchiveId = archiveId;
+    return archivedChatHandler?.call(archiveId);
   }
 
   @override
@@ -276,6 +288,48 @@ EnhancedArchiveSummary _enhancedSummary({
   return EnhancedArchiveSummary.fromSummary(
     summary,
     ArchiveBusinessMetadata.empty(),
+  );
+}
+
+ArchivedChat _archivedChat({
+  required String archiveId,
+  required String chatId,
+  required String contactName,
+  required String content,
+}) {
+  final archivedAt = DateTime(2026, 3, 1);
+  final message = Message(
+    id: MessageId('message-$archiveId'),
+    chatId: ChatId(chatId),
+    content: content,
+    timestamp: DateTime(2026, 2, 28),
+    isFromMe: false,
+    status: MessageStatus.delivered,
+  );
+  return ArchivedChat(
+    id: ArchiveId(archiveId),
+    originalChatId: ChatId(chatId),
+    contactName: contactName,
+    archivedAt: archivedAt,
+    messageCount: 1,
+    metadata: const ArchiveMetadata(
+      version: '1.0',
+      reason: 'test',
+      originalUnreadCount: 0,
+      wasOnline: false,
+      hadUnsentMessages: false,
+      estimatedStorageSize: 512,
+      archiveSource: 'test',
+      tags: ['tag-a'],
+      hasSearchIndex: true,
+    ),
+    messages: [
+      ArchivedMessage.fromMessage(
+        message,
+        archivedAt,
+        customArchiveId: ArchiveId(archiveId),
+      ),
+    ],
   );
 }
 
@@ -598,9 +652,7 @@ void main() {
       final management = _TestArchiveManagementService(
         archiveUpdatesStream: updates.stream,
       );
-      management.summariesHandler =
-          ({ArchiveSearchFilter? filter, int? limit, int? offset}) async =>
-              const [];
+      management.archivedChatHandler = (_) async => null;
 
       final container = ProviderContainer(
         overrides: [
@@ -613,10 +665,12 @@ void main() {
         archivedChatProvider(const ArchiveId('missing')).future,
       );
       expect(archived, isNull);
+      expect(management.lastReadArchiveId, const ArchiveId('missing'));
+      expect(management.getSummariesCalls, 0);
     });
 
     test(
-      'archivedChatProvider builds ArchivedChat from matching summary',
+      'archivedChatProvider returns the complete archived chat and messages',
       () async {
         final updates = StreamController<ArchiveUpdateEvent>.broadcast();
         addTearDown(updates.close);
@@ -624,15 +678,14 @@ void main() {
         final management = _TestArchiveManagementService(
           archiveUpdatesStream: updates.stream,
         );
-        final enhanced = _enhancedSummary(
+        final expected = _archivedChat(
           archiveId: 'archive-42',
           chatId: 'chat-42',
           contactName: 'Bob',
+          content: 'Persisted archive message',
         );
-        management.summariesHandler =
-            ({ArchiveSearchFilter? filter, int? limit, int? offset}) async => [
-              enhanced,
-            ];
+        management.archivedChatHandler = (archiveId) async =>
+            archiveId == expected.id ? expected : null;
 
         final container = ProviderContainer(
           overrides: [
@@ -644,11 +697,14 @@ void main() {
         final archived = await container.read(
           archivedChatProvider(const ArchiveId('archive-42')).future,
         );
-        expect(archived, isNotNull);
+        expect(archived, same(expected));
         expect(archived!.id, const ArchiveId('archive-42'));
         expect(archived.contactName, 'Bob');
         expect(archived.originalChatId, const ChatId('chat-42'));
         expect(archived.metadata.tags, ['tag-a']);
+        expect(archived.messages, hasLength(1));
+        expect(archived.messages.single.content, 'Persisted archive message');
+        expect(management.getSummariesCalls, 0);
       },
     );
 
@@ -659,9 +715,8 @@ void main() {
       final management = _TestArchiveManagementService(
         archiveUpdatesStream: updates.stream,
       );
-      management.summariesHandler =
-          ({ArchiveSearchFilter? filter, int? limit, int? offset}) async =>
-              throw Exception('archive-read-failed');
+      management.archivedChatHandler = (_) async =>
+          throw Exception('archive-read-failed');
 
       final container = ProviderContainer(
         overrides: [

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/models/stealth_envelope.dart';
@@ -354,8 +355,9 @@ class MeshRelayMessage {
     // PHASE 2: Deserialize message type with backward compatibility
     ProtocolMessageType? messageType;
     if (json.containsKey('originalMessageType')) {
-      messageType =
-          ProtocolMessageTypeWireId.fromWireType(json['originalMessageType']);
+      messageType = ProtocolMessageTypeWireId.fromWireType(
+        json['originalMessageType'],
+      );
     }
 
     return MeshRelayMessage(
@@ -372,6 +374,8 @@ class MeshRelayMessage {
 
 /// Queue synchronization message for mesh coordination
 class QueueSyncMessage {
+  static final Random _syncIdRandom = Random.secure();
+
   /// Hash of the current message queue state
   final String queueHash;
 
@@ -387,6 +391,13 @@ class QueueSyncMessage {
 
   /// Type of sync operation
   final QueueSyncType syncType;
+
+  /// Opaque request/response correlation token.
+  ///
+  /// A response must echo the request token. This binds completion to the
+  /// initiated round without trusting a peer-controlled nodeId or whichever
+  /// global identity alias happens to be active when the response arrives.
+  final String? syncId;
 
   /// Optional: Specific message hashes for verification
   final Map<String, String>? messageHashes;
@@ -406,6 +417,7 @@ class QueueSyncMessage {
     required this.syncTimestamp,
     required this.nodeId,
     required this.syncType,
+    this.syncId,
     this.messageHashes,
     this.queueStats,
     this.gcsFilter,
@@ -418,6 +430,7 @@ class QueueSyncMessage {
     Map<String, String>? messageHashes,
     String? queueHash, // Optional: pre-calculated queue hash for optimization
     GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
+    String? syncId,
   }) {
     final normalizedIds = messageIds
         .map((id) => id.toString())
@@ -438,6 +451,7 @@ class QueueSyncMessage {
       syncTimestamp: DateTime.now(),
       nodeId: nodeId,
       syncType: QueueSyncType.request,
+      syncId: syncId ?? _newSyncId(),
       messageHashes: normalizedHashes,
       gcsFilter: gcsFilter,
     );
@@ -450,6 +464,7 @@ class QueueSyncMessage {
     Map<MessageId, String>? messageHashes,
     String? queueHash, // Optional: pre-calculated queue hash for optimization
     GCSFilterParams? gcsFilter, // Optional: GCS filter for efficient sync
+    String? syncId,
   }) {
     final stringIds = messageIds.map((id) => id.value).toList();
     final stringHashes = messageHashes?.map(
@@ -461,6 +476,26 @@ class QueueSyncMessage {
       messageHashes: stringHashes,
       queueHash: queueHash,
       gcsFilter: gcsFilter,
+      syncId: syncId,
+    );
+  }
+
+  /// Return this message with a non-empty correlation token.
+  ///
+  /// Queue implementations are allowed to construct request objects directly,
+  /// so the initiating manager calls this before placing a request on the wire.
+  QueueSyncMessage ensureSyncId() {
+    if (syncId != null && syncId!.isNotEmpty) return this;
+    return QueueSyncMessage(
+      queueHash: queueHash,
+      messageIds: messageIds,
+      syncTimestamp: syncTimestamp,
+      nodeId: nodeId,
+      syncType: syncType,
+      syncId: _newSyncId(),
+      messageHashes: messageHashes,
+      queueStats: queueStats,
+      gcsFilter: gcsFilter,
     );
   }
 
@@ -470,6 +505,7 @@ class QueueSyncMessage {
     required String nodeId,
     required QueueSyncStats stats,
     Map<String, String>? messageHashes,
+    String? syncId,
   }) {
     final normalizedIds = messageIds
         .map((id) => id.toString())
@@ -490,6 +526,7 @@ class QueueSyncMessage {
       syncTimestamp: DateTime.now(),
       nodeId: nodeId,
       syncType: QueueSyncType.response,
+      syncId: syncId,
       messageHashes: normalizedHashes,
       queueStats: stats,
     );
@@ -501,6 +538,7 @@ class QueueSyncMessage {
     required String nodeId,
     required QueueSyncStats stats,
     Map<MessageId, String>? messageHashes,
+    String? syncId,
   }) {
     final stringIds = messageIds.map((id) => id.value).toList();
     final stringHashes = messageHashes?.map(
@@ -511,6 +549,7 @@ class QueueSyncMessage {
       nodeId: nodeId,
       stats: stats,
       messageHashes: stringHashes,
+      syncId: syncId,
     );
   }
 
@@ -530,6 +569,7 @@ class QueueSyncMessage {
     'syncTimestamp': syncTimestamp.millisecondsSinceEpoch,
     'nodeId': nodeId,
     'syncType': syncType.index,
+    if (syncId != null) 'syncId': syncId,
     if (messageHashes != null) 'messageHashes': messageHashes,
     if (queueStats != null) 'queueStats': queueStats!.toJson(),
     if (gcsFilter != null) 'gcsFilter': gcsFilter!.toJson(),
@@ -547,6 +587,7 @@ class QueueSyncMessage {
         ),
         nodeId: json['nodeId'],
         syncType: QueueSyncType.values[json['syncType']],
+        syncId: json['syncId'] as String?,
         messageHashes: json['messageHashes'] != null
             ? Map<String, String>.from(
                 (json['messageHashes'] as Map).map(
@@ -561,6 +602,11 @@ class QueueSyncMessage {
             ? GCSFilterParams.fromJson(json['gcsFilter'])
             : null,
       );
+
+  static String _newSyncId() {
+    final bytes = List<int>.generate(16, (_) => _syncIdRandom.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
 
   /// Generate hash for message queue state
   static String _generateQueueHash(List<String> messageIds) {

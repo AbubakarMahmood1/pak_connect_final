@@ -426,10 +426,10 @@ void main() {
   // GROUP 3: Queue Management
   // =================================================================
   group('Queue management', () {
-    test('syncQueuesWithPeers delegates to coordinator and relay', () async {
+    test('syncQueuesWithPeers uses concrete active BLE addresses', () async {
       when(
-        mockRelayCoordinator.getAvailableNextHops(),
-      ).thenAnswer((_) async => ['peer-1', 'peer-2']);
+        mockBleService.activeConnectionDeviceIds,
+      ).thenReturn(['device-1', 'device-2', 'device-1']);
 
       final syncResult = QueueSyncResult.success(
         messagesReceived: 1,
@@ -440,15 +440,15 @@ void main() {
       );
       when(
         mockQueueCoordinator.syncWithPeers(any),
-      ).thenAnswer((_) async => {'peer-1': syncResult});
+      ).thenAnswer((_) async => {'device-1': syncResult});
 
       final results = await service.syncQueuesWithPeers();
 
       expect(results, isNotEmpty);
-      expect(results['peer-1']?.success, isTrue);
-      verify(mockRelayCoordinator.getAvailableNextHops()).called(1);
+      expect(results['device-1']?.success, isTrue);
+      verifyNever(mockRelayCoordinator.getAvailableNextHops());
       verify(
-        mockQueueCoordinator.syncWithPeers(['peer-1', 'peer-2']),
+        mockQueueCoordinator.syncWithPeers(['device-1', 'device-2']),
       ).called(1);
     });
 

@@ -29,6 +29,7 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   bool _canSend = true;
   bool _hasPeripheral = false;
   String? _sessionId = 'recipient-1';
+  final List<String> deviceAddresses = ['device-1'];
   bool sendResult = true;
   int sendCallCount = 0;
   int peripheralSendCount = 0;
@@ -52,6 +53,10 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   @override
   String? get currentSessionId => _sessionId;
   set currentSessionId(String? v) => _sessionId = v;
+
+  @override
+  List<String> get activeConnectionDeviceIds =>
+      List.unmodifiable(deviceAddresses);
 
   String? _theirEphemeralId;
   @override
@@ -300,6 +305,7 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
   String? lastSyncTarget;
   bool shouldThrowOnInitiate = false;
   int cancelCount = 0;
+  final Set<String> pendingSyncTargets = {};
 
   QueueSyncResponse syncRequestResponse = QueueSyncResponse.alreadySynced();
   QueueSyncResult syncResponseResult = QueueSyncResult.success(
@@ -360,7 +366,13 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
   ) async => syncResponseResult;
 
   @override
-  bool hasPendingSyncWith(String nodeId) => false;
+  bool hasPendingSyncWith(String nodeId) => pendingSyncTargets.contains(nodeId);
+
+  @override
+  bool canAcceptSyncResponse(
+    QueueSyncMessage responseMessage,
+    String fromNodeId,
+  ) => hasPendingSyncWith(fromNodeId);
 
   @override
   void failPendingSync(String nodeId, String reason) {}
@@ -445,6 +457,23 @@ void main() {
 
       expect(bleService.sendCallCount, 1);
       expect(bleService.peripheralSendCount, 0);
+    });
+
+    test('defers direct send when multiple BLE routes are active', () async {
+      await initCoordinator();
+      bleService.deviceAddresses.add('device-2');
+      queue.addTestMessage(_testMessage(id: 'msg-multi-link'));
+
+      queue.capturedOnSendMessage?.call('msg-multi-link');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bleService.sendCallCount, 0);
+      expect(bleService.peripheralSendCount, 0);
+      expect(queue.failedIds, isNot(contains('msg-multi-link')));
+      expect(
+        queue.getMessageById('msg-multi-link')?.status,
+        QueuedMessageStatus.pending,
+      );
     });
 
     test('sends via peripheral when hasPeripheralConnection', () async {
@@ -802,7 +831,7 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(syncManager.initiateSyncCount, 1);
-      expect(syncManager.lastSyncTarget, 'recipient-1');
+      expect(syncManager.lastSyncTarget, 'device-1');
     });
 
     test('debounces repeated connections within 10s', () async {
@@ -886,6 +915,7 @@ void main() {
     test('handles sync response type', () async {
       await initCoordinator();
       coordinator.enableQueueSyncHandling();
+      syncManager.pendingSyncTargets.add('peer-2');
 
       final syncResp = QueueSyncMessage(
         nodeId: 'peer-2',

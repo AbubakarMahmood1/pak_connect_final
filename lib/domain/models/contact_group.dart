@@ -1,8 +1,8 @@
-// Contact group models for secure multi-unicast messaging
-// Uses existing Noise sessions for encryption (no shared passwords)
+// Sender-local broadcast-list models. Group* names remain for schema
+// compatibility; recipients receive ordinary direct messages.
 import '../values/id_types.dart';
 
-/// Contact group for sending messages to multiple verified contacts
+/// Local recipient list for sending the same content to multiple contacts.
 class ContactGroup {
   final String id;
   final String name;
@@ -112,8 +112,8 @@ class ContactGroup {
 /// Delivery status for a single message to a single member
 enum MessageDeliveryStatus {
   pending, // Queued but not yet sent
-  sent, // Sent via Noise session
-  delivered, // Confirmed delivered
+  sent, // Accepted by the direct-message queue (legacy persisted name)
+  delivered, // Reserved for a future correlated receipt integration
   failed, // Failed to send
 }
 
@@ -123,7 +123,7 @@ extension MessageDeliveryStatusExtension on MessageDeliveryStatus {
       case MessageDeliveryStatus.pending:
         return 'Pending';
       case MessageDeliveryStatus.sent:
-        return 'Sent';
+        return 'Queued';
       case MessageDeliveryStatus.delivered:
         return 'Delivered';
       case MessageDeliveryStatus.failed:
@@ -132,7 +132,7 @@ extension MessageDeliveryStatusExtension on MessageDeliveryStatus {
   }
 }
 
-/// Group message with per-member delivery tracking
+/// Sender-local broadcast history with per-recipient queue status.
 class GroupMessage {
   final String id;
   final String groupId;
@@ -153,7 +153,7 @@ class GroupMessage {
     required this.deliveryStatus,
   });
 
-  /// Create a new group message
+  /// Create a new sender-local broadcast dispatch record.
   factory GroupMessage.create({
     required String groupId,
     required String senderKey,

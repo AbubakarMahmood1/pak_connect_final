@@ -16,7 +16,6 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import '../models/mesh_relay_models.dart';
-import '../services/change_log_sync_service.dart';
 import '../utils/gcs_filter.dart';
 import 'offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -63,9 +62,6 @@ class GossipSyncManager {
   /// Bridges the QueuedMessage → wire-send gap (Phase 1 bidirectional sync).
   Function(List<QueuedMessage> messages, String toPeerId)?
   onSendQueuedMessagesToPeer;
-
-  /// Phase 2: Change_log sync service for live P2P DB synchronization.
-  ChangeLogSyncService? changeLogSyncService;
 
   // Announcements: only keep latest per sender node
   // Note: Regular messages are tracked by OfflineMessageQueue
@@ -220,10 +216,6 @@ class GossipSyncManager {
         _logger.info(
           '✅ Peer ${fromPeerID.shortId(8)}... is in sync (hash match - no messages to send)',
         );
-        // Still exchange change_log — message queues match but contacts/chats may differ
-        if (changeLogSyncService != null) {
-          await changeLogSyncService!.exchangeWithPeer(fromPeerID);
-        }
         return;
       }
 
@@ -317,11 +309,6 @@ class GossipSyncManager {
       _logger.info(
         '✅ Sync complete - sent ${messagesToSend.length} messages to ${fromPeerID.shortId(8)}...',
       );
-
-      // STEP 6 (Phase 2): Exchange change_log entries for DB-level sync
-      if (changeLogSyncService != null) {
-        await changeLogSyncService!.exchangeWithPeer(fromPeerID);
-      }
     } catch (e) {
       _logger.severe('Failed to handle sync request from $fromPeerID: $e');
     }

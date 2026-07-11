@@ -15,13 +15,14 @@ import 'package:pak_connect/presentation/providers/app_permission_providers.dart
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/theme_provider.dart';
 
-import 'test_helpers/ble/fake_ble_service.dart';
 import 'test_helpers/app_core_test_harness.dart';
+import 'test_helpers/mocks/mock_connection_service.dart';
 import 'test_helpers/test_setup.dart';
 
 void main() {
   late List<LogRecord> logRecords;
   late Set<Pattern> allowedSevere;
+  late Completer<void> initializationGate;
   StreamSubscription<LogRecord>? logSubscription;
 
   setUpAll(() async {
@@ -30,7 +31,12 @@ void main() {
 
   setUp(() {
     AppCore.resetForTesting();
-    AppCore.initializationOverride = () async {};
+    // Keep AppWrapper on its deterministic loading surface. Letting the
+    // override complete builds HomeScreen, whose real runtime listeners and
+    // periodic timers are outside the scope of this widget-tree contract and
+    // can race teardown in a parallel full-suite run.
+    initializationGate = Completer<void>();
+    AppCore.initializationOverride = () => initializationGate.future;
     final locator = serviceRegistry;
     if (locator.isRegistered<ISharedMessageQueueProvider>()) {
       locator.unregister<ISharedMessageQueueProvider>();
@@ -65,6 +71,9 @@ void main() {
           'Unexpected SEVERE errors:\n${unexpected.map((e) => '${e.level}: ${e.message}').join('\n')}',
     );
     AppCore.instance.dispose();
+    if (!initializationGate.isCompleted) {
+      initializationGate.complete();
+    }
     AppCore.initializationOverride = null;
     AppCore.resetForTesting();
     BLEMessageHandlerFacadeImpl.clearDependencyResolvers();
@@ -74,16 +83,23 @@ void main() {
     }
   });
 
-  /// Helper to pump the PakConnectApp with a FakeBleService and optional
+  /// Helper to pump the PakConnectApp with a lightweight connection mock and optional
   /// additional provider overrides supplied as a callback that modifies
   /// the overrides list.
   Future<ProviderScope> pumpApp(
     WidgetTester tester, {
-    FakeBleService? fakeBleService,
+    MockConnectionService? fakeBleService,
     ThemeMode? fixedThemeMode,
   }) async {
-    final ble = fakeBleService ?? FakeBleService();
-    addTearDown(ble.dispose);
+    final ble = fakeBleService ?? MockConnectionService();
+    addTearDown(() async {
+      // Cancel Provider subscriptions before asking the test-only stream
+      // controllers to close. Their completion is deliberately not awaited:
+      // paused listeners must not deadlock a full-suite worker teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      unawaited(ble.dispose());
+    });
 
     final overrides = [
       bleServiceProvider.overrideWithValue(ble),
@@ -96,7 +112,7 @@ void main() {
         (ref) => const AsyncValue<SpyModeInfo>.loading(),
       ),
       identityRevealedProvider.overrideWith(
-        (ref) => const AsyncValue<String>.loading(),
+        (ref) => const AsyncValue.loading(),
       ),
       themeModeProvider.overrideWith(
         () => _FixedThemeModeNotifier(fixedThemeMode ?? ThemeMode.system),
@@ -112,26 +128,17 @@ void main() {
     return scope;
   }
 
-  Future<Completer<void>> pumpAppWhileInitializing(
+  Future<void> pumpAppWhileInitializing(
     WidgetTester tester, {
-    FakeBleService? fakeBleService,
+    MockConnectionService? fakeBleService,
     ThemeMode? fixedThemeMode,
   }) async {
-    final initializationGate = Completer<void>();
-    AppCore.initializationOverride = () => initializationGate.future;
-    addTearDown(() {
-      if (!initializationGate.isCompleted) {
-        initializationGate.complete();
-      }
-    });
-
     await pumpApp(
       tester,
       fakeBleService: fakeBleService,
       fixedThemeMode: fixedThemeMode,
     );
     await tester.pump();
-    return initializationGate;
   }
 
   // ==================== PakConnectApp widget construction ====================
@@ -216,52 +223,37 @@ void main() {
     testWidgets('shows loading indicator during initialization', (
       tester,
     ) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       // Initially should show loading screen with LinearProgressIndicator
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('loading screen shows PakConnect title', (tester) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       expect(find.text('PakConnect'), findsOneWidget);
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('loading screen shows tagline', (tester) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       expect(find.text('Secure • Private • Battery Efficient'), findsOneWidget);
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('loading screen shows initialization message', (tester) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       expect(
         find.text('Initializing enhanced security and power management...'),
         findsOneWidget,
       );
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('loading screen has message icon', (tester) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       expect(find.byIcon(Icons.message), findsOneWidget);
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('loading screen has Scaffold', (tester) async {
@@ -452,18 +444,14 @@ void main() {
   // ==================== BLE state-driven navigation ====================
   group('AppWrapper BLE state navigation', () {
     testWidgets('shows loading screen initially', (tester) async {
-      final initializationGate = await pumpAppWhileInitializing(tester);
+      await pumpAppWhileInitializing(tester);
 
       // Before initialization completes, loading screen should show
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
-
-      initializationGate.complete();
-      await tester.pump();
     });
 
     testWidgets('initialization does not throw exceptions', (tester) async {
-      final fakeBle = FakeBleService();
-      addTearDown(fakeBle.dispose);
+      final fakeBle = MockConnectionService();
 
       await pumpApp(tester, fakeBleService: fakeBle);
       await tester.pump();

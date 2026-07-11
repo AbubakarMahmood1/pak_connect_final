@@ -173,12 +173,14 @@ class BLEConnectionService implements IBLEConnectionService {
   Future<void> connectToDeviceDirect(
     Peripheral device, {
     bool recordMetrics = false,
+    int? schedulerAttemptId,
   }) async {
     await _connectToDeviceInternal(
       device,
       skipDiscoveryStop: true,
       recordMetrics: recordMetrics,
       useDirectManagerConnect: true,
+      schedulerAttemptId: schedulerAttemptId,
     );
   }
 
@@ -187,6 +189,7 @@ class BLEConnectionService implements IBLEConnectionService {
     required bool skipDiscoveryStop,
     required bool recordMetrics,
     required bool useDirectManagerConnect,
+    int? schedulerAttemptId,
   }) async {
     try {
       // Single-link policy: if we already have an inbound (server) link to this peer, adopt it
@@ -216,7 +219,10 @@ class BLEConnectionService implements IBLEConnectionService {
 
       _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
       if (useDirectManagerConnect) {
-        await connectionManager.connectToDeviceDirect(device);
+        await connectionManager.connectToDeviceDirect(
+          device,
+          schedulerAttemptId: schedulerAttemptId,
+        );
       } else {
         await connectionManager.connectToDevice(device);
       }

@@ -7,6 +7,8 @@ import '../../test_helpers/test_service_registry.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/models/contact_group.dart';
 import 'package:pak_connect/presentation/providers/group_providers.dart';
+import 'package:pak_connect/presentation/providers/di_providers.dart'
+    show clearRuntimeAppServicesForTesting;
 import 'package:pak_connect/presentation/screens/group_chat_screen.dart';
 
 class _FakeUserPreferences implements IUserPreferences {
@@ -62,12 +64,13 @@ ContactGroup _group({String id = 'group-1'}) {
 GroupMessage _message({
   required String id,
   String content = 'hello',
+  String senderKey = 'sender-public-key',
   Map<String, MessageDeliveryStatus>? deliveryStatus,
 }) {
   return GroupMessage(
     id: id,
     groupId: 'group-1',
-    senderKey: 'sender-public-key',
+    senderKey: senderKey,
     content: content,
     timestamp: DateTime(2026, 1, 1, 9, 0),
     deliveryStatus:
@@ -133,6 +136,7 @@ void main() {
   final locator = serviceRegistry;
 
   setUp(() {
+    clearRuntimeAppServicesForTesting();
     if (locator.isRegistered<IUserPreferences>()) {
       locator.unregister<IUserPreferences>();
     }
@@ -142,6 +146,7 @@ void main() {
   });
 
   tearDown(() {
+    clearRuntimeAppServicesForTesting();
     if (locator.isRegistered<IUserPreferences>()) {
       locator.unregister<IUserPreferences>();
     }
@@ -157,9 +162,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Study Circle'), findsOneWidget);
-      expect(find.text('3 members'), findsOneWidget);
+      expect(find.text('3 recipients'), findsOneWidget);
       expect(
-        find.text('No messages yet\nSend a message to get started!'),
+        find.text(
+          'No broadcasts yet\nSend a message to every recipient separately.',
+        ),
         findsOneWidget,
       );
       expect(find.byTooltip('Send'), findsOneWidget);
@@ -225,7 +232,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(capturedGroupId, 'group-1');
-      expect(capturedSenderKey, isNotNull);
+      expect(capturedSenderKey, 'sender-public-key');
       expect(capturedContent, 'Hello team');
       expect(find.text('Hello team'), findsNothing);
       expect(find.byIcon(Icons.send), findsOneWidget);
@@ -262,11 +269,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Group Info'));
+      await tester.tap(find.byTooltip('Broadcast List Info'));
       await tester.pumpAndSettle();
 
       expect(find.text('Project updates'), findsOneWidget);
-      expect(find.text('Members: 3'), findsOneWidget);
+      expect(find.text('Recipients: 3'), findsOneWidget);
       expect(find.textContaining('Created:'), findsOneWidget);
 
       await tester.tap(find.text('Close'));
@@ -305,20 +312,55 @@ void main() {
 
       expect(find.text('status test'), findsOneWidget);
       expect(
-        find.byTooltip('Delivered: 1/4\nSent: 1\nFailed: 1'),
+        find.byTooltip('Delivered: 1/4\nQueued: 1\nFailed: 1'),
         findsOneWidget,
       );
-      expect(find.text('1/4 delivered'), findsOneWidget);
+      expect(find.text('Recipient status'), findsOneWidget);
 
-      await tester.tap(find.text('1/4 delivered'));
+      await tester.tap(find.text('Recipient status'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Delivery Status'), findsOneWidget);
+      expect(find.text('Recipient Status'), findsOneWidget);
       expect(find.text('Delivered'), findsOneWidget);
-      expect(find.text('Sent'), findsOneWidget);
+      expect(find.text('Queued'), findsOneWidget);
       expect(find.text('Pending'), findsOneWidget);
       expect(find.text('Failed'), findsOneWidget);
     });
+
+    testWidgets(
+      'uses the exact local public key to distinguish own and peer messages',
+      (tester) async {
+        await _pumpGroupChatScreen(
+          tester,
+          loadGroup: (_) async => _group(),
+          loadMessages: (_) async => <GroupMessage>[
+            _message(id: 'own', content: 'from me'),
+            _message(
+              id: 'peer',
+              content: 'from peer',
+              senderKey: 'peer-public-key',
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final ownBubble = tester.widget<Column>(
+          find.byKey(const ValueKey('group-message-own')),
+        );
+        final peerBubble = tester.widget<Column>(
+          find.byKey(const ValueKey('group-message-peer')),
+        );
+
+        expect(ownBubble.crossAxisAlignment, CrossAxisAlignment.end);
+        expect(peerBubble.crossAxisAlignment, CrossAxisAlignment.start);
+        expect(find.text('sender-p'), findsNothing);
+        expect(find.text('peer-pub'), findsOneWidget);
+        expect(
+          find.byTooltip('Delivered: 1/1\nQueued: 0\nFailed: 0'),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('shows loading indicator while delivery summary resolves', (
       tester,
@@ -339,13 +381,17 @@ void main() {
         },
       );
 
+      // Allow the current-user key provider to resolve while the deliberately
+      // slow delivery-summary provider remains pending.
+      await tester.pump();
+
       expect(find.byType(CircularProgressIndicator), findsAtLeastNWidgets(1));
 
       await tester.pump(const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
 
       expect(
-        find.byTooltip('Delivered: 1/1\nSent: 0\nFailed: 0'),
+        find.byTooltip('Delivered: 1/1\nQueued: 0\nFailed: 0'),
         findsOneWidget,
       );
     });

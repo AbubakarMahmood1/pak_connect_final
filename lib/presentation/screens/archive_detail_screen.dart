@@ -49,53 +49,18 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Use the repository directly since the service doesn't expose getArchivedChat method
-      // We'll need to create a provider for the repository or access it differently
-      // For now, let's use a workaround by getting summaries and finding the one we need
-      final summaries = await ref.read(
-        archiveListProvider(const ArchiveListFilter()).future,
+      final archivedChat = await ref.read(
+        archivedChatProvider(widget.archivedChatId).future,
       );
-      final summary = summaries
-          .where((s) => s.id == widget.archivedChatId)
-          .firstOrNull;
+      if (!mounted) return;
 
-      if (summary == null) {
-        if (mounted) {
-          setState(() => _isLoading = false);
-          _showError('Archived chat not found');
-        }
-        return;
-      }
-
-      // For now, create a basic ArchivedChat from the summary
-      // In a real implementation, we'd have a proper method to get full archived chat
-      final archivedChat = ArchivedChat.fromJson({
-        'id': summary.id.value,
-        'originalChatId': summary.originalChatId,
-        'contactName': summary.contactName,
-        'archivedAt': summary.archivedAt.millisecondsSinceEpoch,
-        'messageCount': summary.messageCount,
-        'metadata': {
-          'version': '1.0',
-          'reason': 'User archived',
-          'originalUnreadCount': 0,
-          'wasOnline': false,
-          'hadUnsentMessages': false,
-          'estimatedStorageSize': summary.estimatedSize,
-          'archiveSource': 'ArchiveDetailScreen',
-          'tags': summary.tags,
-        },
-        'messages': [], // Would need proper message loading
+      setState(() {
+        _archivedChat = archivedChat;
+        _messages = archivedChat?.messages ?? [];
+        _isLoading = false;
       });
 
-      if (mounted) {
-        setState(() {
-          _archivedChat = archivedChat;
-          _messages = archivedChat.messages;
-          _isLoading = false;
-        });
-      } else if (mounted) {
-        setState(() => _isLoading = false);
+      if (archivedChat == null) {
         _showError('Archived chat not found');
       }
     } catch (e) {

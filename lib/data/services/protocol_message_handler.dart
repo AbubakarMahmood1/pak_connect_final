@@ -23,6 +23,10 @@ import 'inbound_text_processor.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
+  /// Internal marker used by the split facade to avoid dispatching an already
+  /// handled queue-sync frame through the legacy parser a second time.
+  static const String queueSyncHandledMarker = 'QUEUE_SYNC_HANDLED';
+
   /// V2 signatures are required by default. Override at build time with
   /// -DPAKCONNECT_REQUIRE_V2_SIGNATURE=false to relax during migration.
   static const bool _defaultRequireV2Signature = bool.fromEnvironment(
@@ -71,7 +75,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Function(String, String)? _onCryptoVerificationReceived;
   Function(String, String, bool, Map<String, dynamic>?)?
   _onCryptoVerificationResponseReceived;
-  Function(String)? _onIdentityRevealed;
 
   // Queue sync callbacks (registered by relay coordinator)
   Function(QueueSyncMessage, String)? _onQueueSyncReceived;
@@ -112,6 +115,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         message,
         fromNodeId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to process protocol message: $e');
@@ -136,6 +140,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         protocolMessage,
         fromNodeId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to process complete protocol message: $e');
@@ -155,6 +160,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         message,
         fromDeviceId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to handle direct protocol message: $e');
@@ -166,8 +172,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _processProtocolMessage(
     domain_models.ProtocolMessage message,
     String fromNodeId,
-    String? transportMessageId,
-  ) async {
+    String? transportMessageId, {
+    required String fromDeviceId,
+  }) async {
     switch (message.type) {
       case ProtocolMessageType.textMessage:
         return await _handleTextMessage(
@@ -196,7 +203,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         return await _handleCryptoVerificationResponse(message);
 
       case ProtocolMessageType.queueSync:
-        return await _handleQueueSync(message, fromNodeId, transportMessageId);
+        return await _handleQueueSync(
+          message,
+          fromDeviceId,
+          transportMessageId,
+        );
 
       case ProtocolMessageType.friendReveal:
         return await _handleFriendReveal(message);
@@ -354,15 +365,23 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Handles queue sync message
   Future<String?> _handleQueueSync(
     domain_models.ProtocolMessage message,
-    String fromNodeId,
+    String fromDeviceAddress,
     String? transportMessageId,
   ) async {
     try {
       final queueMessage = message.queueSyncMessage;
       if (queueMessage != null) {
-        _onQueueSyncReceived?.call(queueMessage, fromNodeId);
+        final callback = _onQueueSyncReceived;
+        callback?.call(queueMessage, fromDeviceAddress);
         _logger.info('📦 Queue sync received');
-        _sendAck(transportMessageId ?? queueMessage.queueHash, fromNodeId);
+        _sendAck(
+          transportMessageId ?? queueMessage.queueHash,
+          fromDeviceAddress,
+        );
+        // A non-null result prevents BLEMessageHandlerFacadeImpl from sending
+        // the same frame through its legacy fallback, which would replace the
+        // concrete transport address with a mutable identity alias.
+        return callback == null ? null : queueSyncHandledMarker;
       } else {
         _logger.warning('⚠️ Queue sync payload missing expected fields');
       }
@@ -377,19 +396,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _handleFriendReveal(
     domain_models.ProtocolMessage message,
   ) async {
-    try {
-      final contactName =
-          message.payload['contactName'] as String? ??
-          message.payload['myPersistentKey'] as String?;
-      if (contactName != null) {
-        _logger.warning('👁️ Friend reveal: $contactName');
-        _onIdentityRevealed?.call(contactName);
-      }
-      return null;
-    } catch (e) {
-      _logger.severe('Failed to handle friend reveal: $e');
-      return null;
-    }
+    // This split handler has neither the cached pairing secret nor the exact
+    // challenge context required to authenticate a reveal. Emitting here used
+    // to make an unverified payload actionable before BLEMessageHandler's
+    // signature check ran. The facade hands this type to that verified path.
+    _logger.fine(
+      'Deferring friend reveal to the authenticated BLE message handler',
+    );
+    return null;
   }
 
   /// Checks if message is intended for this device
@@ -553,12 +567,13 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   @override
   void onIdentityRevealed(Function(String contactName) callback) {
-    _onIdentityRevealed = callback;
+    // Intentionally retained as a migration-compatible no-op registration.
+    // See _handleFriendReveal: only BLEMessageHandler may emit this event.
   }
 
   @override
   void onQueueSyncReceived(
-    Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
+    Function(QueueSyncMessage syncMessage, String fromDeviceAddress)? callback,
   ) {
     _onQueueSyncReceived = callback;
   }

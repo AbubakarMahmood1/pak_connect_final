@@ -1,7 +1,11 @@
 part of 'ble_connection_manager.dart';
 
 extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
-  Future<void> _runtimeConnectToDevice(Peripheral device, {int? rssi}) async {
+  Future<void> _runtimeConnectToDevice(
+    Peripheral device, {
+    int? rssi,
+    int? schedulerAttemptId,
+  }) async {
     final address = device.uuid.toString();
     _trackPeerHintForAddress(address);
 
@@ -195,7 +199,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         _clientConnections[address] = mtuConnection.copyWith(mtu: mtu);
       }
       onMtuDetected?.call(mtu);
-      onClientMtuReady?.call(address, mtu);
+      onClientMtuReady?.call(address, mtu, schedulerAttemptId);
 
       final messageChar = await _gattController.discoverMessageCharacteristic(
         device: device,
@@ -222,7 +226,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
             characteristic: messageChar,
             formattedAddress: _formatAddress(address),
           );
-          onClientNotifySubscribed?.call(address);
+          onClientNotifySubscribed?.call(address, schedulerAttemptId);
         } catch (e) {
           final hasInbound =
               _serverConnections.containsKey(address) ||
@@ -252,7 +256,7 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
       _updateConnectionState(ChatConnectionState.connecting);
 
       _logger.info('🔑 Triggering identity exchange');
-      onConnectionComplete?.call();
+      onConnectionComplete?.call(address, schedulerAttemptId);
 
       _isReconnection = false;
     } catch (e) {

@@ -196,12 +196,7 @@ void main() {
       void contactAccept(String _, String _) {}
       void contactReject() {}
       void cryptoReq(String _, String _) {}
-      void cryptoResp(
-        String _,
-        String _,
-        bool _,
-        Map<String, dynamic>? _,
-      ) {}
+      void cryptoResp(String _, String _, bool _, Map<String, dynamic>? _) {}
       void queueSync(relay_models.QueueSyncMessage _, String _) {}
       void sendQueue(List<QueuedMessage> _, String _) {}
       void queueDone(String _, QueueSyncResult _) {}
@@ -291,21 +286,46 @@ void main() {
 
         handler.setCurrentNodeId(localEphemeralId);
         await sharedRepo.saveContactWithSecurity(
-          persistentPublicKey,
+          'first-ephemeral-key',
           'Peer',
           SecurityLevel.medium,
           currentEphemeralId: senderEphemeralId,
           persistentPublicKey: persistentPublicKey,
         );
-        await sharedRepo.cacheSharedSecret(persistentPublicKey, 'cached-secret');
+        await sharedRepo.cacheSharedSecret(
+          persistentPublicKey,
+          'cached-secret',
+        );
         expect(
           await sharedRepo.getCachedSharedSecret(persistentPublicKey),
           equals('cached-secret'),
         );
-        expect(await sharedRepo.getContact(persistentPublicKey), isNotNull);
+        expect(
+          await sharedRepo.getContactByPersistentKey(persistentPublicKey),
+          isNotNull,
+        );
 
         final revealed = <String>[];
         handler.onIdentityRevealed = revealed.add;
+
+        final futureTimestamp = DateTime.now()
+            .add(const Duration(minutes: 10))
+            .millisecondsSinceEpoch;
+        final futureProof = SimpleCrypto.signMessage(
+          '${localEphemeralId}_$futureTimestamp',
+        );
+        await handler.processReceivedData(
+          _rawProtocolFrame(
+            ProtocolMessage.friendReveal(
+              myPersistentKey: persistentPublicKey,
+              proof: futureProof!,
+              timestamp: futureTimestamp,
+            ),
+          ),
+          senderPublicKey: senderEphemeralId,
+          contactRepository: sharedRepo,
+        );
+        expect(revealed, isEmpty);
 
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final proof = SimpleCrypto.signMessage(
@@ -339,7 +359,7 @@ void main() {
         expect(result, isNull);
         expect(
           revealed,
-          ['Peer'],
+          [persistentPublicKey],
           reason: logRecords
               .map((record) => '${record.level.name}: ${record.message}')
               .join('\n'),

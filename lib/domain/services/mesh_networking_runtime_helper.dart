@@ -140,8 +140,7 @@ class _MeshNetworkingRuntimeHelper {
                 }),
               );
             }
-          }
-          ..changeLogSyncService = ChangeLogSyncService();
+          };
 
     _owner._spamPrevention = SpamPreventionManager();
     await _owner._spamPrevention!.initialize();

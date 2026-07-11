@@ -14,7 +14,8 @@ class BleRoleScheduler implements IBleRoleScheduler {
     required Future<void> Function() stopScanEffector,
     required Future<void> Function() startAdvertisingEffector,
     required Future<void> Function() stopAdvertisingEffector,
-    required Future<void> Function(Peripheral peer) connectEffector,
+    required Future<void> Function(Peripheral peer, int attemptId)
+    connectEffector,
     required bool Function() canOpenAdditionalLinks,
     required bool Function() hasActiveLinks,
     required bool Function() isHandshakeInProgress,
@@ -37,7 +38,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
   final Future<void> Function() _stopScanEffector;
   final Future<void> Function() _startAdvertisingEffector;
   final Future<void> Function() _stopAdvertisingEffector;
-  final Future<void> Function(Peripheral peer) _connectEffector;
+  final Future<void> Function(Peripheral peer, int attemptId) _connectEffector;
   final bool Function() _canOpenAdditionalLinks;
   final bool Function() _hasActiveLinks;
   final bool Function() _isHandshakeInProgress;
@@ -48,6 +49,8 @@ class BleRoleScheduler implements IBleRoleScheduler {
   bool _nextWindowIsScan = true;
   BleRoleSchedulerState _state = BleRoleSchedulerState.idle;
   String? _activePeerId;
+  int? _activeAttemptId;
+  int _nextAttemptId = 0;
   final Map<String, _LinkBringupState> _bringupByPeer = {};
   DateTime _lastTransitionAt = DateTime.now();
 
@@ -58,6 +61,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
     lastTransitionAt: _lastTransitionAt,
     nextWindowIsScan: _nextWindowIsScan,
     activePeerId: _activePeerId,
+    activeAttemptId: _activeAttemptId,
   );
 
   @override
@@ -77,6 +81,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
   Future<void> stop() => _serialize(() async {
     _isRunning = false;
     _activePeerId = null;
+    _activeAttemptId = null;
     _bringupByPeer.clear();
     _windowTimer?.cancel();
     _windowTimer = null;
@@ -87,28 +92,42 @@ class BleRoleScheduler implements IBleRoleScheduler {
   @override
   Future<void> requestOutboundConnect(Peripheral peer) => _serialize(() async {
     _isRunning = true;
-    _activePeerId = peer.uuid.toString();
-    _stateFor(_activePeerId!).connected = true;
+    final address = peer.uuid.toString();
+    final state = _startAttempt(address);
     _metricsRecorder.recordOutboundConnectRequested(_activePeerId!);
-    await _enterConnectLock(reason: 'outbound-connect-request', peer: peer);
+    await _enterConnectLock(
+      reason: 'outbound-connect-request',
+      attemptId: state.attemptId,
+      state: state,
+      peer: peer,
+    );
   });
 
   @override
-  void reportInboundConnected(String address) {
+  int reportInboundConnected(String address) {
+    // Bind the peer synchronously so an MTU/subscribe callback delivered in
+    // the same event turn cannot be discarded while the serialized radio
+    // transition is still queued.
+    _isRunning = true;
+    final state = _startAttempt(address);
     unawaited(
       _serialize(() async {
-        _isRunning = true;
-        _activePeerId = address;
-        _stateFor(address).connected = true;
-        await _enterConnectLock(reason: 'inbound-connected');
+        if (!_isActiveAttempt(address, state.attemptId, state)) return;
+        await _enterConnectLock(
+          reason: 'inbound-connected',
+          attemptId: state.attemptId,
+          state: state,
+        );
       }),
     );
+    return state.attemptId;
   }
 
   @override
-  void reportMtuReady(String address, int mtu) {
-    _activePeerId ??= address;
-    final state = _stateFor(address)
+  void reportMtuReady(String address, int mtu, int attemptId) {
+    final state = _acceptedState(address, attemptId, 'mtu-ready');
+    if (state == null) return;
+    state
       ..connected = true
       ..mtuReady = true
       ..mtu = mtu;
@@ -116,28 +135,37 @@ class BleRoleScheduler implements IBleRoleScheduler {
   }
 
   @override
-  void reportNotifySubscribed(String address) {
-    _activePeerId ??= address;
-    final state = _stateFor(address)
+  void reportNotifySubscribed(String address, int attemptId) {
+    final state = _acceptedState(address, attemptId, 'notify-subscribed');
+    if (state == null) return;
+    state
       ..connected = true
       ..notifySubscribed = true;
     _completeConnectLockIfReady(address, state, reason: 'notify-subscribed');
   }
 
   @override
-  void reportHandshakeStarted(String address) {
-    _activePeerId ??= address;
-    _stateFor(address)
+  void reportHandshakeStarted(String address, int attemptId) {
+    final state = _acceptedState(address, attemptId, 'handshake-started');
+    if (state == null) return;
+    state
       ..connected = true
       ..handshakeStarted = true;
   }
 
   @override
-  void reportHandshakeReady(String address) {
-    _activePeerId ??= address;
-    final state = _stateFor(address)
+  void reportHandshakeReady(String address, int attemptId) {
+    final state = _acceptedState(address, attemptId, 'handshake-ready');
+    if (state == null) return;
+    if (!state.handshakeStarted) {
+      _logger.fine(
+        'Strict TDM ignoring handshake-ready before handshake-started for '
+        '$address attempt#$attemptId',
+      );
+      return;
+    }
+    state
       ..connected = true
-      ..handshakeStarted = true
       ..handshakeReady = true;
     _completeConnectLockIfReady(address, state, reason: 'handshake-ready');
   }
@@ -147,6 +175,13 @@ class BleRoleScheduler implements IBleRoleScheduler {
     _LinkBringupState state, {
     required String reason,
   }) {
+    if (!_isActiveAttempt(address, state.attemptId, state)) {
+      _logger.fine(
+        'Strict TDM ignoring ready state for non-active peer $address '
+        '(active=${_activePeerId ?? "none"})',
+      );
+      return;
+    }
     if (!state.isReady) {
       _logger.fine(
         'Strict TDM keeping connect lock for $address after $reason '
@@ -156,6 +191,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
     }
     unawaited(
       _serialize(() async {
+        if (!_isActiveAttempt(address, state.attemptId, state)) return;
         if (_state == BleRoleSchedulerState.connectLock ||
             _state == BleRoleSchedulerState.connectedMaintain) {
           await _enterConnectedMaintain(reason: 'link-ready');
@@ -165,13 +201,20 @@ class BleRoleScheduler implements IBleRoleScheduler {
   }
 
   @override
-  void reportDisconnect(String address, String reason) {
+  void reportDisconnect(String address, String reason, int attemptId) {
+    final state = _bringupByPeer[address];
+    if (!_isActiveAttempt(address, attemptId, state)) {
+      _logger.fine(
+        'Strict TDM ignoring disconnect for stale $address attempt#$attemptId',
+      );
+      return;
+    }
     _bringupByPeer.remove(address);
     unawaited(
       _serialize(() async {
-        if (_activePeerId == address) {
-          _activePeerId = null;
-        }
+        if (!_matchesActiveIdentity(address, attemptId)) return;
+        _activePeerId = null;
+        _activeAttemptId = null;
         if (!_isRunning) {
           _transitionTo(BleRoleSchedulerState.idle);
           return;
@@ -190,8 +233,42 @@ class BleRoleScheduler implements IBleRoleScheduler {
     return future;
   }
 
-  _LinkBringupState _stateFor(String address) =>
-      _bringupByPeer.putIfAbsent(address, _LinkBringupState.new);
+  _LinkBringupState _startAttempt(String address) {
+    final state = _LinkBringupState(++_nextAttemptId)..connected = true;
+    _activePeerId = address;
+    _activeAttemptId = state.attemptId;
+    _bringupByPeer.clear();
+    _bringupByPeer[address] = state;
+    return state;
+  }
+
+  bool _matchesActiveIdentity(String address, int attemptId) =>
+      _activePeerId == address && _activeAttemptId == attemptId;
+
+  bool _isActiveAttempt(
+    String address,
+    int attemptId,
+    _LinkBringupState? state,
+  ) =>
+      state != null &&
+      _matchesActiveIdentity(address, attemptId) &&
+      identical(_bringupByPeer[address], state) &&
+      state.attemptId == attemptId;
+
+  _LinkBringupState? _acceptedState(
+    String address,
+    int attemptId,
+    String milestone,
+  ) {
+    final state = _bringupByPeer[address];
+    if (_isActiveAttempt(address, attemptId, state)) return state;
+    _logger.fine(
+      'Strict TDM ignoring $milestone for stale/non-active $address '
+      'attempt#$attemptId (active=${_activePeerId ?? "none"}'
+      '#${_activeAttemptId ?? 0})',
+    );
+    return null;
+  }
 
   Future<void> _enterScanWindow({required String reason}) async {
     if (!_isRunning) {
@@ -233,24 +310,35 @@ class BleRoleScheduler implements IBleRoleScheduler {
 
   Future<void> _enterConnectLock({
     required String reason,
+    required int attemptId,
+    required _LinkBringupState state,
     Peripheral? peer,
   }) async {
+    final address = _activePeerId;
+    if (address == null || !_isActiveAttempt(address, attemptId, state)) return;
     if (!_isRunning) {
       _transitionTo(BleRoleSchedulerState.idle);
       return;
     }
     _windowTimer?.cancel();
     await _stopRadios();
+    if (!_isActiveAttempt(address, attemptId, state)) return;
     _transitionTo(BleRoleSchedulerState.connectLock, reason: reason);
     _windowTimer = Timer(
       _config.connectLockTimeout,
       () => unawaited(
-        _serialize(() => _enterCooldown(reason: 'connect-lock-timeout')),
+        _serialize(() async {
+          if (!_isActiveAttempt(address, attemptId, state)) return;
+          _bringupByPeer.remove(address);
+          _activePeerId = null;
+          _activeAttemptId = null;
+          await _enterCooldown(reason: 'connect-lock-timeout');
+        }),
       ),
     );
     if (peer != null) {
       try {
-        await _connectEffector(peer);
+        await _connectEffector(peer, attemptId);
       } catch (error) {
         _logger.warning(
           'Strict TDM connect lock connect effector failed for ${peer.uuid}: $error',
@@ -259,7 +347,10 @@ class BleRoleScheduler implements IBleRoleScheduler {
           peer.uuid.toString(),
           'connect-lock-connect-failed',
         );
+        if (!_isActiveAttempt(address, attemptId, state)) return;
+        _bringupByPeer.remove(address);
         _activePeerId = null;
+        _activeAttemptId = null;
         await _enterCooldown(reason: 'connect-lock-connect-failed');
       }
     }
@@ -276,6 +367,7 @@ class BleRoleScheduler implements IBleRoleScheduler {
 
     if (!_hasActiveLinks()) {
       _activePeerId = null;
+      _activeAttemptId = null;
       await _enterCooldown(reason: 'connected-maintain-no-links');
       return;
     }
@@ -341,6 +433,9 @@ class BleRoleScheduler implements IBleRoleScheduler {
 }
 
 class _LinkBringupState {
+  _LinkBringupState(this.attemptId);
+
+  final int attemptId;
   bool connected = false;
   bool mtuReady = false;
   bool notifySubscribed = false;

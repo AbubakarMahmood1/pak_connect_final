@@ -7,6 +7,7 @@ import 'package:pak_connect/data/services/ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -167,33 +168,28 @@ void main() {
       },
     );
 
-    test(
-      'processReceivedData returns the failure marker for a recognized but '
-      'corrupt protocol payload (PC-GATT-002)',
-      () async {
-        // Valid JSON with type/version/payload → passes isProtocolMessage, so
-        // the pipeline treats it as a direct protocol message. But as raw
-        // bytes it is not a valid ProtocolMessage frame ('{' = 0x7B is odd →
-        // read as "compressed" → decompress fails), so fromBytes throws.
-        final corrupt = Uint8List.fromList(
-          '{"type":"textMessage","version":1,"payload":{}}'.codeUnits,
-        );
+    test('processReceivedData throws a typed failure for a recognized but '
+        'corrupt protocol payload (PC-GATT-002)', () async {
+      // Valid JSON with type/version/payload → passes isProtocolMessage, so
+      // the pipeline treats it as a direct protocol message. But as raw
+      // bytes it is not a valid ProtocolMessage frame ('{' = 0x7B is odd →
+      // read as "compressed" → decompress fails), so fromBytes throws.
+      final corrupt = Uint8List.fromList(
+        '{"type":"textMessage","version":1,"payload":{}}'.codeUnits,
+      );
 
-        final result = await facade.processReceivedData(
+      await expectLater(
+        facade.processReceivedData(
           data: corrupt,
           fromDeviceId: 'dev-1',
           fromNodeId: 'node-1',
-        );
-
-        expect(
-          result,
-          equals(BLEMessageHandlerFacade.processingFailedMarker),
-          reason:
-              'a recognized-but-unparseable frame must be reported as failed, '
-              'not silently dropped as null',
-        );
-      },
-    );
+        ),
+        throwsA(isA<InboundMessageProcessingException>()),
+        reason:
+            'a recognized-but-unparseable frame must be reported as failed, '
+            'not silently dropped as null or encoded as user-visible text',
+      );
+    });
 
     test(
       'routes reassembled handshake protocol messages to handshake service',
@@ -229,6 +225,39 @@ void main() {
         expect(handshakeService.handleCalls, 1);
         expect(handshakeService.lastIsFromPeripheral, isFalse);
         expect(handshakeService.lastData, isNotNull);
+      },
+    );
+
+    test(
+      'preserves reassembled friend reveal bytes for authenticated handoff',
+      () async {
+        var unverifiedCallbackCount = 0;
+        facade.onIdentityRevealed = (_) => unverifiedCallbackCount++;
+        final reveal = ProtocolMessage.friendReveal(
+          myPersistentKey: List.filled(8, 'persistent-key-').join(),
+          proof: List.filled(12, 'signature-proof-').join(),
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+        );
+        final bytes = reveal.toBytes(enableCompression: false);
+        final chunks = MessageFragmenter.fragmentBytes(
+          bytes,
+          90,
+          'friend-reveal-handoff',
+        );
+
+        String? result;
+        for (final chunk in chunks) {
+          result = await facade.processReceivedData(
+            data: chunk.toBytes(),
+            fromDeviceId: 'device-friend',
+            fromNodeId: 'ephemeral-friend',
+          );
+        }
+
+        expect(result, startsWith('REASSEMBLY_COMPLETE:'));
+        final wireId = result!.substring('REASSEMBLY_COMPLETE:'.length);
+        expect(facade.takeReassembledMessageBytes(wireId), bytes);
+        expect(unverifiedCallbackCount, 0);
       },
     );
 
@@ -279,10 +308,10 @@ void main() {
       'routes binary-fragmented queue sync protocol payload to callback',
       () async {
         final received = <QueueSyncMessage>[];
-        String? receivedFromNode;
-        facade.onQueueSyncReceived = (syncMessage, fromNodeId) {
+        String? receivedFromDeviceAddress;
+        facade.onQueueSyncReceived = (syncMessage, fromDeviceAddress) {
           received.add(syncMessage);
-          receivedFromNode = fromNodeId;
+          receivedFromDeviceAddress = fromDeviceAddress;
         };
 
         final syncMessage = QueueSyncMessage.createRequest(
@@ -312,7 +341,7 @@ void main() {
         expect(received, hasLength(1));
         expect(received.single.queueHash, 'queue-hash-1');
         expect(received.single.syncType, QueueSyncType.request);
-        expect(receivedFromNode, 'sender-node');
+        expect(receivedFromDeviceAddress, 'device-queue-sync');
       },
     );
 

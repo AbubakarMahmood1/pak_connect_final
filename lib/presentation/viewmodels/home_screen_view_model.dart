@@ -237,6 +237,11 @@ class HomeScreenViewModel extends StateNotifier<HomeScreenState> {
     await _homeScreenFacade.markChatAsRead(chatId);
   }
 
+  Future<void> markChatAsUnread(ChatId chatId) async {
+    // This action is exposed only for chats whose unread count is zero.
+    await _chatsRepository.incrementUnreadCount(chatId);
+  }
+
   Future<void> toggleChatPin(ChatListItem chat) async {
     await _homeScreenFacade.toggleChatPin(chat);
     await loadChats();

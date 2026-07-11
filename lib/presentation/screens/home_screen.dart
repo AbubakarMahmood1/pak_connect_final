@@ -24,7 +24,13 @@ import '../viewmodels/home_screen_view_model.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
 /// Menu actions for home screen
-enum HomeMenuAction { openProfile, openContacts, openArchives, settings }
+enum HomeMenuAction {
+  openProfile,
+  openContacts,
+  openBroadcastLists,
+  openArchives,
+  settings,
+}
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({
@@ -244,6 +250,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         Icon(Icons.contacts, size: 18),
                         SizedBox(width: 8),
                         Text('Contacts'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<HomeMenuAction>(
+                    value: HomeMenuAction.openBroadcastLists,
+                    child: Row(
+                      children: [
+                        Icon(Icons.campaign, size: 18),
+                        SizedBox(width: 8),
+                        Text('Broadcast Lists'),
                       ],
                     ),
                   ),
@@ -1136,6 +1152,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       case HomeMenuAction.openContacts:
         _openContacts();
         break;
+      case HomeMenuAction.openBroadcastLists:
+        Navigator.pushNamed(context, '/groups');
+        break;
       case HomeMenuAction.openArchives:
         _openArchives();
         break;
@@ -1260,8 +1279,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _loadChats(viewModel);
           break;
         case 'mark_unread':
-          // Note: This would require implementing markChatAsUnread in repository
-          // For now, we'll skip this option if no unread messages
+          await viewModel.markChatAsUnread(chat.chatId);
+          await _loadChats(viewModel);
           break;
         case 'pin':
         case 'unpin':

@@ -90,7 +90,7 @@ void main() {
   group('MessageDeliveryStatusExtension', () {
     test('maps enum values to display names', () {
       expect(MessageDeliveryStatus.pending.displayName, 'Pending');
-      expect(MessageDeliveryStatus.sent.displayName, 'Sent');
+      expect(MessageDeliveryStatus.sent.displayName, 'Queued');
       expect(MessageDeliveryStatus.delivered.displayName, 'Delivered');
       expect(MessageDeliveryStatus.failed.displayName, 'Failed');
     });

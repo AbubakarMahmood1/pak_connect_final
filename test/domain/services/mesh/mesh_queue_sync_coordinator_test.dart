@@ -21,6 +21,7 @@ import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dar
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
+import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../test_helpers/messaging/in_memory_offline_message_queue.dart';
 
@@ -105,8 +106,7 @@ void main() {
       final success = await coordinator.retryMessage(messageId);
       expect(success, isTrue);
 
-      // Simulate the ACK we now require before marking delivered.
-      coordinator.completeAck(messageId);
+      // The BLE send result represents a completed protocol ACK.
       await Future<void>.delayed(Duration.zero);
 
       expect(messageRepository.savedMessages.length, 1);
@@ -125,7 +125,10 @@ void main() {
 
     test('queue sync response is sent back to requesting peer', () async {
       coordinator.enableQueueSyncHandling();
-      bleService.simulateConnection(peerId: 'peer-requester');
+      bleService.simulateConnection(
+        peerId: 'peer-requester',
+        deviceAddress: 'device-requester',
+      );
       final responseMessage = QueueSyncMessage.createResponse(
         messageIds: const ['message-a'],
         nodeId: 'node-integration',
@@ -151,11 +154,11 @@ void main() {
 
       final handled = await bleService.invokeQueueSyncHandlerForTest(
         request,
-        'peer-requester',
+        'device-requester',
       );
 
       expect(handled, isTrue);
-      expect(bleService.sentQueueSyncPeerIds, ['peer-requester']);
+      expect(bleService.sentQueueSyncPeerIds, ['device-requester']);
     });
 
     test('connection monitoring toggles queue online/offline', () async {
@@ -171,49 +174,81 @@ void main() {
       expect(statusRefreshes, greaterThanOrEqualTo(2));
     });
 
-    test(
-      'reprocessPendingDeliveries flushes a backgrounded backlog to the '
-      'connected peer',
-      () async {
-        bleService.simulateConnection(peerId: 'peer-resume');
-        // Enqueue while offline so it stays pending (mimics a message queued
-        // while the app was backgrounded and delivery timers were suspended).
-        queue.setOffline();
-        await coordinator.queueDirectMessage(
-          chatId: 'chat',
-          content: 'backlogged',
-          recipientPublicKey: 'peer-resume',
-          senderPublicKey: 'node-integration',
-        );
-        expect(bleService.sentMessages, isEmpty);
-
-        await coordinator.reprocessPendingDeliveries();
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-
-        expect(
-          bleService.sentMessages,
-          contains('backlogged'),
-          reason: 'resume must push the pending backlog, not wait on timers',
-        );
-      },
-    );
-
-    test('reprocessPendingDeliveries no-ops when there is no usable link',
-        () async {
-      // No simulateConnection → canSendMessages is false.
+    test('reprocessPendingDeliveries flushes a backgrounded backlog to the '
+        'connected peer', () async {
+      bleService.simulateConnection(peerId: 'peer-resume');
+      // Enqueue while offline so it stays pending (mimics a message queued
+      // while the app was backgrounded and delivery timers were suspended).
       queue.setOffline();
       await coordinator.queueDirectMessage(
         chatId: 'chat',
-        content: 'stranded',
-        recipientPublicKey: 'peer-absent',
+        content: 'backlogged',
+        recipientPublicKey: 'peer-resume',
         senderPublicKey: 'node-integration',
       );
+      expect(bleService.sentMessages, isEmpty);
 
       await coordinator.reprocessPendingDeliveries();
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      expect(bleService.sentMessages, isEmpty);
+      expect(
+        bleService.sentMessages,
+        contains('backlogged'),
+        reason: 'resume must push the pending backlog, not wait on timers',
+      );
     });
+
+    test(
+      'resume delivery accepts the connected peer persistent alias',
+      () async {
+        bleService.simulateConnection(
+          peerId: 'session-b',
+          ephemeralId: 'ephemeral-b',
+          persistentKey: 'persistent-b',
+        );
+        queue.setOffline();
+        await coordinator.queueDirectMessage(
+          chatId: 'chat',
+          content: 'persistent backlog',
+          recipientPublicKey: 'persistent-b',
+          senderPublicKey: 'node-integration',
+        );
+        await coordinator.queueDirectMessage(
+          chatId: 'chat',
+          content: 'different peer backlog',
+          recipientPublicKey: 'persistent-c',
+          senderPublicKey: 'node-integration',
+        );
+
+        await coordinator.reprocessPendingDeliveries();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(bleService.sentMessages, contains('persistent backlog'));
+        expect(
+          bleService.sentMessages,
+          isNot(contains('different peer backlog')),
+        );
+      },
+    );
+
+    test(
+      'reprocessPendingDeliveries no-ops when there is no usable link',
+      () async {
+        // No simulateConnection → canSendMessages is false.
+        queue.setOffline();
+        await coordinator.queueDirectMessage(
+          chatId: 'chat',
+          content: 'stranded',
+          recipientPublicKey: 'peer-absent',
+          senderPublicKey: 'node-integration',
+        );
+
+        await coordinator.reprocessPendingDeliveries();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(bleService.sentMessages, isEmpty);
+      },
+    );
 
     test(
       'sync response is processed even right after a request from same peer',
@@ -227,6 +262,8 @@ void main() {
           queueHash: 'request-hash',
         );
         await bleService.invokeQueueSyncHandlerForTest(request, 'peer-x');
+
+        fakeManager.pendingSyncTargets.add('peer-x');
 
         final response = QueueSyncMessage.createResponse(
           messageIds: const ['message-a'],
@@ -266,14 +303,18 @@ void main() {
         );
         await bleService.invokeQueueSyncHandlerForTest(request, 'peer-x');
 
-        bleService.simulateConnection(peerId: 'peer-x');
+        bleService.simulateConnection(
+          peerId: 'peer-x',
+          deviceAddress: 'device-x',
+        );
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
         expect(
           fakeManager.initiatedSyncs,
-          contains('peer-x'),
+          contains('device-x'),
           reason:
-              'inbound request debounce must not suppress our outbound sync',
+              'connection-triggered sync must use the concrete BLE address '
+              'and inbound request debounce must not suppress it',
         );
       },
     );
@@ -313,15 +354,19 @@ void main() {
     });
 
     test(
-      'initiated sync completes when the response arrives under a '
-      'different peer alias',
+      'initiated sync completes from the exact target device address',
       () async {
-        bleService.simulateConnection(peerId: 'session-b');
+        bleService.simulateConnection(
+          peerId: 'session-b',
+          deviceAddress: 'device-b',
+        );
         bleService.sendQueueSyncOverride = (message, peerId) async {
           if (message.syncType == QueueSyncType.request) {
+            expect(peerId, 'device-b');
             final response = QueueSyncMessage.createResponse(
               messageIds: const [],
               nodeId: 'peer-node-b',
+              syncId: message.syncId,
               stats: QueueSyncStats(
                 totalMessages: 0,
                 pendingMessages: 0,
@@ -330,26 +375,23 @@ void main() {
                 successRate: 1,
               ),
             );
-            // The transport resolves the sender to its relationship hint,
-            // which differs from the session id the sync was keyed under.
             unawaited(
-              bleService.invokeQueueSyncHandlerForTest(response, 'hint-b'),
+              bleService.invokeQueueSyncHandlerForTest(response, 'device-b'),
             );
           }
           return true;
         };
 
         final stopwatch = Stopwatch()..start();
-        final results = await coordinator.syncWithPeers(['session-b']);
+        final results = await coordinator.syncWithPeers(['device-b']);
         stopwatch.stop();
 
-        final result = results['session-b'];
+        final result = results['device-b'];
         expect(result, isNotNull);
         expect(
           result!.success,
           isTrue,
-          reason:
-              'sync should complete via alias resolution, got: ${result.error}',
+          reason: 'sync should complete on the bound route: ${result.error}',
         );
         expect(
           stopwatch.elapsed,
@@ -359,15 +401,93 @@ void main() {
       },
     );
 
+    test(
+      'matching token from a different concrete sender cannot complete sync',
+      () async {
+        bleService.simulateConnection(
+          peerId: 'session-a',
+          deviceAddress: 'device-a',
+        );
+        final requestCaptured = Completer<QueueSyncMessage>();
+        bleService.sendQueueSyncOverride = (message, peerId) async {
+          if (message.syncType == QueueSyncType.request &&
+              !requestCaptured.isCompleted) {
+            requestCaptured.complete(message);
+          }
+          return true;
+        };
+
+        var completed = false;
+        final syncFuture = coordinator.syncWithPeers(['device-a'])
+          ..then((_) => completed = true);
+        final request = await requestCaptured.future;
+
+        final forged = QueueSyncMessage.createResponse(
+          messageIds: const [],
+          nodeId: 'claimed-device-a',
+          syncId: 'wrong-token',
+          stats: QueueSyncStats(
+            totalMessages: 0,
+            pendingMessages: 0,
+            failedMessages: 0,
+            lastSyncTime: DateTime.fromMillisecondsSinceEpoch(1),
+            successRate: 1,
+          ),
+        );
+        expect(
+          await bleService.invokeQueueSyncHandlerForTest(forged, 'device-a'),
+          isFalse,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(completed, isFalse);
+
+        final correlated = QueueSyncMessage.createResponse(
+          messageIds: const [],
+          nodeId: 'malicious-claimed-node',
+          syncId: request.syncId,
+          stats: QueueSyncStats(
+            totalMessages: 0,
+            pendingMessages: 0,
+            failedMessages: 0,
+            lastSyncTime: DateTime.fromMillisecondsSinceEpoch(1),
+            successRate: 1,
+          ),
+        );
+        expect(
+          await bleService.invokeQueueSyncHandlerForTest(
+            correlated,
+            'device-b',
+          ),
+          isFalse,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(completed, isFalse);
+
+        expect(
+          await bleService.invokeQueueSyncHandlerForTest(
+            correlated,
+            'device-a',
+          ),
+          isTrue,
+        );
+
+        final results = await syncFuture;
+        expect(results['device-a']?.success, isTrue);
+      },
+    );
+
     test('initiated sync fails fast when transport reports no route', () async {
-      bleService.simulateConnection(peerId: 'session-b');
+      bleService.simulateConnection(
+        peerId: 'session-b',
+        deviceAddress: 'device-b',
+      );
       bleService.sendQueueSyncOverride = (message, peerId) async => false;
 
       final stopwatch = Stopwatch()..start();
-      final results = await coordinator.syncWithPeers(['session-b']);
+      final results = await coordinator.syncWithPeers(['device-b']);
       stopwatch.stop();
 
-      final result = results['session-b'];
+      final result = results['device-b'];
       expect(result, isNotNull);
       expect(result!.success, isFalse);
       expect(
@@ -377,15 +497,49 @@ void main() {
       );
     });
 
+    test('sync-triggered delivery is rejected when requester is not the exact '
+        'sole transport route', () async {
+      bleService.simulateConnection(peerId: 'session-b');
+      queue.setOffline();
+      final messageId = await coordinator.queueDirectMessage(
+        chatId: 'chat',
+        content: 'queued-payload',
+        recipientPublicKey: 'session-b',
+        senderPublicKey: 'node-a',
+      );
+      bleService.sendQueueSyncOverride = (message, peerId) async => true;
+
+      final request = QueueSyncMessage.createRequest(
+        messageIds: const [],
+        nodeId: 'peer-node-b',
+        queueHash: 'different-hash',
+      );
+      final handled = await bleService.invokeQueueSyncHandlerForTest(
+        request,
+        'hint-b',
+      );
+      expect(handled, isTrue);
+
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(bleService.sentMessages, isNot(contains('queued-payload')));
+      expect(
+        queue.getMessageById(messageId)?.status,
+        isNot(QueuedMessageStatus.delivered),
+      );
+    });
+
     test(
-      'sync-triggered delivery is not skipped when the requester id is a '
-      'hint alias of the connected peer',
+      'sync-triggered delivery is rejected with multiple active routes',
       () async {
-        bleService.simulateConnection(peerId: 'session-b');
+        bleService.simulateConnection(
+          peerId: 'session-b',
+          deviceAddress: 'device-b',
+        );
+        bleService._activeDeviceAddresses.add('device-c');
         queue.setOffline();
-        final messageId = await coordinator.queueDirectMessage(
+        await coordinator.queueDirectMessage(
           chatId: 'chat',
-          content: 'queued-payload',
+          content: 'must-not-cross-link',
           recipientPublicKey: 'session-b',
           senderPublicKey: 'node-a',
         );
@@ -396,21 +550,13 @@ void main() {
           nodeId: 'peer-node-b',
           queueHash: 'different-hash',
         );
-        final handled = await bleService.invokeQueueSyncHandlerForTest(
-          request,
-          'hint-b',
+        expect(
+          await bleService.invokeQueueSyncHandlerForTest(request, 'device-b'),
+          isTrue,
         );
-        expect(handled, isTrue);
 
         await Future<void>.delayed(const Duration(milliseconds: 50));
-        expect(
-          bleService.sentMessages,
-          contains('queued-payload'),
-          reason:
-              'delivery must rely on the per-message recipient gate, not on '
-              'matching the transport-level requester id',
-        );
-        coordinator.completeAck(messageId);
+        expect(bleService.sentMessages, isNot(contains('must-not-cross-link')));
       },
     );
   });
@@ -423,6 +569,7 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
   final List<String> initiatedSyncs = [];
   final List<String> processedResponseNodeIds = [];
   final List<String> failedPendingSyncs = [];
+  final Set<String> pendingSyncTargets = {};
   QueueSyncResponse? nextSyncRequestResponse;
 
   @override
@@ -498,7 +645,13 @@ class _FakeQueueSyncManager implements QueueSyncManagerContract {
   }
 
   @override
-  bool hasPendingSyncWith(String nodeId) => false;
+  bool hasPendingSyncWith(String nodeId) => pendingSyncTargets.contains(nodeId);
+
+  @override
+  bool canAcceptSyncResponse(
+    QueueSyncMessage responseMessage,
+    String fromNodeId,
+  ) => hasPendingSyncWith(fromNodeId);
 
   @override
   void failPendingSync(String nodeId, String reason) {
@@ -522,6 +675,9 @@ class _TestMeshBleService implements IConnectionService {
     statusMessage: 'disconnected',
   );
   String? _currentSessionId;
+  String? _ephemeralId;
+  String? _persistentKey;
+  final List<String> _activeDeviceAddresses = [];
   bool _canSend = false;
   bool _hasPeripheral = false;
   Future<bool> Function(QueueSyncMessage, String)? _queueSyncHandler;
@@ -530,8 +686,18 @@ class _TestMeshBleService implements IConnectionService {
   Future<bool> Function(QueueSyncMessage message, String? peerId)?
   sendQueueSyncOverride;
 
-  void simulateConnection({required String peerId}) {
+  void simulateConnection({
+    required String peerId,
+    String? deviceAddress,
+    String? ephemeralId,
+    String? persistentKey,
+  }) {
     _currentSessionId = peerId;
+    _ephemeralId = ephemeralId ?? peerId;
+    _persistentKey = persistentKey ?? peerId;
+    _activeDeviceAddresses
+      ..clear()
+      ..add(deviceAddress ?? peerId);
     _canSend = true;
     _hasPeripheral = false;
     _connectionInfo = ConnectionInfo(
@@ -544,6 +710,9 @@ class _TestMeshBleService implements IConnectionService {
 
   void simulateDisconnection() {
     _currentSessionId = null;
+    _ephemeralId = null;
+    _persistentKey = null;
+    _activeDeviceAddresses.clear();
     _canSend = false;
     _connectionInfo = const ConnectionInfo(
       isConnected: false,
@@ -566,10 +735,10 @@ class _TestMeshBleService implements IConnectionService {
   String? get otherUserName => _currentSessionId ?? 'peer';
 
   @override
-  String? get theirEphemeralId => _currentSessionId;
+  String? get theirEphemeralId => _ephemeralId;
 
   @override
-  String? get theirPersistentKey => _currentSessionId;
+  String? get theirPersistentKey => _persistentKey;
 
   @override
   String? get myPersistentId => 'my-id';
@@ -597,7 +766,7 @@ class _TestMeshBleService implements IConnectionService {
 
   @override
   List<String> get activeConnectionDeviceIds =>
-      _currentSessionId == null ? [] : [_currentSessionId!];
+      List.unmodifiable(_activeDeviceAddresses);
 
   @override
   Stream<List<Peripheral>> get discoveredDevices => const Stream.empty();
@@ -742,11 +911,11 @@ class _TestMeshBleService implements IConnectionService {
 
   Future<bool> invokeQueueSyncHandlerForTest(
     QueueSyncMessage message,
-    String fromNodeId,
+    String fromDeviceAddress,
   ) async {
     final handler = _queueSyncHandler;
     if (handler == null) return false;
-    return handler(message, fromNodeId);
+    return handler(message, fromDeviceAddress);
   }
 
   @override
@@ -796,8 +965,8 @@ class _TestMeshBleService implements IConnectionService {
     if (override != null) {
       return override(message, peerId);
     }
-    if (_queueSyncHandler != null && _currentSessionId != null) {
-      await _queueSyncHandler!(message, _currentSessionId!);
+    if (_queueSyncHandler != null && _activeDeviceAddresses.isNotEmpty) {
+      await _queueSyncHandler!(message, _activeDeviceAddresses.first);
     }
     return true;
   }

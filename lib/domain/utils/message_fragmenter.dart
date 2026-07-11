@@ -81,35 +81,41 @@ class MessageChunk {
   }
 
   static MessageChunk fromBytes(Uint8List bytes) {
-    // 🔧 FIX (Oct 18, 2025): Avoid UTF-8 decoding the entire chunk at once
-    // Problem: Combining header bytes + base64 payload bytes can create invalid UTF-8 sequences
-    // Solution: Use String.fromCharCodes() which treats bytes as individual characters (no multi-byte validation)
-
-    // Convert bytes to string using ASCII-only decoding (safe for base64)
-    // This avoids UTF-8 multi-byte sequence validation that causes FormatException
-    final chunkString = String.fromCharCodes(bytes);
+    final chunkString = utf8.decode(bytes);
 
     _logger.fine(
       '🔧 CHUNK DEBUG: Decoding ${bytes.length} incoming chunk bytes',
     );
 
-    // Split by delimiter
-    final parts = chunkString.split('|');
-
-    _logger.fine('🔧 CHUNK DEBUG: Parsed ${parts.length} chunk fields');
-
-    if (parts.length != 5) {
-      throw FormatException(
-        'Invalid chunk format: expected 5 parts, got ${parts.length}. Data: ${chunkString.substring(0, chunkString.length > 50 ? 50 : chunkString.length)}...',
+    final separators = <int>[];
+    for (var i = 0; i < chunkString.length && separators.length < 4; i++) {
+      if (chunkString.codeUnitAt(i) == 0x7c) separators.add(i);
+    }
+    if (separators.length != 4) {
+      throw const FormatException(
+        'Invalid chunk format: expected four header delimiters',
       );
     }
 
+    final messageId = chunkString.substring(0, separators[0]);
+    final indexText = chunkString.substring(separators[0] + 1, separators[1]);
+    final totalText = chunkString.substring(separators[1] + 1, separators[2]);
+    final binaryText = chunkString.substring(separators[2] + 1, separators[3]);
+    final chunkIndex = int.tryParse(indexText);
+    final totalChunks = int.tryParse(totalText);
+    if (chunkIndex == null || totalChunks == null) {
+      throw const FormatException('Invalid chunk index metadata');
+    }
+    if (binaryText != '0' && binaryText != '1') {
+      throw const FormatException('Invalid chunk binary flag');
+    }
+
     return MessageChunk(
-      messageId: parts[0],
-      chunkIndex: int.parse(parts[1]),
-      totalChunks: int.parse(parts[2]),
-      isBinary: parts[3] == '1',
-      content: parts[4],
+      messageId: messageId,
+      chunkIndex: chunkIndex,
+      totalChunks: totalChunks,
+      isBinary: binaryText == '1',
+      content: chunkString.substring(separators[3] + 1),
       timestamp: DateTime.now(),
     );
   }
@@ -123,75 +129,11 @@ class MessageFragmenter {
   // Fragment a message into chunks that fit within MTU limit
   static List<MessageChunk> fragment(String message, int maxChunkSize) {
     if (message.isEmpty) return [];
-
-    final messageId = _newWireFragmentId();
-    final timestamp = DateTime.now();
-
-    // Safety check: Minimum viable MTU
-    if (maxChunkSize < 25) {
-      throw Exception(
-        'MTU too small: $maxChunkSize bytes (minimum 25 required)',
-      );
-    }
-
-    // Safety limit: Maximum iterations to prevent infinite loops
-    const maxIterations = 10;
-    int iterations = 0;
-
-    int estimatedChunks = 1;
-    List<MessageChunk> finalChunks = [];
-
-    while (iterations < maxIterations) {
-      iterations++;
-
-      // Calculate header size for current chunk estimate. Include the binary
-      // flag field ("|0") so the budget matches the actual wire format
-      // (id|idx|total|flag|content) emitted by toBytes().
-      final sampleHeader = '$messageId|0|$estimatedChunks|0|';
-      final headerSize = utf8.encode(sampleHeader).length;
-      final contentSpace = maxChunkSize - headerSize;
-
-      if (contentSpace <= 5) {
-        // Need at least 5 bytes for content
-        throw Exception(
-          'MTU insufficient: need ${headerSize + 6} bytes minimum, got $maxChunkSize',
-        );
-      }
-
-      // Calculate actual chunks needed
-      final actualChunksNeeded = (message.length / contentSpace).ceil();
-
-      if (actualChunksNeeded == estimatedChunks ||
-          iterations >= maxIterations) {
-        // Create chunks with current estimate
-        for (int i = 0; i < estimatedChunks; i++) {
-          final start = i * contentSpace;
-          final end = (start + contentSpace < message.length)
-              ? start + contentSpace
-              : message.length;
-
-          finalChunks.add(
-            MessageChunk(
-              messageId: messageId,
-              chunkIndex: i,
-              totalChunks: estimatedChunks,
-              content: message.substring(start, end),
-              timestamp: timestamp,
-              isBinary: true,
-            ),
-          );
-        }
-        break;
-      } else {
-        estimatedChunks = actualChunksNeeded;
-      }
-    }
-
-    if (finalChunks.isEmpty) {
-      throw Exception('Fragmentation failed after $maxIterations iterations');
-    }
-
-    return finalChunks;
+    return fragmentBytes(
+      Uint8List.fromList(utf8.encode(message)),
+      maxChunkSize,
+      'text',
+    );
   }
 
   static List<MessageChunk> fragmentBytes(
@@ -199,6 +141,7 @@ class MessageFragmenter {
     int maxSize,
     String messageId,
   ) {
+    if (data.isEmpty) return const <MessageChunk>[];
     final timestamp = DateTime.now();
     // Collision-resistant transport id (see _newWireFragmentId). The caller's
     // [messageId] is a semantic id and is intentionally not used as the wire
@@ -206,66 +149,65 @@ class MessageFragmenter {
     // (PC-FRAG-001).
     final shortId = _newWireFragmentId();
 
-    // 🔧 CRITICAL FIX: Work with bytes directly - data might be compressed binary, not UTF-8 text!
-    // Messages can be compressed in ProtocolMessage.toBytes(), so we can't assume UTF-8.
-
-    // Header size derived from the actual wire id length + fixed fields
-    // "id|idx|total|flag|" (idx/total budgeted at up to 3 digits each).
-    final headerSize = shortId.length + '|'.length + 3 + '|'.length + 3 +
-        '|'.length + 1 + '|'.length;
     const bleOverhead =
         5; // BLE notification protocol overhead (ATT headers, etc.)
+    const maxChunks = 0xffff;
+    var estimatedTotal = 1;
+    var contentSpace = 0;
 
-    // 🔧 CRITICAL: Account for base64 expansion (4/3 ratio = ~33% increase)
-    // Base64 encoding: every 3 bytes → 4 characters
-    // So we need to limit raw bytes to ensure base64 output fits in MTU
-    final availableSpace = maxSize - headerSize - bleOverhead;
+    for (var iteration = 0; iteration < 20; iteration++) {
+      if (estimatedTotal > maxChunks) {
+        throw ArgumentError.value(
+          estimatedTotal,
+          'data',
+          'requires more than $maxChunks fragments',
+        );
+      }
+      final maxIndexDigits = (estimatedTotal - 1).toString().length;
+      final totalDigits = estimatedTotal.toString().length;
+      final headerSize = shortId.length + maxIndexDigits + totalDigits + 6;
+      final availableEncodedBytes = maxSize - bleOverhead - headerSize;
+      contentSpace = (availableEncodedBytes ~/ 4) * 3;
+      if (contentSpace <= 0) {
+        throw ArgumentError.value(
+          maxSize,
+          'maxSize',
+          'MTU too small for fragment metadata and base64 payload',
+        );
+      }
 
-    // Calculate max raw bytes that when base64-encoded will fit in availableSpace
-    // base64(n bytes) = ceil(n * 4/3) characters
-    // Solving for n: n = floor(availableSpace * 3/4)
-    final contentSpace = (availableSpace * 3 / 4).floor();
-
-    if (contentSpace <= 10) {
-      throw Exception('MTU too small for headers and base64 encoding');
+      final actualTotal = (data.length + contentSpace - 1) ~/ contentSpace;
+      if (actualTotal == estimatedTotal) break;
+      estimatedTotal = actualTotal;
+      if (iteration == 19) {
+        throw StateError('Fragment sizing did not converge');
+      }
     }
 
-    // 🔧 FIX: Fragment by BYTE count directly (no UTF-8 assumptions)
-    // Data is already binary (compressed or uncompressed JSON bytes)
-    final chunks = <MessageChunk>[];
-    int chunkIndex = 0;
-
-    // Calculate total chunks needed
-    final totalChunks = (data.length / contentSpace).ceil();
-
-    // Split data into chunks
-    int byteOffset = 0;
-    while (byteOffset < data.length) {
-      // Calculate chunk size
-      final remainingBytes = data.length - byteOffset;
-      final chunkSize = remainingBytes > contentSpace
-          ? contentSpace
-          : remainingBytes;
-
-      // Extract chunk bytes
-      final chunkBytes = data.sublist(byteOffset, byteOffset + chunkSize);
-
-      // Base64 encode for text transmission over BLE
-      final chunkContent = base64.encode(chunkBytes);
-
-      chunks.add(
-        MessageChunk(
-          messageId: shortId,
-          chunkIndex: chunkIndex,
-          totalChunks: totalChunks,
-          content: chunkContent,
-          timestamp: timestamp,
-          isBinary: true, // Mark as binary to indicate base64 encoding
-        ),
+    if (estimatedTotal > maxChunks) {
+      throw ArgumentError.value(
+        estimatedTotal,
+        'data',
+        'requires more than $maxChunks fragments',
       );
+    }
 
-      byteOffset += chunkSize;
-      chunkIndex++;
+    final chunks = <MessageChunk>[];
+    for (var index = 0, offset = 0; offset < data.length; index++) {
+      final end = min(offset + contentSpace, data.length);
+      final chunk = MessageChunk(
+        messageId: shortId,
+        chunkIndex: index,
+        totalChunks: estimatedTotal,
+        content: base64.encode(data.sublist(offset, end)),
+        timestamp: timestamp,
+        isBinary: true,
+      );
+      if (chunk.toBytes().length + bleOverhead > maxSize) {
+        throw StateError('Fragment exceeded negotiated MTU budget');
+      }
+      chunks.add(chunk);
+      offset = end;
     }
 
     return chunks;
@@ -279,8 +221,31 @@ class MessageFragmenter {
 }
 
 class MessageReassembler {
-  final Map<String, Map<int, MessageChunk>> _pendingMessages = {};
-  final Map<String, DateTime> _messageTimestamps = {};
+  MessageReassembler({
+    this.maxActiveAssemblies = 32,
+    this.maxMessageBytes = 1024 * 1024,
+    this.maxRetainedBytes = 1024 * 1024,
+    this.maxChunksPerMessage = 0xffff,
+    this.maxRetainedFragments = 16384,
+  }) {
+    _requirePositive('maxActiveAssemblies', maxActiveAssemblies);
+    _requirePositive('maxMessageBytes', maxMessageBytes);
+    _requirePositive('maxRetainedBytes', maxRetainedBytes);
+    _requirePositive('maxChunksPerMessage', maxChunksPerMessage);
+    _requirePositive('maxRetainedFragments', maxRetainedFragments);
+  }
+
+  final int maxActiveAssemblies;
+  final int maxMessageBytes;
+  final int maxRetainedBytes;
+  final int maxChunksPerMessage;
+
+  /// Global cap on decoded fragment objects, independent of payload bytes.
+  final int maxRetainedFragments;
+
+  final Map<String, _PendingAssembly> _pendingMessages = {};
+  int _retainedBytes = 0;
+  int _retainedFragments = 0;
 
   /// Reassemble message chunks and return as string
   ///
@@ -331,95 +296,205 @@ class MessageReassembler {
       '🔄 REASSEMBLE BYTES: Content length: ${chunk.content.length} chars',
     );
 
-    // Initialize message tracking
-    if (!_pendingMessages.containsKey(messageId)) {
-      _pendingMessages[messageId] = {};
-      _messageTimestamps[messageId] = DateTime.now();
+    _validateChunkMetadata(chunk);
+
+    var assembly = _pendingMessages[messageId];
+    if (assembly != null &&
+        (assembly.totalChunks != chunk.totalChunks ||
+            assembly.isBinary != chunk.isBinary)) {
+      _discard(messageId);
+      throw const FormatException('Conflicting fragment metadata');
+    }
+
+    if (assembly == null && _pendingMessages.length >= maxActiveAssemblies) {
+      throw const FormatException('Too many active fragment assemblies');
+    }
+
+    final existingPart = assembly?.parts[chunk.chunkIndex];
+    if (existingPart != null) {
+      if (!_encodedPayloadCouldFit(chunk, existingPart.length)) {
+        _discard(messageId);
+        throw const FormatException('Conflicting duplicate fragment');
+      }
+    } else {
+      final remainingMessageBytes =
+          maxMessageBytes - (assembly?.retainedBytes ?? 0);
+      if (!_encodedPayloadCouldFit(chunk, remainingMessageBytes)) {
+        _discard(messageId);
+        throw const FormatException('Fragment assembly exceeds message limit');
+      }
+      final remainingAggregateBytes = maxRetainedBytes - _retainedBytes;
+      if (!_encodedPayloadCouldFit(chunk, remainingAggregateBytes)) {
+        _discard(messageId);
+        throw const FormatException('Fragment buffer exceeds aggregate limit');
+      }
+      if (_retainedFragments >= maxRetainedFragments) {
+        _discard(messageId);
+        throw const FormatException('Fragment buffer contains too many parts');
+      }
+    }
+
+    Uint8List decodedPart;
+    try {
+      decodedPart = chunk.isBinary
+          ? base64.decode(chunk.content)
+          : Uint8List.fromList(utf8.encode(chunk.content));
+    } on FormatException {
+      _discard(messageId);
+      throw const FormatException('Invalid fragment payload encoding');
+    }
+
+    if (decodedPart.isEmpty) {
+      _discard(messageId);
+      throw const FormatException('Fragment payload must not be empty');
+    }
+
+    if (assembly == null) {
+      assembly = _PendingAssembly(
+        totalChunks: chunk.totalChunks,
+        isBinary: chunk.isBinary,
+        createdAt: DateTime.now(),
+      );
+      _pendingMessages[messageId] = assembly;
       _logger.fine(
         '🔄 REASSEMBLE BYTES: Started tracking new message $messageId',
       );
     }
 
-    // Store this chunk
-    _pendingMessages[messageId]![chunk.chunkIndex] = chunk;
+    if (existingPart != null) {
+      if (_bytesEqual(existingPart, decodedPart)) return null;
+      _discard(messageId);
+      throw const FormatException('Conflicting duplicate fragment');
+    }
+
+    if (assembly.retainedBytes + decodedPart.length > maxMessageBytes) {
+      _discard(messageId);
+      throw const FormatException('Fragment assembly exceeds message limit');
+    }
+    if (_retainedBytes + decodedPart.length > maxRetainedBytes) {
+      _discard(messageId);
+      throw const FormatException('Fragment buffer exceeds aggregate limit');
+    }
+
+    assembly.parts[chunk.chunkIndex] = decodedPart;
+    assembly.retainedBytes += decodedPart.length;
+    _retainedBytes += decodedPart.length;
+    _retainedFragments++;
     _logger.fine(
-      '🔄 REASSEMBLE BYTES: Stored chunk ${chunk.chunkIndex}. Have ${_pendingMessages[messageId]!.length}/${chunk.totalChunks} chunks',
+      '🔄 REASSEMBLE BYTES: Stored chunk ${chunk.chunkIndex}. Have ${assembly.parts.length}/${assembly.totalChunks} chunks',
     );
 
     // Check if we have all chunks
-    final receivedChunks = _pendingMessages[messageId]!;
-    if (receivedChunks.length == chunk.totalChunks) {
+    if (assembly.parts.length == assembly.totalChunks) {
       _logger.fine(
-        '🔄 REASSEMBLE BYTES✅: All ${chunk.totalChunks} chunks received! Starting reassembly',
+        '🔄 REASSEMBLE BYTES✅: All ${assembly.totalChunks} chunks received! Starting reassembly',
       );
-      // Reassemble message
-      final sortedChunks = <MessageChunk>[];
-      for (int i = 0; i < chunk.totalChunks; i++) {
-        if (!receivedChunks.containsKey(i)) {
-          return null; // Missing chunk
-        }
-        sortedChunks.add(receivedChunks[i]!);
+      final builder = BytesBuilder(copy: false);
+      for (var i = 0; i < assembly.totalChunks; i++) {
+        final part = assembly.parts[i];
+        if (part == null) return null;
+        builder.add(part);
       }
-
-      // Clean up
-      _pendingMessages.remove(messageId);
-      _messageTimestamps.remove(messageId);
-
-      // 🔧 FIX: Handle both binary (base64) and text chunks
-      // Binary chunks: decode base64, concatenate bytes, return raw bytes
-      // Text chunks: concatenate strings, encode as UTF-8
-      final firstChunk = sortedChunks.first;
-      if (firstChunk.isBinary) {
-        _logger.fine('🔄 REASSEMBLE BYTES: Mode = BINARY (base64 decoding)');
-        // Binary mode: decode base64 chunks, concatenate bytes
-        final allBytes = <int>[];
-        for (int i = 0; i < sortedChunks.length; i++) {
-          final chunk = sortedChunks[i];
-          _logger.fine(
-            '🔄 REASSEMBLE BYTES: Decoding base64 chunk ${i + 1}/${sortedChunks.length} (${chunk.content.length} chars)',
-          );
-          final chunkBytes = base64.decode(chunk.content);
-          _logger.fine(
-            '🔄 REASSEMBLE BYTES: Chunk ${i + 1} decoded to ${chunkBytes.length} bytes',
-          );
-          allBytes.addAll(chunkBytes);
-        }
-        _logger.fine(
-          '🔄 REASSEMBLE BYTES✅: Total reassembled: ${allBytes.length} bytes',
-        );
-        // Return raw bytes (may be compressed/non-UTF-8 data!)
-        return Uint8List.fromList(allBytes);
-      } else {
-        _logger.fine('🔄 REASSEMBLE BYTES: Mode = TEXT (string concatenation)');
-        // Legacy text mode: concatenate strings, encode as UTF-8
-        final text = sortedChunks.map((c) => c.content).join('');
-        _logger.fine(
-          '🔄 REASSEMBLE BYTES✅: Concatenated ${text.length} characters',
-        );
-        return Uint8List.fromList(utf8.encode(text));
-      }
+      final result = builder.takeBytes();
+      _discard(messageId);
+      _logger.fine(
+        '🔄 REASSEMBLE BYTES✅: Total reassembled: ${result.length} bytes',
+      );
+      return result;
     }
 
     _logger.fine(
-      '🔄 REASSEMBLE BYTES: Still waiting for more chunks (${receivedChunks.length}/${chunk.totalChunks})',
+      '🔄 REASSEMBLE BYTES: Still waiting for more chunks (${assembly.parts.length}/${assembly.totalChunks})',
     );
     return null; // Still waiting for more chunks
+  }
+
+  void _validateChunkMetadata(MessageChunk chunk) {
+    if (chunk.messageId.isEmpty || chunk.messageId.length > 256) {
+      throw const FormatException('Invalid fragment message id');
+    }
+    if (chunk.totalChunks < 1 ||
+        chunk.totalChunks > maxChunksPerMessage ||
+        chunk.chunkIndex < 0 ||
+        chunk.chunkIndex >= chunk.totalChunks) {
+      throw const FormatException('Invalid fragment index metadata');
+    }
+    if (chunk.content.isEmpty) {
+      throw const FormatException('Fragment payload must not be empty');
+    }
+  }
+
+  bool _bytesEqual(Uint8List left, Uint8List right) {
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (left[i] != right[i]) return false;
+    }
+    return true;
+  }
+
+  bool _encodedPayloadCouldFit(MessageChunk chunk, int maxDecodedBytes) {
+    if (maxDecodedBytes <= 0) return false;
+    if (!chunk.isBinary) {
+      var encodedBytes = 0;
+      for (final rune in chunk.content.runes) {
+        encodedBytes += rune <= 0x7f
+            ? 1
+            : rune <= 0x7ff
+            ? 2
+            : rune <= 0xffff
+            ? 3
+            : 4;
+        if (encodedBytes > maxDecodedBytes) return false;
+      }
+      return true;
+    }
+
+    // Standard base64 needs at most four characters for every three decoded
+    // bytes. Reject obviously oversized input before allocating its decoded
+    // representation; malformed input is still rejected by base64.decode.
+    final maxEncodedLength = ((maxDecodedBytes + 2) ~/ 3) * 4;
+    return chunk.content.length <= maxEncodedLength;
+  }
+
+  void _discard(String messageId) {
+    final assembly = _pendingMessages.remove(messageId);
+    if (assembly == null) return;
+    _retainedBytes -= assembly.retainedBytes;
+    _retainedFragments -= assembly.parts.length;
+    if (_retainedBytes < 0) _retainedBytes = 0;
+    if (_retainedFragments < 0) _retainedFragments = 0;
+  }
+
+  static void _requirePositive(String name, int value) {
+    if (value <= 0) {
+      throw ArgumentError.value(value, name, 'must be greater than zero');
+    }
   }
 
   // Clean up old partial messages (call periodically)
   void cleanupOldMessages({Duration timeout = const Duration(minutes: 2)}) {
     final now = DateTime.now();
-    final expiredIds = <String>[];
-
-    _messageTimestamps.forEach((messageId, timestamp) {
-      if (now.difference(timestamp) > timeout) {
-        expiredIds.add(messageId);
-      }
-    });
+    final expiredIds = _pendingMessages.entries
+        .where((entry) => now.difference(entry.value.createdAt) >= timeout)
+        .map((entry) => entry.key)
+        .toList();
 
     for (final id in expiredIds) {
-      _pendingMessages.remove(id);
-      _messageTimestamps.remove(id);
+      _discard(id);
     }
   }
+}
+
+final class _PendingAssembly {
+  _PendingAssembly({
+    required this.totalChunks,
+    required this.isBinary,
+    required this.createdAt,
+  });
+
+  final int totalChunks;
+  final bool isBinary;
+  final DateTime createdAt;
+  final Map<int, Uint8List> parts = {};
+  int retainedBytes = 0;
 }

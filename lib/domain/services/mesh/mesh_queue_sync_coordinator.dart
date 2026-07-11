@@ -8,7 +8,6 @@ import 'package:pak_connect/domain/entities/enhanced_message.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
-import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
@@ -61,7 +60,6 @@ class MeshQueueSyncCoordinator {
            ((queue, nodeId) =>
                QueueSyncManagerAdapter(queue: queue, nodeId: nodeId)),
        _logger = logger ?? Logger('MeshQueueSyncCoordinator');
-  late final MessageAckTracker _ackTracker = MessageAckTracker();
 
   OfflineMessageQueueContract? get messageQueue => _messageQueue;
 
@@ -107,19 +105,6 @@ class MeshQueueSyncCoordinator {
     );
 
     _logger.info('Queue + sync coordinator initialized for $nodeId');
-
-    // Hook ACK completions from the BLE layer if exposed; the BLE layer completes
-    // MessageAckTracker internally. This hook allows future explicit ACK messages
-    // to be mapped to queue delivery if needed.
-    _bleService.receivedMessages.listen((_) {
-      // Placeholder: no-op; delivery is driven by MessageAckTracker completion.
-    });
-  }
-
-  /// Completes a pending ACK for the given message. Useful for inbound ACKs
-  /// from the BLE layer or for tests that need to simulate delivery.
-  void completeAck(String messageId, {bool success = true}) {
-    _ackTracker.complete(messageId, success: success);
   }
 
   void enableQueueSyncHandling() {
@@ -186,9 +171,7 @@ class MeshQueueSyncCoordinator {
       return;
     }
     final deviceId = _bleService.currentSessionId;
-    if (deviceId == null ||
-        deviceId.isEmpty ||
-        !_bleService.canSendMessages) {
+    if (deviceId == null || deviceId.isEmpty || !_bleService.canSendMessages) {
       _logger.fine(
         'Resume flush skipped: no usable link (delivery resumes on reconnect)',
       );
@@ -404,7 +387,10 @@ class MeshQueueSyncCoordinator {
     _onStatusChanged?.call();
   }
 
-  Future<void> _handleSendMessage(String messageId) async {
+  Future<void> _handleSendMessage(
+    String messageId, {
+    String? requiredDeviceAddress,
+  }) async {
     final queue = _messageQueue;
     if (queue == null) {
       return;
@@ -426,6 +412,27 @@ class MeshQueueSyncCoordinator {
           'No active connection available (will retry later): $truncatedId...',
         );
         return;
+      }
+
+      if (requiredDeviceAddress != null || !message.isRelayMessage) {
+        final activeRoutes = _bleService.activeConnectionDeviceIds
+            .where((address) => address.isNotEmpty)
+            .toSet();
+        if (activeRoutes.length != 1) {
+          _logger.warning(
+            'Direct queued send deferred: ${activeRoutes.length} active BLE '
+            'routes cannot be bound to the global peer identity safely',
+          );
+          return;
+        }
+        if (requiredDeviceAddress != null &&
+            activeRoutes.single != requiredDeviceAddress) {
+          _logger.warning(
+            'Direct queued send deferred: required route '
+            '${requiredDeviceAddress.shortId(8)}... is not the sole active route',
+          );
+          return;
+        }
       }
 
       final canUseCurrentPeer = await _canSendMessageToCurrentPeer(message);
@@ -456,22 +463,11 @@ class MeshQueueSyncCoordinator {
         return;
       }
 
-      // Defer marking delivered until ACK arrives; queue already sets awaitingAck.
-      // MessageAckTracker is completed by BLEMessageHandler on ACK.
-      _ackTracker
-          .track(
-            messageId,
-            onTimeout: (id) {
-              _logger.warning('ACK timeout for message ${id.shortId()}...');
-              queue.markMessageFailed(id, 'ACK timeout');
-            },
-          )
-          .future
-          .then((ackSuccess) async {
-            if (ackSuccess) {
-              await queue.markMessageDelivered(messageId);
-            }
-          });
+      if (!message.isRelayMessage) {
+        // Both central and peripheral text sends now return true only after the
+        // BLE message handler's shared ACK tracker observes the protocol ACK.
+        await queue.markMessageDelivered(messageId);
+      }
     } catch (e) {
       _logger.severe('Error sending message $truncatedId...: $e');
       await _messageQueue?.markMessageFailed(messageId, 'Send error: $e');
@@ -555,7 +551,7 @@ class MeshQueueSyncCoordinator {
 
   Future<bool> _handleIncomingQueueSync(
     QueueSyncMessage message,
-    String fromNodeId,
+    String fromDeviceAddress,
   ) async {
     final manager = _queueSyncManager;
     if (manager == null) {
@@ -567,22 +563,24 @@ class MeshQueueSyncCoordinator {
         // Debounce duplicate *requests* only (tight retries on notification
         // failure). Responses must never be debounced: they complete a
         // pending initiated sync and dropping one forces a 15s timeout.
-        final lastRequest = _lastInboundSyncRequestAt[fromNodeId];
+        final lastRequest = _lastInboundSyncRequestAt[fromDeviceAddress];
         if (lastRequest != null &&
             DateTime.now().difference(lastRequest) < _queueSyncDebounce) {
           _logger.fine(
-            '⏳ Skipping queue sync request from ${fromNodeId.shortId(8)}... (debounced)',
+            '⏳ Skipping queue sync request from ${fromDeviceAddress.shortId(8)}... (debounced)',
           );
           return false;
         }
-        _lastInboundSyncRequestAt[fromNodeId] = DateTime.now();
+        _lastInboundSyncRequestAt[fromDeviceAddress] = DateTime.now();
 
-        final response = await manager.handleSyncRequest(message, fromNodeId);
-        if (response.type == QueueSyncResponseType.success &&
-            response.responseMessage != null) {
+        final response = await manager.handleSyncRequest(
+          message,
+          fromDeviceAddress,
+        );
+        if (response.responseMessage != null) {
           final sent = await _bleService.sendQueueSyncMessage(
             response.responseMessage!,
-            peerId: fromNodeId,
+            peerId: fromDeviceAddress,
           );
           if (!sent) return false;
         }
@@ -590,73 +588,63 @@ class MeshQueueSyncCoordinator {
       }
 
       if (message.syncType == QueueSyncType.response) {
+        if (!manager.canAcceptSyncResponse(message, fromDeviceAddress)) {
+          _logger.warning(
+            'Rejecting uncorrelated queue sync response from '
+            '${fromDeviceAddress.shortId(8)}...',
+          );
+          return false;
+        }
         await manager.processSyncResponse(
           message,
           const <QueuedMessage>[],
-          _resolvePendingSyncKey(manager, message, fromNodeId),
+          fromDeviceAddress,
         );
         return true;
       }
     } catch (e) {
       _logger.severe(
-        'Queue sync handling failed for ${fromNodeId.shortId(8)}...: $e',
+        'Queue sync handling failed for '
+        '${fromDeviceAddress.shortId(8)}...: $e',
       );
     }
 
     return false;
   }
 
-  /// The transport, the peer's self-declared node id, and our session state
-  /// may all use different identifier flavors for the same peer (relationship
-  /// hint vs ephemeral session id vs persistent key). A pending initiated
-  /// sync is keyed by whichever flavor we initiated with, so resolve the
-  /// response against every known alias before falling back to the transport
-  /// id.
-  String _resolvePendingSyncKey(
-    QueueSyncManagerContract manager,
-    QueueSyncMessage message,
-    String fromNodeId,
-  ) {
-    final aliases = <String?>[
-      fromNodeId,
-      message.nodeId,
-      _bleService.currentSessionId,
-      _bleService.theirEphemeralId,
-      _bleService.theirPersistentKey,
-    ];
-    for (final alias in aliases) {
-      if (alias != null && alias.isNotEmpty && manager.hasPendingSyncWith(alias)) {
-        return alias;
-      }
-    }
-    return fromNodeId;
-  }
-
   void _handleConnectionChange(ConnectionInfo connectionInfo) async {
-    final connectedDeviceId = _bleService.currentSessionId;
+    final connectedPeerId = _bleService.currentSessionId;
+    final activeDeviceAddresses = _bleService.activeConnectionDeviceIds
+        .where((address) => address.isNotEmpty)
+        .toSet();
 
     // Only treat the link as usable when the handshake has completed (isReady)
     // and we are not awaiting an in-progress handshake/notification setup.
     if (connectionInfo.isConnected &&
         connectionInfo.isReady &&
         !connectionInfo.awaitingHandshake &&
-        connectedDeviceId != null &&
-        connectedDeviceId.isNotEmpty) {
-      MeshDebugLogger.deviceConnected(connectedDeviceId);
+        activeDeviceAddresses.isNotEmpty) {
+      if (connectedPeerId != null && connectedPeerId.isNotEmpty) {
+        MeshDebugLogger.deviceConnected(connectedPeerId);
+      }
       _messageQueue?.setOnline();
-      await _deliverQueuedMessagesToDevice(connectedDeviceId);
-      await _syncQueueWithDevice(connectedDeviceId);
+      if (connectedPeerId != null && connectedPeerId.isNotEmpty) {
+        await _deliverQueuedMessagesToDevice(connectedPeerId);
+      }
+      // Queue-sync correlation is transport-bound. Start one round for each
+      // exact active BLE address rather than a mutable session/persistent alias.
+      for (final deviceAddress in activeDeviceAddresses) {
+        await _syncQueueWithDevice(deviceAddress);
+      }
     } else if (!connectionInfo.isConnected) {
-      if (connectedDeviceId != null && connectedDeviceId.isNotEmpty) {
-        MeshDebugLogger.deviceDisconnected(connectedDeviceId);
+      if (connectedPeerId != null && connectedPeerId.isNotEmpty) {
+        MeshDebugLogger.deviceDisconnected(connectedPeerId);
       }
       _queueSyncManager?.cancelAllSyncs(reason: 'Connection lost');
       _messageQueue?.setOffline();
       _queueSyncInFlight.clear();
       _lastInboundSyncRequestAt.clear();
-      if (connectedDeviceId != null) {
-        _lastQueueSyncAt.remove(connectedDeviceId);
-      }
+      _lastQueueSyncAt.clear();
     } else {
       // Connected but not ready (handshake/identity in progress) — keep queues offline.
       _queueSyncManager?.cancelAllSyncs(reason: 'Handshake incomplete');
@@ -678,10 +666,16 @@ class MeshQueueSyncCoordinator {
         QueuedMessageStatus.pending,
       );
 
+      final peerAliases = <String>{
+        deviceId,
+        ?_bleService.theirEphemeralId,
+        ?_bleService.theirPersistentKey,
+      }..remove('');
+
       // Direct queue delivery must stay recipient-bound. Relay fan-out uses the
       // dedicated mesh relay pipeline so next hops never receive plaintext.
       final directMessages = pendingMessages
-          .where((msg) => msg.recipientPublicKey == deviceId)
+          .where((msg) => peerAliases.contains(msg.recipientPublicKey))
           .toList();
 
       if (directMessages.isEmpty) {
@@ -753,31 +747,37 @@ class MeshQueueSyncCoordinator {
     }
   }
 
-  void _handleSyncRequest(QueueSyncMessage message, String toNodeId) {
-    final truncatedNodeId = toNodeId.length > 8
-        ? toNodeId.shortId(8)
-        : toNodeId;
+  void _handleSyncRequest(QueueSyncMessage message, String toDeviceAddress) {
+    final truncatedNodeId = toDeviceAddress.length > 8
+        ? toDeviceAddress.shortId(8)
+        : toDeviceAddress;
     _logger.info(
       '🔄 Sending queue sync to $truncatedNodeId... (${message.messageIds.length} ids)',
     );
 
     unawaited(
       _bleService
-          .sendQueueSyncMessage(message, peerId: toNodeId)
+          .sendQueueSyncMessage(message, peerId: toDeviceAddress)
           .then((sent) {
             if (!sent) {
               _logger.warning(
                 '⚠️ Queue sync request to $truncatedNodeId... had no BLE '
                 'route — failing fast instead of waiting for timeout',
               );
-              _queueSyncManager?.failPendingSync(toNodeId, 'No BLE route');
+              _queueSyncManager?.failPendingSync(
+                toDeviceAddress,
+                'No BLE route',
+              );
             }
           })
           .catchError((Object e) {
             _logger.warning(
               '⚠️ Queue sync request send to $truncatedNodeId... failed: $e',
             );
-            _queueSyncManager?.failPendingSync(toNodeId, 'Send failed: $e');
+            _queueSyncManager?.failPendingSync(
+              toDeviceAddress,
+              'Send failed: $e',
+            );
           }),
     );
   }
@@ -787,16 +787,15 @@ class MeshQueueSyncCoordinator {
       return;
     }
 
-    // The requester id arrives in whatever flavor the transport resolved
-    // (often a relationship hint), so it may not match our session
-    // identifiers even though it is the connected peer. Recipient binding is
-    // enforced per message in _handleSendMessage via
-    // _canSendMessageToCurrentPeer; a mismatch here is only informational.
-    if (!_matchesConnectedPeer(toNodeId)) {
-      _logger.fine(
-        'Queue sync requester ${toNodeId.shortId(8)}... does not match '
-        'session identifiers; relying on per-message recipient gate',
+    final activeRoutes = _bleService.activeConnectionDeviceIds
+        .where((address) => address.isNotEmpty)
+        .toSet();
+    if (activeRoutes.length != 1 || activeRoutes.single != toNodeId) {
+      _logger.warning(
+        'Queue sync payload delivery deferred: requester '
+        '${toNodeId.shortId(8)}... is not the sole active BLE route',
       );
+      return;
     }
 
     final truncated = toNodeId.length > 8 ? toNodeId.shortId(8) : toNodeId;
@@ -805,7 +804,10 @@ class MeshQueueSyncCoordinator {
     );
 
     for (final message in messages) {
-      _handleSendMessage(message.id).catchError((e) {
+      _handleSendMessage(
+        message.id,
+        requiredDeviceAddress: toNodeId,
+      ).catchError((e) {
         _logger.warning(
           'Queue sync delivery failed for ${message.id.shortId(8)}...: $e',
         );
@@ -857,6 +859,13 @@ abstract class QueueSyncManagerContract {
 
   /// True when an initiated sync is still awaiting a response from [nodeId].
   bool hasPendingSyncWith(String nodeId);
+
+  /// Reject responses that cannot be bound to a live initiated sync. Fakes
+  /// and legacy adapters default to exact transport-id matching.
+  bool canAcceptSyncResponse(
+    QueueSyncMessage responseMessage,
+    String fromNodeId,
+  ) => hasPendingSyncWith(fromNodeId);
 
   /// Fail a pending initiated sync immediately (e.g. transport had no route).
   void failPendingSync(String nodeId, String reason);
@@ -919,6 +928,12 @@ class QueueSyncManagerAdapter implements QueueSyncManagerContract {
 
   @override
   bool hasPendingSyncWith(String nodeId) => _manager.hasPendingSyncWith(nodeId);
+
+  @override
+  bool canAcceptSyncResponse(
+    QueueSyncMessage responseMessage,
+    String fromNodeId,
+  ) => _manager.canAcceptSyncResponse(responseMessage, fromNodeId);
 
   @override
   void failPendingSync(String nodeId, String reason) =>

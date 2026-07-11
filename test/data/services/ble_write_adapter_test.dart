@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pak_connect/domain/interfaces/i_contact_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
 import 'package:pak_connect/domain/models/crypto_header.dart';
 import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart';
@@ -358,6 +360,72 @@ void main() {
     expect(result, isFalse);
   });
 
+  test('central send observes ACK on the injected shared tracker', () async {
+    await contactRepository.saveContact('recipient_ack', 'Recipient ACK');
+    securityService.registerIdentityMapping(
+      persistentPublicKey: 'recipient_ack',
+      ephemeralID: 'noise-session-recipient-ack',
+    );
+    final sharedTracker = MessageAckTracker(
+      timeout: const Duration(seconds: 1),
+    );
+    adapter = BleWriteAdapter(
+      contactRepository: contactRepository,
+      stateManagerProvider: () => stateManager,
+      writeClient: writeClient,
+      ackTracker: sharedTracker,
+    );
+
+    final sendFuture = adapter.sendCentralMessage(
+      centralManager: _FakeCentralManager(),
+      connectedDevice: FakePeripheral(uuid: makeUuid(101)),
+      messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(102)),
+      recipientKey: 'recipient_ack',
+      content: 'acknowledge me',
+      mtuSize: 185,
+      messageId: 'shared-central-ack',
+    );
+
+    await _waitUntil(() => writeClient.lastCentralValue != null);
+    expect(sharedTracker.complete('shared-central-ack'), isTrue);
+    expect(await sendFuture, isTrue);
+  });
+
+  test('peripheral adapter waits for ACK on the shared tracker', () async {
+    stateManager.peripheralMode = true;
+    await contactRepository.saveContact(
+      'recipient_peripheral_ack',
+      'Recipient Peripheral ACK',
+    );
+    securityService.registerIdentityMapping(
+      persistentPublicKey: 'recipient_peripheral_ack',
+      ephemeralID: 'noise-session-peripheral-ack',
+    );
+    final sharedTracker = MessageAckTracker(
+      timeout: const Duration(seconds: 1),
+    );
+    adapter = BleWriteAdapter(
+      contactRepository: contactRepository,
+      stateManagerProvider: () => stateManager,
+      writeClient: writeClient,
+      ackTracker: sharedTracker,
+    );
+
+    final sendFuture = adapter.sendPeripheralMessage(
+      peripheralManager: _FakePeripheralManager(),
+      connectedCentral: FakeCentral(uuid: makeUuid(103)),
+      messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(104)),
+      senderKey: 'recipient_peripheral_ack',
+      content: 'peripheral acknowledge me',
+      mtuSize: 185,
+      messageId: 'shared-peripheral-ack',
+    );
+
+    await _waitUntil(() => writeClient.lastPeripheralValue != null);
+    expect(sharedTracker.complete('shared-peripheral-ack'), isTrue);
+    expect(await sendFuture, isTrue);
+  });
+
   test(
     'central send does not transmit plaintext when encryption fails',
     () async {
@@ -423,7 +491,8 @@ void main() {
       expect(
         writeClient.lastCentralValue,
         isNull,
-        reason: 'Transport must not write when only removed legacy modes are available',
+        reason:
+            'Transport must not write when only removed legacy modes are available',
       );
     },
   );
@@ -601,61 +670,56 @@ void main() {
     },
   );
 
-  test(
-    'sealed_v1 is used when recipient static key is available',
-    () async {
-      await contactRepository.saveContact(
-        'recipient_sealed_pref',
-        'Recipient Sealed Pref',
-      );
-      await contactRepository.updateNoiseSession(
-        publicKey: 'recipient_sealed_pref',
-        noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
-        sessionState: 'established',
-      );
+  test('sealed_v1 is used when recipient static key is available', () async {
+    await contactRepository.saveContact(
+      'recipient_sealed_pref',
+      'Recipient Sealed Pref',
+    );
+    await contactRepository.updateNoiseSession(
+      publicKey: 'recipient_sealed_pref',
+      noisePublicKey: _generateNoiseStaticPublicKeyBase64(),
+      sessionState: 'established',
+    );
 
-      SimpleCrypto.initializeConversation(
-        'recipient_sealed_pref',
-        'ble-write-test-sealed-pref-secret',
-      );
+    SimpleCrypto.initializeConversation(
+      'recipient_sealed_pref',
+      'ble-write-test-sealed-pref-secret',
+    );
 
-      final captureWriteClient = _CaptureThenThrowCentralWriteClient();
-      adapter = BleWriteAdapter(
-        contactRepository: contactRepository,
-        stateManagerProvider: () => stateManager,
-        writeClient: captureWriteClient,
-      );
+    final captureWriteClient = _CaptureThenThrowCentralWriteClient();
+    adapter = BleWriteAdapter(
+      contactRepository: contactRepository,
+      stateManagerProvider: () => stateManager,
+      writeClient: captureWriteClient,
+    );
 
-      allowSevere(
-        'Failed to send message: Exception: central boom after capture',
-      );
-      allowSevere('Stack trace');
+    allowSevere(
+      'Failed to send message: Exception: central boom after capture',
+    );
+    allowSevere('Stack trace');
 
-      final result = await adapter.sendCentralMessage(
-        centralManager: _FakeCentralManager(),
-        connectedDevice: FakePeripheral(uuid: makeUuid(51)),
-        messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(52)),
-        recipientKey: 'recipient_sealed_pref',
-        content: 'sealed preferred path',
-        mtuSize: 1024,
-      );
+    final result = await adapter.sendCentralMessage(
+      centralManager: _FakeCentralManager(),
+      connectedDevice: FakePeripheral(uuid: makeUuid(51)),
+      messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(52)),
+      recipientKey: 'recipient_sealed_pref',
+      content: 'sealed preferred path',
+      mtuSize: 1024,
+    );
 
-      expect(result, isFalse);
-      expect(captureWriteClient.lastCentralValue, isNotNull);
+    expect(result, isFalse);
+    expect(captureWriteClient.lastCentralValue, isNotNull);
 
-      final chunk = MessageChunk.fromBytes(
-        captureWriteClient.lastCentralValue!,
-      );
-      final protocolBytes = base64.decode(chunk.content);
-      final protocolMessage = ProtocolMessage.fromBytes(
-        Uint8List.fromList(protocolBytes),
-      );
+    final chunk = MessageChunk.fromBytes(captureWriteClient.lastCentralValue!);
+    final protocolBytes = base64.decode(chunk.content);
+    final protocolMessage = ProtocolMessage.fromBytes(
+      Uint8List.fromList(protocolBytes),
+    );
 
-      expect(protocolMessage.version, equals(2));
-      expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
-      expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.sealedV1));
-    },
-  );
+    expect(protocolMessage.version, equals(2));
+    expect(protocolMessage.payload['encryptionMethod'], equals('sealed'));
+    expect(protocolMessage.cryptoHeader?.mode, equals(CryptoMode.sealedV1));
+  });
 
   test(
     'upgraded peer also uses sealed_v1 after legacy transport removal',
@@ -731,6 +795,19 @@ void main() {
     expect(result, isFalse);
     expect(writeClient.lastPeripheralValue, isNull);
   });
+}
+
+Future<void> _waitUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Condition not reached before $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }
 
 String _generateNoiseStaticPublicKeyBase64() {

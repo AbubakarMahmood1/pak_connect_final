@@ -200,7 +200,7 @@ class _TestConnectionService implements BLEConnectionService {
 class _TestConnectionManager implements BLEConnectionManager {
   Future<String?> Function()? localHintProvider;
   @override
-  Function()? onConnectionComplete;
+  Function(String address, int? schedulerAttemptId)? onConnectionComplete;
   @override
   Function(GATTCharacteristic?)? onCharacteristicFound;
 
@@ -215,6 +215,8 @@ class _TestConnectionManager implements BLEConnectionManager {
   bool teardownDeferred = false;
   bool collisionResolving = false;
   bool hasServerConnectionValue = true;
+  bool acceptInboundConnection = true;
+  Completer<bool>? inboundAcceptance;
   int _serverConnectionCount = 1;
   @override
   List<BLEServerConnection> serverConnections = <BLEServerConnection>[];
@@ -230,8 +232,9 @@ class _TestConnectionManager implements BLEConnectionManager {
   }
 
   @override
-  void handleCentralConnected(Central central) {
+  Future<bool> handleCentralConnected(Central central) async {
     centralConnectedCalls++;
+    return inboundAcceptance?.future ?? acceptInboundConnection;
   }
 
   @override
@@ -374,13 +377,21 @@ class _TestHandshakeService implements IBLEHandshakeService {
   }
 
   @override
-  Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  }) async {
+    if (inProgress) return false;
+    if (onStartAccepted?.call() == false) return false;
     performCalls.add(startAsInitiatorOverride);
+    inProgress = true;
+    return true;
   }
 
   @override
   void disposeHandshakeCoordinator() {
     disposeCalls++;
+    inProgress = false;
   }
 
   @override
@@ -451,11 +462,17 @@ void main() {
       getAdvertisingService: () => advertisingService,
       getMessagingService: () => messagingService,
       getHandshakeService: () => handshakeService,
-      onInboundConnected: inboundEvents.add,
-      onMtuReady: (address, mtu) => mtuEvents.add('$address:$mtu'),
-      onNotifySubscribed: notifyEvents.add,
-      onHandshakeStarted: handshakeStartEvents.add,
-      onPeerDisconnected: (address, reason) =>
+      onInboundConnected: (address) {
+        inboundEvents.add(address);
+        return 7;
+      },
+      onMtuReady: (address, mtu, attemptId) => mtuEvents.add('$address:$mtu'),
+      onNotifySubscribed: (address, attemptId) => notifyEvents.add(address),
+      onHandshakeStarted: (address, attemptId) {
+        handshakeStartEvents.add(address);
+        return true;
+      },
+      onPeerDisconnected: (address, reason, attemptId) =>
           disconnectEvents.add('$address:$reason'),
     );
     central = _TestCentral(
@@ -485,7 +502,7 @@ void main() {
       expect(handshakeService.buildHintCalls, 1);
 
       expect(connectionManager.onConnectionComplete, isNotNull);
-      await connectionManager.onConnectionComplete!.call();
+      await connectionManager.onConnectionComplete!.call('peer-outbound', 11);
       expect(handshakeService.performCalls, [true]);
     },
   );
@@ -549,6 +566,71 @@ void main() {
       expect(handshakeService.handleIncomingCalls, greaterThan(0));
       expect(messagingService.processCalls, 1);
       expect(peripheralManager.respondWriteCount, 1);
+    },
+  );
+
+  test(
+    'rejected inbound connection does not create an active attempt',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionManager.acceptInboundConnection = false;
+
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.connected,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(connectionManager.centralConnectedCalls, 1);
+      expect(connectionService.connectedCentral, isNull);
+      expect(inboundEvents, isEmpty);
+      expect(handshakeService.performCalls, isEmpty);
+    },
+  );
+
+  test('serializes rapid inbound connect then disconnect events', () async {
+    coordinator.ensureConnectionServicePrepared();
+    final acceptance = Completer<bool>();
+    connectionManager.inboundAcceptance = acceptance;
+
+    peripheralManager.emitConnection(
+      CentralConnectionStateChangedEventArgs(
+        central,
+        ConnectionState.connected,
+      ),
+    );
+    peripheralManager.emitConnection(
+      CentralConnectionStateChangedEventArgs(
+        central,
+        ConnectionState.disconnected,
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(connectionManager.centralDisconnectedCalls, 0);
+
+    acceptance.complete(true);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+
+    expect(connectionManager.centralConnectedCalls, 1);
+    expect(connectionManager.centralDisconnectedCalls, 1);
+    expect(connectionService.connectedCentral, isNull);
+    expect(disconnectEvents, hasLength(1));
+  });
+
+  test(
+    'duplicate outbound handshake start cannot overwrite accepted binding',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+
+      connectionManager.onConnectionComplete!.call('peer-a', 11);
+      await Future<void>.delayed(Duration.zero);
+      connectionManager.onConnectionComplete!.call('peer-b', 12);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handshakeStartEvents, ['peer-a']);
+      expect(handshakeService.performCalls, [true]);
     },
   );
 
@@ -698,7 +780,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(messagingService.processCalls, 0);
 
-      final normal = _TestCharacteristic(BLEConstants.messageCharacteristicUUID);
+      final normal = _TestCharacteristic(
+        BLEConstants.messageCharacteristicUUID,
+      );
       handshakeService.handleIncomingResult = true;
       centralManager.emitNotified(
         GATTCharacteristicNotifiedEventArgs(

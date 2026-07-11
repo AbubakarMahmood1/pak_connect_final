@@ -381,12 +381,33 @@ class _BleServiceFacadeRuntimeHelper {
     final normalizedNoiseKey = noiseKey?.trim();
     _owner._stateManager.setOtherUserName(displayName);
     _owner._stateManager.setTheirEphemeralId(ephemeralId, displayName);
+    // Strict TDM owns the current bring-up attempt. Prefer its peer binding;
+    // otherwise an inbound central is the responder-side handshake source.
+    // Falling back to the first client before the inbound central attributes
+    // B's completed handshake to unrelated client A on multi-link nodes.
+    final scheduler = _owner._strictTdmEnabled
+        ? _owner._getBleRoleScheduler()
+        : _owner._bleRoleScheduler;
+    final schedulerSnapshot = scheduler?.snapshot;
     final activePeerId =
-        _owner.connectedDevice?.uuid.toString() ??
+        _owner._activeHandshakePeerId ??
+        schedulerSnapshot?.activePeerId ??
         _owner.connectedCentral?.uuid.toString() ??
+        _owner.connectedDevice?.uuid.toString() ??
         ephemeralId;
+    final activeAttemptId = _owner._activeHandshakePeerId == activePeerId
+        ? _owner._activeHandshakeAttemptId
+        : schedulerSnapshot?.activePeerId == activePeerId
+        ? schedulerSnapshot?.activeAttemptId
+        : null;
     _owner._experimentMetricsRecorder.recordHandshakeReady(activePeerId);
-    _owner._bleRoleScheduler?.reportHandshakeReady(activePeerId);
+    if (activeAttemptId != null) {
+      scheduler?.reportHandshakeReady(activePeerId, activeAttemptId);
+    }
+    if (_owner._activeHandshakePeerId == activePeerId) {
+      _owner._activeHandshakePeerId = null;
+      _owner._activeHandshakeAttemptId = null;
+    }
     // Persist or create contact record using the session ephemeral as the
     // immutable key for LOW security contacts. This prevents later sends from
     // resolving to an empty/“NOT SPECIFIED” recipient.

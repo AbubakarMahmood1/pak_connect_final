@@ -108,6 +108,17 @@ void main() {
       expect(result.message, contains('Archive not found'));
     });
 
+    test('getArchivedChat delegates the complete archive read', () async {
+      final archiveId = repository.seedArchive('chat_read');
+
+      final archived = await service.getArchivedChat(archiveId);
+
+      expect(archived, isNotNull);
+      expect(archived!.id, archiveId);
+      expect(archived.messages, hasLength(1));
+      expect(archived.messages.single.content, 'Archived content');
+    });
+
     test('restoreChat succeeds and emits restored event', () async {
       await service.initialize();
       final archiveId = repository.seedArchive('chat_restore');

@@ -1,4 +1,4 @@
-// Screen to create a new contact group
+// Screen to create a local broadcast list.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -94,16 +94,16 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Group created successfully')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Broadcast list created')));
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to create group: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create broadcast list: $e')),
+        );
       }
     } finally {
       if (mounted) {
@@ -115,7 +115,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Group')),
+      appBar: AppBar(title: const Text('Create Broadcast List')),
       body: _availableContacts == null
           ? const Center(child: CircularProgressIndicator())
           : Form(
@@ -127,14 +127,14 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                   TextFormField(
                     controller: _nameController,
                     decoration: const InputDecoration(
-                      labelText: 'Group Name',
-                      hintText: 'Enter group name',
+                      labelText: 'List Name',
+                      hintText: 'Enter list name',
                       prefixIcon: Icon(Icons.group),
                       border: OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
-                        return 'Please enter a group name';
+                        return 'Please enter a list name';
                       }
                       return null;
                     },
@@ -194,19 +194,18 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     )
                   else
                     ..._availableContacts!.map((contact) {
+                      final recipientIdentity = contact.chatId;
                       final isSelected = _selectedMemberKeys.contains(
-                        contact.noisePublicKey ?? contact.publicKey,
+                        recipientIdentity,
                       );
                       return CheckboxListTile(
                         value: isSelected,
                         onChanged: (selected) {
                           setState(() {
-                            final key =
-                                contact.noisePublicKey ?? contact.publicKey;
                             if (selected == true) {
-                              _selectedMemberKeys.add(key);
+                              _selectedMemberKeys.add(recipientIdentity);
                             } else {
-                              _selectedMemberKeys.remove(key);
+                              _selectedMemberKeys.remove(recipientIdentity);
                             }
                           });
                         },
@@ -250,7 +249,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Create Group'),
+                        : const Text('Create Broadcast List'),
                   ),
                 ],
               ),

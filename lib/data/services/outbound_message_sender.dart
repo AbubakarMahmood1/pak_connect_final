@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -294,8 +295,10 @@ class OutboundMessageSender {
     required BLEStateManager stateManager,
     void Function(String messageId, bool success)? onMessageSent,
     void Function(MessageId messageId, bool success)? onMessageSentIds,
+    bool awaitAck = false,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    Completer<bool>? ackCompleter;
 
     try {
       final prepared = await _prepareTextProtocolMessage(
@@ -340,6 +343,15 @@ class OutboundMessageSender {
       _logger.info(
         '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for peripheral message: $msgId',
       );
+
+      if (awaitAck) {
+        ackCompleter = _ackTracker.track(
+          msgId,
+          onTimeout: (timedOutId) {
+            _logger.warning('Peripheral message timeout: $timedOutId');
+          },
+        );
+      }
 
       if (useBinaryEnvelope) {
         await sendBinaryPayload(
@@ -396,17 +408,23 @@ class OutboundMessageSender {
       }
 
       _logger.info(
-        'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})',
+        'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})'
+        '${awaitAck ? ", waiting for ACK" : ""}',
       );
-      onMessageSent?.call(msgId, true);
-      onMessageSentIds?.call(MessageId(msgId), true);
-      return true;
+      final success = ackCompleter == null ? true : await ackCompleter.future;
+      onMessageSent?.call(msgId, success);
+      onMessageSentIds?.call(MessageId(msgId), success);
+      return success;
     } catch (e, stackTrace) {
       _logger.severe('Failed to send peripheral message: $e');
       _logger.severe('Stack trace: $stackTrace');
       onMessageSent?.call(msgId, false);
       onMessageSentIds?.call(MessageId(msgId), false);
       rethrow;
+    } finally {
+      if (awaitAck) {
+        _ackTracker.cancel(msgId);
+      }
     }
   }
 

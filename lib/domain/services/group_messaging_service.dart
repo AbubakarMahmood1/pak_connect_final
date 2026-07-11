@@ -1,5 +1,6 @@
-// Service for sending group messages via multi-unicast (one encrypted message per member)
-// Uses existing Noise sessions - no shared passwords, no group keys
+// Local broadcast-list service: one ordinary encrypted direct message is
+// queued per selected contact. Recipients see a 1:1 message; this is not a
+// shared group-conversation protocol.
 
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
@@ -11,19 +12,22 @@ import '../interfaces/i_group_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../values/id_types.dart';
 
-/// Service for managing group messaging via secure multi-unicast
+/// Service for managing local broadcast lists via secure multi-unicast.
 ///
 /// Architecture:
 /// - NO shared group keys (each message encrypted individually per recipient)
-/// - Uses existing Noise sessions (same security as 1-to-1 messaging)
-/// - Automatic fallback to offline queue if member offline
-/// - Per-member delivery tracking
+/// - Every recipient enters the ordinary direct-message queue
+/// - Noise encryption and transport happen later in the normal 1:1 send path
+/// - Per-recipient queue acceptance/failure is recorded locally for the sender
 ///
 /// Message flow:
 /// 1. User sends to group
-/// 2. Service sends N individual encrypted messages (N = group size)
-/// 3. Each message uses recipient's Noise session
-/// 4. Delivery status tracked independently per member
+/// 2. Service queues N ordinary direct messages (N = list size)
+/// 3. The direct-message pipeline encrypts/sends each message independently
+/// 4. Queue acceptance is tracked independently per recipient
+///
+/// The legacy Group* names match the persisted schema. They must not be used
+/// to claim recipient-side group history, membership sync, or shared replies.
 class GroupMessagingService {
   static final _logger = Logger('GroupMessagingService');
 
@@ -39,22 +43,22 @@ class GroupMessagingService {
        _contactRepo = contactRepo,
        _messageQueue = messageQueue;
 
-  /// Send a message to a group
+  /// Queue one ordinary direct message for every recipient in a local list.
   ///
-  /// Returns the created GroupMessage with initial delivery status.
-  /// Messages are sent asynchronously to each member via their individual Noise sessions.
+  /// Returns the sender-local GroupMessage immediately, with queue submission
+  /// continuing asynchronously for each recipient.
   ///
   /// Delivery tracking:
-  /// - pending: Message queued but not sent yet
-  /// - sent: Message sent via Noise session (may not be delivered yet)
-  /// - delivered: Confirmed delivered (requires future delivery receipt support)
-  /// - failed: Send failed (member offline, no session, etc.)
+  /// - pending: Queue submission has not completed
+  /// - sent: Accepted by the direct-message queue (legacy persisted name)
+  /// - delivered: Reserved for a future correlated receipt integration
+  /// - failed: Contact lookup or queue submission failed
   Future<GroupMessage> sendGroupMessage({
     required String groupId,
     required String senderKey,
     required String content,
   }) async {
-    _logger.info('📤 Sending group message to group $groupId');
+    _logger.info('📤 Queueing broadcast for local list $groupId');
 
     try {
       // Get group
@@ -63,7 +67,7 @@ class GroupMessagingService {
         throw Exception('Group not found: $groupId');
       }
 
-      // Create group message
+      // Create the sender-local dispatch record (legacy GroupMessage name).
       final message = GroupMessage.create(
         groupId: groupId,
         senderKey: senderKey,
@@ -77,32 +81,30 @@ class GroupMessagingService {
         '  Created message ${message.id.shortId()}... for ${message.deliveryStatus.length} recipients',
       );
 
-      // Send to each member asynchronously (fire and forget)
-      // Delivery status will be updated via callbacks
+      // Queue to each member asynchronously (fire and forget).
       _sendToMembers(message, group);
 
       return message;
     } catch (e) {
-      _logger.severe('❌ Failed to send group message: $e');
+      _logger.severe('❌ Failed to queue broadcast: $e');
       rethrow;
     }
   }
 
-  /// Send message to all group members individually
+  /// Submit the content to the direct-message queue for every list recipient.
   ///
-  /// This runs asynchronously and updates delivery status as each send completes.
-  /// Uses the offline message queue for automatic retry if member is offline.
+  /// This runs asynchronously and records whether each queue submission was
+  /// accepted. It does not observe BLE delivery acknowledgements.
   Future<void> _sendToMembers(GroupMessage message, ContactGroup group) async {
     _logger.info('📡 Sending to ${message.deliveryStatus.length} members...');
 
-    int sent = 0;
-    int queued = 0;
+    int accepted = 0;
     int failed = 0;
 
     for (final memberKey in message.deliveryStatus.keys) {
       try {
         // Get contact to find chat ID
-        final contact = await _contactRepo.getContact(memberKey);
+        final contact = await _contactRepo.getContactByAnyId(memberKey);
         if (contact == null) {
           _logger.warning('  ⚠️ Member $memberKey not in contacts - skipping');
           await _updateStatus(
@@ -114,29 +116,28 @@ class GroupMessagingService {
           continue;
         }
 
-        // Queue message for this member (uses existing offline queue + Noise sessions)
-        final chatId = 'chat_${contact.publicKey}';
+        // Queue an ordinary 1:1 message. The normal direct-message pipeline
+        // handles Noise and retries later.
+        final recipientIdentity = contact.chatId;
         await _messageQueue.queueMessage(
-          chatId: chatId,
+          chatId: recipientIdentity,
           content: message.content,
-          recipientPublicKey: memberKey,
+          recipientPublicKey: recipientIdentity,
           senderPublicKey: message.senderKey,
           priority: MessagePriority.normal,
         );
 
-        // Update status to sent (queue will handle delivery)
+        // The persisted enum name is retained for schema compatibility; at
+        // this boundary it means accepted by the offline queue, not delivered.
         await _updateStatus(
           MessageId(message.id),
           memberKey,
           MessageDeliveryStatus.sent,
         );
 
-        // Note: In future, we could track which messages were queued vs sent immediately
-        // For now, we mark as "sent" once queued
-        queued++;
-        sent++;
+        accepted++;
 
-        _logger.fine('  ✅ Queued for ${contact.displayName}');
+        _logger.fine('  ✅ Queued direct message for ${contact.displayName}');
       } catch (e) {
         _logger.warning('  ❌ Failed to send to $memberKey: $e');
         await _updateStatus(
@@ -149,7 +150,7 @@ class GroupMessagingService {
     }
 
     _logger.info(
-      '✅ Group send complete: $sent sent, $queued queued, $failed failed',
+      '✅ Broadcast queue submission complete: $accepted accepted, $failed failed',
     );
   }
 
@@ -180,9 +181,7 @@ class GroupMessagingService {
     return await _groupRepo.getMessage(messageId.value);
   }
 
-  /// Mark message as delivered for a specific member
-  ///
-  /// Called when delivery receipt is received (future enhancement).
+  /// Dormant integration seam for a future correlated direct-message receipt.
   Future<void> markDelivered(MessageId messageId, String memberKey) async {
     _logger.info('✅ Message ${messageId.value} delivered to $memberKey');
     await _updateStatus(messageId, memberKey, MessageDeliveryStatus.delivered);

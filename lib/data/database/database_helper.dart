@@ -22,7 +22,7 @@ class DatabaseHelper {
   static Future<sqlcipher.Database>? _initializingDatabase;
   static const String _databaseName = 'pak_connect.db';
   static const int _databaseVersion =
-      12; // v12: Added last_synced_changelog_id for live P2P change_log sync
+      12; // v12 added a reserved peer cursor; live replay remains disabled.
   static int get currentVersion => _databaseVersion;
 
   /// Override database name for testing (allows using fresh database files)
@@ -867,8 +867,7 @@ class DatabaseHelper {
     sqlcipher.Database db,
     int oldVersion,
     int newVersion,
-  ) =>
-      _onUpgrade(db, oldVersion, newVersion);
+  ) => _onUpgrade(db, oldVersion, newVersion);
 
   /// Expose [_isDatabaseEncrypted] for unit testing.
   @visibleForTesting
@@ -880,14 +879,11 @@ class DatabaseHelper {
   static Future<void> testCopyDatabaseContents(
     sqlcipher.Database sourceDb,
     sqlcipher.Database destDb,
-  ) =>
-      _copyDatabaseContents(sourceDb, destDb);
+  ) => _copyDatabaseContents(sourceDb, destDb);
 
   /// Expose [_applyDataMigrationBackfills] for unit testing.
   @visibleForTesting
-  static Future<void> testApplyDataMigrationBackfills(
-    sqlcipher.Database db,
-  ) =>
+  static Future<void> testApplyDataMigrationBackfills(sqlcipher.Database db) =>
       _applyDataMigrationBackfills(db);
 
   /// Expose [_rebuildFtsIndexes] for unit testing.

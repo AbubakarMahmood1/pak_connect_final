@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
@@ -24,10 +26,18 @@ void main() {
     late bool hasActiveLinks;
     late bool canOpenAdditionalLinks;
     late bool handshakeInProgress;
+    late List<int> connectAttemptIds;
+    Completer<void>? connectGate;
+    Completer<void>? connectEntered;
+    bool connectShouldFail = false;
 
     setUp(() {
       transitions = <String>[];
       connectRequests = <String>[];
+      connectAttemptIds = <int>[];
+      connectGate = null;
+      connectEntered = null;
+      connectShouldFail = false;
       hasActiveLinks = true;
       canOpenAdditionalLinks = true;
       handshakeInProgress = false;
@@ -50,13 +60,21 @@ void main() {
         startAdvertisingEffector: () async =>
             transitions.add('advertise:start'),
         stopAdvertisingEffector: () async => transitions.add('advertise:stop'),
-        connectEffector: (peer) async {
+        connectEffector: (peer, attemptId) async {
           connectRequests.add(peer.uuid.toString());
+          connectAttemptIds.add(attemptId);
+          connectEntered?.complete();
+          await connectGate?.future;
+          if (connectShouldFail) throw StateError('connect failed');
         },
         canOpenAdditionalLinks: () => canOpenAdditionalLinks,
         hasActiveLinks: () => hasActiveLinks,
         isHandshakeInProgress: () => handshakeInProgress,
       );
+    });
+
+    tearDown(() async {
+      await scheduler.stop();
     });
 
     test(
@@ -81,6 +99,7 @@ void main() {
 
         expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
         expect(connectRequests, [peer.uuid.toString()]);
+        expect(connectAttemptIds, [scheduler.snapshot.activeAttemptId]);
         expect(
           transitions,
           containsAllInOrder(['scan:stop', 'advertise:stop']),
@@ -104,18 +123,19 @@ void main() {
         );
 
         await scheduler.requestOutboundConnect(peer);
-        scheduler.reportHandshakeStarted(peer.uuid.toString());
-        scheduler.reportHandshakeReady(peer.uuid.toString());
+        final attemptId = scheduler.snapshot.activeAttemptId!;
+        scheduler.reportHandshakeStarted(peer.uuid.toString(), attemptId);
+        scheduler.reportHandshakeReady(peer.uuid.toString(), attemptId);
         await Future<void>.delayed(const Duration(milliseconds: 5));
 
         expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
 
-        scheduler.reportMtuReady(peer.uuid.toString(), 185);
+        scheduler.reportMtuReady(peer.uuid.toString(), 185, attemptId);
         await Future<void>.delayed(const Duration(milliseconds: 5));
 
         expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
 
-        scheduler.reportNotifySubscribed(peer.uuid.toString());
+        scheduler.reportNotifySubscribed(peer.uuid.toString(), attemptId);
         await Future<void>.delayed(const Duration(milliseconds: 5));
 
         expect(
@@ -124,6 +144,101 @@ void main() {
         );
       },
     );
+
+    test(
+      'milestones from a non-active peer cannot release connect lock',
+      () async {
+        final activePeer = _TestPeripheral(
+          UUID.fromString('00000000-0000-0000-0000-0000000000d1'),
+        );
+        const unrelatedPeer = '00000000-0000-0000-0000-0000000000d2';
+
+        await scheduler.requestOutboundConnect(activePeer);
+        final attemptId = scheduler.snapshot.activeAttemptId!;
+        scheduler.reportMtuReady(unrelatedPeer, 185, attemptId);
+        scheduler.reportNotifySubscribed(unrelatedPeer, attemptId);
+        scheduler.reportHandshakeStarted(unrelatedPeer, attemptId);
+        scheduler.reportHandshakeReady(unrelatedPeer, attemptId);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        expect(scheduler.snapshot.activePeerId, activePeer.uuid.toString());
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+      },
+    );
+
+    test('a new attempt for the same peer requires fresh milestones', () async {
+      final peer = _TestPeripheral(
+        UUID.fromString('00000000-0000-0000-0000-0000000000e1'),
+      );
+      final address = peer.uuid.toString();
+
+      await scheduler.requestOutboundConnect(peer);
+      final firstAttemptId = scheduler.snapshot.activeAttemptId!;
+      scheduler.reportMtuReady(address, 185, firstAttemptId);
+      scheduler.reportNotifySubscribed(address, firstAttemptId);
+      scheduler.reportHandshakeStarted(address, firstAttemptId);
+      scheduler.reportHandshakeReady(address, firstAttemptId);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(scheduler.snapshot.state, BleRoleSchedulerState.connectedMaintain);
+
+      await scheduler.requestOutboundConnect(peer);
+      final secondAttemptId = scheduler.snapshot.activeAttemptId!;
+      expect(secondAttemptId, isNot(firstAttemptId));
+      scheduler.reportMtuReady(address, 185, firstAttemptId);
+      scheduler.reportNotifySubscribed(address, firstAttemptId);
+      scheduler.reportHandshakeStarted(address, firstAttemptId);
+      scheduler.reportHandshakeReady(address, firstAttemptId);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+    });
+
+    test(
+      'queued timeout from an old attempt cannot clear inbound takeover',
+      () async {
+        final outbound = _TestPeripheral(
+          UUID.fromString('00000000-0000-0000-0000-0000000000f1'),
+        );
+        connectGate = Completer<void>();
+        connectEntered = Completer<void>();
+
+        final outboundFuture = scheduler.requestOutboundConnect(outbound);
+        await connectEntered!.future;
+        final outboundAttemptId = connectAttemptIds.single;
+        final inboundAttemptId = scheduler.reportInboundConnected(
+          'peer-inbound',
+        );
+        expect(inboundAttemptId, isNot(outboundAttemptId));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        connectGate!.complete();
+        await outboundFuture;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        expect(scheduler.snapshot.activePeerId, 'peer-inbound');
+        expect(scheduler.snapshot.activeAttemptId, inboundAttemptId);
+        expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+      },
+    );
+
+    test('old connect failure cannot clear inbound takeover', () async {
+      final outbound = _TestPeripheral(
+        UUID.fromString('00000000-0000-0000-0000-0000000000f2'),
+      );
+      connectGate = Completer<void>();
+      connectEntered = Completer<void>();
+      connectShouldFail = true;
+
+      final outboundFuture = scheduler.requestOutboundConnect(outbound);
+      await connectEntered!.future;
+      final inboundAttemptId = scheduler.reportInboundConnected('peer-inbound');
+      connectGate!.complete();
+      await outboundFuture;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(scheduler.snapshot.activePeerId, 'peer-inbound');
+      expect(scheduler.snapshot.activeAttemptId, inboundAttemptId);
+      expect(scheduler.snapshot.state, BleRoleSchedulerState.connectLock);
+    });
 
     test('connect lock timeout releases scheduler back into cycling', () async {
       final peer = _TestPeripheral(
@@ -137,6 +252,7 @@ void main() {
         scheduler.snapshot.state,
         isNot(BleRoleSchedulerState.connectLock),
       );
+      expect(scheduler.snapshot.activePeerId, isNull);
     });
   });
 }

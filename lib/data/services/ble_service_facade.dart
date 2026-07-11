@@ -139,6 +139,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   Future<void>? _activeConnectOperation;
   String? _activeConnectAddress;
   int _connectionOperationSequence = 0;
+  String? _activeHandshakePeerId;
+  int? _activeHandshakeAttemptId;
 
   // Initialization state
   final Completer<void> _initializationCompleter = Completer<void>();
@@ -217,13 +219,17 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
         success: success,
       );
     };
-    _connectionManager.onClientMtuReady = (address, mtu) {
+    _connectionManager.onClientMtuReady = (address, mtu, attemptId) {
       _experimentMetricsRecorder.recordMtuReady(address, mtu);
-      _bleRoleScheduler?.reportMtuReady(address, mtu);
+      if (attemptId != null) {
+        _bleRoleScheduler?.reportMtuReady(address, mtu, attemptId);
+      }
     };
-    _connectionManager.onClientNotifySubscribed = (address) {
+    _connectionManager.onClientNotifySubscribed = (address, attemptId) {
       _experimentMetricsRecorder.recordNotifySubscribed(address);
-      _bleRoleScheduler?.reportNotifySubscribed(address);
+      if (attemptId != null) {
+        _bleRoleScheduler?.reportNotifySubscribed(address, attemptId);
+      }
     };
     _peripheralInitializer =
         peripheralInitializer ??
@@ -259,6 +265,7 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
           _connectionManager.mtuSize,
       enableFragmentCleanupTimer: true,
     );
+    _messageHandlerFacade.onIdentityRevealed = _handleIdentityRevealed;
 
     _lifecycleCoordinator = BleLifecycleCoordinator(
       logger: _logger,
@@ -271,28 +278,48 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       getHandshakeService: _getHandshakeService,
       onInboundConnected: (address) {
         _experimentMetricsRecorder.recordInboundConnected(address);
-        _bleRoleScheduler?.reportInboundConnected(address);
+        return _strictTdmEnabled
+            ? _getBleRoleScheduler().reportInboundConnected(address)
+            : null;
       },
-      onMtuReady: (address, mtu) {
+      onMtuReady: (address, mtu, attemptId) {
         _experimentMetricsRecorder.recordMtuReady(address, mtu);
-        _bleRoleScheduler?.reportMtuReady(address, mtu);
+        if (attemptId != null) {
+          _bleRoleScheduler?.reportMtuReady(address, mtu, attemptId);
+        }
       },
-      onNotifySubscribed: (address) {
+      onNotifySubscribed: (address, attemptId) {
         _experimentMetricsRecorder.recordNotifySubscribed(address);
-        _bleRoleScheduler?.reportNotifySubscribed(address);
+        if (attemptId != null) {
+          _bleRoleScheduler?.reportNotifySubscribed(address, attemptId);
+        }
       },
-      onHandshakeStarted: (address) {
-        _experimentMetricsRecorder.recordHandshakeStarted(address);
-        _bleRoleScheduler?.reportHandshakeStarted(address);
-      },
-      onPeerDisconnected: (address, reason) {
+      onHandshakeStarted: _handleHandshakeStarted,
+      onPeerDisconnected: (address, reason, attemptId) {
         _experimentMetricsRecorder.recordDisconnect(address, reason);
-        _bleRoleScheduler?.reportDisconnect(address, reason);
+        if (attemptId != null) {
+          _bleRoleScheduler?.reportDisconnect(address, reason, attemptId);
+        }
+        if (_activeHandshakePeerId == address &&
+            (_activeHandshakeAttemptId == null ||
+                _activeHandshakeAttemptId == attemptId)) {
+          _activeHandshakePeerId = null;
+          _activeHandshakeAttemptId = null;
+        }
       },
     );
     if (_strictTdmEnabled) {
-      _connectionManager.outboundConnectCoordinator = (device) =>
-          _getBleRoleScheduler().requestOutboundConnect(device);
+      _connectionManager.outboundConnectCoordinator = (device) {
+        final address = device.uuid.toString();
+        if (_connectionManager.hasServerLinkForPeer(address)) {
+          _logger.fine(
+            'Strict TDM adopting existing inbound link for $address; '
+            'skipping a new outbound attempt',
+          );
+          return Future<void>.value();
+        }
+        return _getBleRoleScheduler().requestOutboundConnect(device);
+      };
     }
     _runtimeHelper = _BleServiceFacadeRuntimeHelper(this);
     _recordInstanceCreated();
@@ -470,8 +497,31 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   ) => _runtimeHelper.registerQueueSyncHandler(handler);
 
   @override
-  Future<domain_models.ProtocolMessage?> revealIdentityToFriend() =>
-      _stateManager.revealIdentityToFriend();
+  Future<domain_models.ProtocolMessage?> revealIdentityToFriend() async {
+    final reveal = await _stateManager.revealIdentityToFriend();
+    if (reveal == null) return null;
+    return await _sendIdentityReveal(reveal) ? reveal : null;
+  }
+
+  Future<bool> _sendIdentityReveal(domain_models.ProtocolMessage reveal) async {
+    final routes = _connectionManager.connectedAddresses.toSet();
+    if (routes.length != 1) {
+      _logger.warning(
+        'Identity reveal requires exactly one active BLE route; '
+        'found ${routes.length}',
+      );
+      return false;
+    }
+    final sent = await _getMessagingService().sendProtocolMessage(reveal);
+    if (!sent) {
+      _logger.warning('Identity reveal protocol frame was not sent');
+    }
+    return sent;
+  }
+
+  @visibleForTesting
+  Future<bool> debugSendIdentityReveal(domain_models.ProtocolMessage reveal) =>
+      _sendIdentityReveal(reveal);
 
   @override
   Future<void> acceptContactRequest() => _stateManager.acceptContactRequest();
@@ -692,17 +742,8 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   int get maxCentralConnections => _connectionManager.maxClientConnections;
 
   @override
-  List<String> get activeConnectionDeviceIds {
-    final ids = <String>[];
-    final connected = _getConnectionService().connectedDevice;
-    if (connected != null) {
-      ids.add(connected.uuid.toString());
-    }
-    ids.addAll(
-      _connectionManager.serverConnections.map((conn) => conn.address),
-    );
-    return ids;
-  }
+  List<String> get activeConnectionDeviceIds =>
+      List.unmodifiable(_connectionManager.connectedAddresses);
 
   /// Get state manager for Noise protocol and security operations
   /// 🔑 Used for pairing flow (generatePairingCode, completePairing, etc.)
@@ -833,8 +874,39 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
       : _getDiscoveryService().startScanningWithValidation(source: source);
 
   @override
-  Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) =>
-      _getDiscoveryService().scanForSpecificDevice(timeout: timeout);
+  Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) {
+    final effectiveTimeout = timeout ?? const Duration(seconds: 10);
+    if (!_strictTdmEnabled) {
+      return _connectionManager.scanForSpecificDevice(
+        timeout: effectiveTimeout,
+      );
+    }
+    return _scanWithinScheduledWindows(effectiveTimeout);
+  }
+
+  Future<Peripheral?> _scanWithinScheduledWindows(Duration timeout) async {
+    final discovery = _getDiscoveryService();
+    final current = discovery.currentDiscoveredDevices;
+    if (discovery.isDiscoveryActive && current.isNotEmpty) {
+      return current.first;
+    }
+
+    final completer = Completer<Peripheral?>();
+    late final StreamSubscription<List<Peripheral>> subscription;
+    subscription = discovery.discoveredDevices.listen((devices) {
+      if (!completer.isCompleted && devices.isNotEmpty) {
+        completer.complete(devices.first);
+      }
+    });
+    try {
+      await _getBleRoleScheduler().start();
+      return await completer.future.timeout(timeout, onTimeout: () => null);
+    } finally {
+      await subscription.cancel();
+      // Strict TDM owns scan/advertise transitions. A one-shot caller must not
+      // stop the shared scheduler or the discovery window it currently owns.
+    }
+  }
 
   @override
   Stream<List<Peripheral>> get discoveredDevices =>
@@ -945,10 +1017,13 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   // ============================================================================
 
   @override
-  Future<void> performHandshake({bool? startAsInitiatorOverride}) =>
-      _getHandshakeService().performHandshake(
-        startAsInitiatorOverride: startAsInitiatorOverride,
-      );
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  }) => _getHandshakeService().performHandshake(
+    startAsInitiatorOverride: startAsInitiatorOverride,
+    onStartAccepted: onStartAccepted,
+  );
 
   @override
   Future<void> onHandshakeComplete() =>
@@ -1194,8 +1269,12 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
               _getAdvertisingService().startAsPeripheral(),
           stopAdvertisingEffector: () =>
               _getAdvertisingService().stopAdvertising(),
-          connectEffector: (peer) => _getConnectionService()
-              .connectToDeviceDirect(peer, recordMetrics: false),
+          connectEffector: (peer, attemptId) =>
+              _getConnectionService().connectToDeviceDirect(
+                peer,
+                recordMetrics: false,
+                schedulerAttemptId: attemptId,
+              ),
           canOpenAdditionalLinks: () =>
               _connectionManager.canAcceptMoreConnections,
           hasActiveLinks: () => _connectionManager.hasBleConnection,
@@ -1263,6 +1342,39 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
     if (handler != null) {
       handler(message, fromNodeId);
     }
+  }
+
+  @visibleForTesting
+  Future<void> debugCompleteHandshake({
+    required String ephemeralId,
+    required String displayName,
+    String? noiseKey,
+  }) => _handleHandshakeComplete(ephemeralId, displayName, noiseKey);
+
+  @visibleForTesting
+  void debugStartHandshake(String address, {int? attemptId}) {
+    _handleHandshakeStarted(address, attemptId);
+  }
+
+  bool _handleHandshakeStarted(String address, int? attemptId) {
+    final scheduler = _strictTdmEnabled
+        ? _getBleRoleScheduler()
+        : _bleRoleScheduler;
+    if (attemptId != null && scheduler != null) {
+      final snapshot = scheduler.snapshot;
+      if (snapshot.activePeerId != address ||
+          snapshot.activeAttemptId != attemptId) {
+        _logger.fine(
+          'Ignoring stale handshake start for $address attempt#$attemptId',
+        );
+        return false;
+      }
+      scheduler.reportHandshakeStarted(address, attemptId);
+    }
+    _activeHandshakePeerId = address;
+    _activeHandshakeAttemptId = attemptId;
+    _experimentMetricsRecorder.recordHandshakeStarted(address);
+    return true;
   }
 
   /// Production accessor for the configured message handler facade used by mesh
