@@ -145,7 +145,7 @@ This document details quality attributes and constraints extracted from implemen
 |----|-------------|-----------|----------------|
 | NFR-5.3.1 | Plugin architecture | Riverpod providers | Yes |
 | NFR-5.3.2 | Configurable policies | `RelayPolicy`, `ArchivePolicy` | Yes |
-| NFR-5.3.3 | Database migrations | Version-based upgrades | Yes (v1-v9) |
+| NFR-5.3.3 | Database migrations | Version-based upgrades | Implemented v1-v12; v11/v12 upgrade proof pending |
 | NFR-5.3.4 | Notification handlers | Factory pattern | Yes |
 | NFR-5.3.5 | Power management strategies | Strategy pattern | Yes |
 
@@ -154,8 +154,8 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-6.1: Platform Support
 | ID | Platform | Status | Notes |
 |----|----------|--------|-------|
-| NFR-6.1.1 | Android 8.0+ | Supported | Primary platform |
-| NFR-6.1.2 | iOS 13.0+ | Partial | BLE background limitations |
+| NFR-6.1.1 | Android API 24+ | Build target | Primary platform; hardware matrix pending |
+| NFR-6.1.2 | iOS 12.0+ | Partial | BLE background limitations |
 | NFR-6.1.3 | Windows | Desktop BLE limited | Dev/testing only |
 | NFR-6.1.4 | Linux | Desktop BLE limited | Dev/testing only |
 | NFR-6.1.5 | macOS | Desktop BLE limited | Dev/testing only |
@@ -165,8 +165,8 @@ This document details quality attributes and constraints extracted from implemen
 |----|-------------|----------------|-------|
 | NFR-6.2.1 | Flutter version | 3.9+ | Specified in pubspec |
 | NFR-6.2.2 | Dart version | 3.9+ | Null safety |
-| NFR-6.2.3 | Android SDK | 26+ (API 26) | BLE improvements |
-| NFR-6.2.4 | iOS SDK | 13.0+ | Background BLE |
+| NFR-6.2.3 | Android SDK | min 24, compile/target 36 | Resolved by the current Flutter SDK; repo does not pin it |
+| NFR-6.2.4 | iOS deployment target | 12.0+ | Background BLE remains limited |
 | NFR-6.2.5 | Storage requirement | 100MB minimum | Database + logs |
 
 ## NFR-7: Efficiency
@@ -234,9 +234,9 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-10.1: Backward Compatibility
 | ID | Requirement | Mechanism | Status |
 |----|-------------|-----------|--------|
-| NFR-10.1.1 | Database schema migrations | Version-based upgrades | v1-v9 supported |
+| NFR-10.1.1 | Database schema migrations | Version-based upgrades | Implemented through v12; latest upgrade/device proof pending |
 | NFR-10.1.2 | Protocol versioning | Not implemented | Future consideration |
-| NFR-10.1.3 | Settings migration | SharedPreferences fallback | Partial |
+| NFR-10.1.3 | Legacy preference cleanup | Retired importer shim | Removes obsolete keys only |
 | NFR-10.1.4 | Archive format versioning | Not implemented | Future feature |
 | NFR-10.1.5 | API stability | Internal only | Not applicable |
 
@@ -252,5 +252,5 @@ This document details quality attributes and constraints extracted from implemen
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11
 **Total Non-Functional Requirements**: 105

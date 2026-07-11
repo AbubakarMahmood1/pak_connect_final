@@ -68,7 +68,7 @@ PakConnect addresses these gaps by combining:
 ### Secondary Objectives
 
 - Full-text search for archived messages
-- Group messaging with per-member delivery tracking
+- Sender-local broadcast lists with per-recipient queue-submission status
 - Contact favorites and organization
 - Message export/import for backup
 - Network topology visualization
@@ -79,7 +79,8 @@ PakConnect addresses these gaps by combining:
 
 **Core Messaging**
 - One-to-one encrypted messaging
-- Group messaging (multi-unicast)
+- Broadcast lists (multi-unicast into ordinary one-to-one chats; no shared
+  membership or group transcript)
 - Message status tracking (sent, delivered, read)
 - Threading and replies
 - Message editing and deletion
@@ -216,7 +217,7 @@ PakConnect addresses these gaps by combining:
 | Privacy (no telemetry) | Critical | Local-only storage, no analytics |
 | Contact verification | Medium | Security level system, PIN/crypto verification |
 | Message history | Medium | SQLite storage, archive system |
-| Group communication | Medium | Group messaging service |
+| Send the same update to several contacts | Medium | Sender-local broadcast list service |
 
 ---
 

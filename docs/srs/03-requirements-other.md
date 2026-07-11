@@ -28,7 +28,7 @@ This document specifies additional requirements not covered under functional or 
 - Accessible via in-app settings
 - Complies with GDPR principles (data minimization, user control)
 
-**Reference**: `pubspec.yaml:95` (privacy_policy.md asset)
+**Reference**: `pubspec.yaml` (`assets/privacy_policy.md`)
 
 ---
 
@@ -72,14 +72,18 @@ This document specifies additional requirements not covered under functional or 
 ---
 
 ### OR-6: Minimum Android SDK
-**Requirement**: Android devices MUST run API level 21 (Android 5.0 Lollipop) or higher.
+**Requirement**: The current Android build supports API level 24 (Android 7.0)
+or higher.
 
 **Rationale**:
-- BLE GATT server support requires API 21+
-- SQLCipher native libraries require API 21+
-- Flutter framework compatibility
+- `android/app/build.gradle.kts` inherits `flutter.minSdkVersion`.
+- The reconciliation environment's Flutter 3.41.5 SDK resolves that value to
+  API 24. The repository does not pin an exact Flutter SDK, so this should be
+  rechecked when the build toolchain changes.
+- Device validation should still include the oldest Android version the project
+  intends to advertise.
 
-**Reference**: `android/app/build.gradle.kts:28` (`minSdk = flutter.minSdkVersion`)
+**Reference**: `android/app/build.gradle.kts` (`minSdk = flutter.minSdkVersion`)
 
 ---
 
@@ -87,11 +91,12 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: iOS devices MUST run iOS 12.0 or higher.
 
 **Rationale**:
-- Flutter 3.9+ requires iOS 12.0+
-- Core Bluetooth framework stability
-- Background BLE support
+- The Xcode project and Flutter framework metadata set a 12.0 deployment
+  target.
+- Background BLE behavior still requires physical-device validation.
 
-**Reference**: Flutter documentation, `ios/Podfile` (minimum deployment target)
+**Reference**: `ios/Runner.xcodeproj/project.pbxproj`,
+`ios/Flutter/AppFrameworkInfo.plist`
 
 ---
 
@@ -121,7 +126,7 @@ This document specifies additional requirements not covered under functional or 
 ### OR-10: Flutter SDK Version
 **Requirement**: Development requires Flutter SDK 3.9.0 or higher.
 
-**Reference**: `pubspec.yaml:22` (`sdk: ">=3.9.0 <4.0.0"`)
+**Reference**: `pubspec.yaml` (`sdk: ">=3.9.0 <4.0.0"`)
 
 ---
 
@@ -129,22 +134,24 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: Building the application requires platform-specific toolchains.
 
 **Android**:
-- Android SDK 33 (compileSdk)
-- NDK r27 (27.0.12077973) for native crypto libraries
+- Android SDK 36 (`flutter.compileSdkVersion` / `flutter.targetSdkVersion` in
+  the reconciliation environment's Flutter 3.41.5 toolchain)
+- NDK 28.2.13676358
 - Java 11 (JDK)
-- Kotlin plugin
-- Gradle 8.0+
+- Kotlin plugin 2.1.0 / Android Gradle Plugin 8.9.1
+- Gradle 8.11.1 wrapper
 
 **iOS**:
-- Xcode 14.0+
-- CocoaPods 1.11+
-- Swift 5.5+
+- macOS/Xcode toolchain capable of building the checked-in iOS project
+- Exact Xcode/CocoaPods/Swift compatibility is not pinned or verified in the
+  current Windows environment
 
 **Windows**:
 - Visual Studio 2022 (Desktop development with C++)
 - Windows 10 SDK
 
-**Reference**: `android/app/build.gradle.kts:11` (NDK version), Flutter documentation
+**Reference**: `android/app/build.gradle.kts`, `android/settings.gradle.kts`,
+`android/gradle/wrapper/gradle-wrapper.properties`
 
 ---
 
@@ -153,12 +160,12 @@ This document specifies additional requirements not covered under functional or 
 
 **Critical Dependencies**:
 - `riverpod: ^3.0.0` (state management)
-- `bluetooth_low_energy: ^6.1.0` (BLE stack)
+- `bluetooth_low_energy: ^6.2.1` (BLE stack)
 - `pinenacl: ^0.6.0` (X25519 DH)
 - `cryptography: ^2.7.0` (ChaCha20-Poly1305)
 - `sqflite_sqlcipher: ^3.2.1` (encrypted database)
 
-**Reference**: `pubspec.yaml:37-66`
+**Reference**: `pubspec.yaml`
 
 ---
 
@@ -296,10 +303,14 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: Encryption keys MUST be derived using industry-standard KDFs.
 
 **Implementations**:
-- Database encryption: PBKDF2-SHA512 (100,000 iterations)
 - Noise protocol: HKDF-SHA256 (per Noise spec)
+- Export/import passphrases: PBKDF2-HMAC-SHA256 (600,000 iterations)
+- Mobile database credential: random 256-bit value stored in platform secure
+  storage and supplied to SQLCipher; it is not derived from an application
+  passphrase
 
-**Reference**: `lib/data/database/database_encryption.dart`
+**References**: `lib/domain/services/encryption_utils.dart`,
+`lib/data/database/database_encryption.dart`
 
 ---
 
@@ -319,6 +330,9 @@ This document specifies additional requirements not covered under functional or 
 
 ### OR-24: Test Coverage Requirement
 **Requirement**: Unit and integration tests SHOULD achieve >85% code coverage.
+
+**Enforcement status**: This is a target, not a current CI gate. The workflow
+generates and uploads `coverage/lcov.info` but does not fail on a percentage.
 
 **Tested Components**:
 - Core cryptographic operations (Noise protocol)
@@ -356,8 +370,9 @@ This document specifies additional requirements not covered under functional or 
 
 **Release Build**:
 - Minimal logging (warnings and errors only)
-- ProGuard/R8 code obfuscation
-- Optimized APK size
+- Optimized Flutter release build
+- Release signing is mandatory; the Gradle build fails if signing credentials
+  are absent
 
 **Command**: `flutter build apk --release`
 
@@ -374,7 +389,7 @@ This document specifies additional requirements not covered under functional or 
 - Apple Developer Certificate
 - Provisioning profile
 
-**Reference**: `android/app/build.gradle.kts:38` (debug signing for development)
+**Reference**: `android/app/build.gradle.kts` (release signing preflight)
 
 ---
 
@@ -419,9 +434,11 @@ This document specifies additional requirements not covered under functional or 
 ### OR-31: Database Backup
 **Requirement**: Users SHOULD be able to export encrypted database backups.
 
-**Format**: Encrypted SQLite database file (.db) with separate encryption key
+**Format**: Self-contained `.pakconnect` v2.1.0 bundle. The database bytes,
+metadata, preferences, and key material are encrypted with a
+passphrase-derived key and authenticated with HMAC-SHA256.
 **Trigger**: Manual export via settings
-**Restoration**: Manual import with encryption key
+**Restoration**: Manual import with the export passphrase
 
 **Limitation**: Noise session states are ephemeral and NOT included in backups (sessions re-established on next connection)
 
@@ -457,4 +474,4 @@ This document specifies additional requirements not covered under functional or 
 - Accessibility: 2 requirements
 - Backup & Recovery: 2 requirements
 
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11

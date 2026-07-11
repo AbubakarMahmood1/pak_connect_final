@@ -192,93 +192,90 @@ Detailed use case specifications with full template format.
 
 ---
 
-## UC-23: Send Group Message
+## UC-23: Send Broadcast
 
 ### Basic Information
 **Use Case ID**: UC-23
-**Use Case Name**: Send Group Message
+**Use Case Name**: Send Broadcast
 **Created By**: System Analysis
 **Date Created**: 2025-01-19
 **Actor**: User (Primary)
-**Stakeholders**: User (wants to message multiple people), Group members (want to receive messages)
+**Stakeholders**: User (wants to send the same update to several contacts), recipients (receive ordinary direct messages)
 **Preconditions**:
-- User has created a group
-- Group has at least 1 member
-- User has Noise sessions established with members OR members are offline (will queue)
+- User has created a local broadcast list
+- List has at least one recipient resolvable to a contact/chat identity
+- The shared direct-message queue is initialized
 
 **Postconditions**:
-- Success: Individual encrypted messages sent/queued for each member
-- Failure: Partial success (some members receive, others fail)
+- Success: One ordinary direct message is accepted into the queue per recipient
+- Partial failure: unresolved recipients or rejected queue submissions are
+  marked failed in the sender-local record
 
 ### Main Success Scenario
-1. User selects group from chat list
-2. User types message in group chat
+1. User selects a broadcast list
+2. User types the broadcast content
 3. User taps Send button
 4. System validates message (not empty)
-5. System generates unique message ID
-6. System retrieves group members list from group_members table
-7. System creates GroupMessage record with initial delivery status
-8. FOR EACH member in group:
-   9. System retrieves member's contact record
-   10. System generates chat ID for member
-   11. System queues individual message via OfflineMessageQueue
-   12. System encrypts with member's Noise session
-   13. System sends via BLE OR queues if offline
-   14. System updates delivery status for member (pending → sent)
-15. System saves GroupMessage to group_messages table
-16. System saves delivery records to group_message_delivery table
-17. UI displays message with per-member delivery indicators
-18. Background process monitors delivery confirmations
+5. System creates and persists a sender-local GroupMessage record (legacy
+   schema name) with one pending status per recipient
+6. FOR EACH recipient in the local list:
+   7. System resolves the contact through `getContactByAnyId()`
+   8. System queues the content as an ordinary direct message using the
+      contact's canonical `chatId`
+   9. System records pending → queued (persisted enum name `sent`) when the
+      direct queue accepts it, otherwise failed
+10. UI shows the sender-local broadcast history and recipient queue statuses
+11. The normal direct-message pipeline later performs Noise encryption,
+    retries, BLE routing, and recipient-side direct-chat persistence
 
-**Result**: Message sent to all group members with individual delivery tracking
+**Result**: The same content is submitted independently to each recipient's
+direct-message queue. Recipient devices do not reconstruct a list, membership,
+or shared transcript, and replies remain private direct messages.
 
 ### Extensions (Alternative Flows)
 
-**6a. Group has no members**
-- 6a1. Display "Cannot send to empty group"
-- 6a2. Suggest "Add members to group first"
+**6a. List has no recipients**
+- 6a1. Display that the list needs recipients
+- 6a2. Suggest adding recipients first
 - 6a3. Use case ends
 
-**9a. Member contact not found**
-- 9a1. Log warning "Member not in contacts"
-- 9a2. Mark delivery status as "failed" for that member
-- 9a3. Continue with next member
+**7a. Recipient contact not found**
+- 7a1. Log a bounded warning
+- 7a2. Mark sender-local status failed for that recipient
+- 7a3. Continue with the next recipient
 
-**12a. No Noise session for member**
-- 12a1. Attempt handshake with member
-- 12a2. If handshake fails, mark status as "failed"
-- 12a3. Continue with next member
+**8a. Queue submission fails**
+- 8a1. Mark sender-local status failed for that recipient
+- 8a2. Continue with the next recipient (partial acceptance is allowed)
 
-**13a. Member is offline**
-- 13a1. Message queued in offline_message_queue
-- 13a2. Mark status as "queued"
-- 13a3. Continue with next member
-
-**13b. Send fails for member**
-- 13b1. Log error for that member
-- 13b2. Mark status as "failed"
-- 13b3. Continue with next member (partial success allowed)
+An offline recipient is not an immediate error: the ordinary direct queue
+retains and retries that recipient's message.
 
 ### Special Requirements
-- **Security**: Each member receives individually encrypted message (multi-unicast, not broadcast)
-- **Performance**: Should handle groups of up to 50 members
-- **Reliability**: Partial success acceptable (some deliver, some fail)
-- **Usability**: Clear per-member delivery status visualization
+- **Security**: Each recipient uses the ordinary one-to-one Noise path; no
+  shared group key or group envelope exists
+- **Performance**: List size is not currently capped or device-qualified
+- **Reliability**: Partial queue acceptance is allowed and shown per recipient
+- **Usability**: UI must call the feature a broadcast list and distinguish
+  queued from delivered
 
 ### Technology & Data Variations
-**Architecture**: Multi-unicast (N individual Noise sessions)
-**No Shared Keys**: Each message encrypted separately per recipient
+**Architecture**: Sender-local multi-unicast through N direct-message queue entries
+**No Shared Protocol**: No synchronized membership, group ID on the wire,
+recipient-side group history, shared reply path, owner/admin rules, or group key
 **Storage**: group_messages + group_message_delivery (junction table)
-**Delivery Tracking**: Per-member status (pending, sent, delivered, failed)
+**Status Tracking**: Per-recipient local status (pending, queued via legacy
+`sent`, failed); `delivered` is reserved but no receipt correlation is wired
 
 ### Frequency of Use
-**Expected**: 1-20 group messages per day (depending on group activity)
+**Expected**: Usage-dependent; no current measured baseline
 
 ### Open Issues
-- Group size limit not enforced (performance degrades > 50 members)
-- Group message editing not supported
-- Group delivery receipts aggregate view not implemented
-- Group admin/permissions system not implemented
+- List-size limit and performance envelope are not established
+- Direct-message ACKs are not correlated back to sender-local broadcast records
+- A true group protocol would require authenticated membership/versioning,
+  inbound deduplication/persistence, reply semantics, owner/admin rules,
+  mixed-version handling, and physical-device tests
 
 ---
 

@@ -1,22 +1,28 @@
-# Quick Start: Real Device Testing for Phase 2B.1
+# Quick Start: PakConnect Android Device Validation
 
 **Time to complete:** 70-90 minutes
 **Devices needed:** 2-3 Android devices with BLE
+
+Use `docs/testing/DEVICE_VALIDATION_STATUS.md` as the live evidence matrix.
+This guide is an execution aid; completing the menu does not itself turn a row
+into `PASS` without saved device/build/log evidence. The exact two-phone
+baseline run is
+[TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
 ---
 
 ## 1️⃣ One-Minute Setup
 
 ```bash
-# Navigate to project
-cd /home/abubakar/dev/pak_connect
+# Run from the repository root
+cd /path/to/pak_connect
 
 # Make sure devices are connected
 adb devices
 # You should see 2-3 devices listed
 
 # Start the automated testing script
-./scripts/real_device_test.sh
+bash scripts/real_device_test.sh --debug
 
 # The script will:
 # ✅ Check environment
@@ -31,12 +37,13 @@ adb devices
 ## 2️⃣ What the Script Does
 
 1. **Builds APK** (3-5 minutes)
-   - Creates optimized APK for testing
+   - Creates a debug APK by default
    - Verifies build success
 
 2. **Deploys to Devices** (2-3 minutes per device)
    - Installs APK on all connected devices
-   - Clears previous app data
+   - Preserves app data (`adb install -r`); clear data manually when a scenario
+     requires a fresh install
    - Verifies installation
 
 3. **Starts Log Collection**
@@ -46,8 +53,8 @@ adb devices
 
 4. **Guides Test Scenarios**
    - Shows step-by-step instructions
-   - Tracks which scenarios completed
-   - Analyzes results when done
+   - Lets the operator invoke a simple log-pattern summary
+   - Leaves scenario state/evidence recording to the operator
 
 ---
 
@@ -97,15 +104,13 @@ Press Enter when scenario is complete...
 
 ### After Testing
 
-The script will:
-1. Stop collecting logs
-2. Analyze results
-3. Show success/failure summary
-4. Save test report
+Use menu option 6 to run the script's pattern-counting log summary, then option
+7 to stop log collection. The script saves raw per-device logs; it does not
+decide scenario PASS/FAIL or write the live evidence matrix for you.
 
 ---
 
-## 4️⃣ Test Scenarios (70-80 minutes total)
+## 4️⃣ Smoke Scenarios (70-80 minutes total)
 
 | # | Scenario | Duration | Devices | What It Tests |
 |---|----------|----------|---------|---------------|
@@ -117,11 +122,15 @@ The script will:
 **Total active testing:** 65 minutes
 **Including setup:** 75-85 minutes
 
+These four menu scenarios are a subset of the authoritative matrix. XX/KK,
+reverse-role discovery, exact-route fragmentation, SQLCipher, permissions, and
+privacy/log inspection still need their dedicated matrix rows.
+
 ---
 
 ## 5️⃣ Expected Log Output
 
-**While testing, you'll see logs like:**
+**Illustrative patterns (exact log wording may differ):**
 
 ```
 ✅ [MeshRoutingService] 🤔 Determining route to <recipient>
@@ -142,7 +151,7 @@ The script will:
 
 ---
 
-## 6️⃣ Success Criteria
+## 6️⃣ Scenario Acceptance Targets
 
 ### All Scenarios Must Pass
 
@@ -172,14 +181,13 @@ Scenario 4: Topology Changes
 └─ Recovery time <5 seconds ✅
 ```
 
-### Phase 2B.1 Validation
+### Bounded Smoke Validation
 
 ```
-✅ Behavior identical to Phase 2A
-✅ All routing through new interface
-✅ Zero regressions
-✅ All messages delivered correctly
-✅ No crashes or errors
+□ Direct and queued messages observed on the intended peer
+□ No duplicate delivery in the exercised scenarios
+□ Reconnect/topology behavior recorded with timestamps
+□ No crash or unexpected severe/error log in the captured window
 ```
 
 ---
@@ -200,7 +208,7 @@ adb devices  # Should show devices
 adb shell pm clear com.pakconnect.app
 
 # Reinstall
-adb install build/app/outputs/flutter-app.apk
+adb install build/app/outputs/flutter-apk/app-debug.apk
 ```
 
 ### "Messages not delivering"
@@ -223,41 +231,18 @@ adb -s <device> logcat -s "flutter" > device.log &
 
 ## 8️⃣ After Testing
 
-### If All Scenarios Pass ✅
+1. Exit the script cleanly so logcat processes stop.
+2. Record device model, Android version, app commit, build mode, timestamps,
+   scenario outcome, and the relevant log filenames.
+3. Redact public identifiers or other sensitive material before sharing logs.
+4. Update `docs/testing/DEVICE_VALIDATION_STATUS.md` only for rows actually
+   observed. Keep untested rows `BLOCKED` or `NOT RUN`.
+5. For any failure, preserve the reproduction and logs before changing code,
+   then rerun the affected row after a fix.
 
-```bash
-# Navigate to test logs
-cd testing_logs/$(ls -t testing_logs | head -1)
-
-# View test report
-cat test_metadata.txt
-
-# Commit Phase 2B.1
-git add .
-git commit -m "feat(routing): Phase 2B.1 - Mesh Routing Service extraction
-
-Validated with real device testing:
-- Direct message delivery: PASS
-- Offline queue synchronization: PASS
-- Routing service integration: PASS
-- Topology adaptation: PASS
-- Zero regressions from Phase 2A
-
-Tests: 50 automated tests + real device validation"
-
-git push origin refactor/phase2b-ble-service-split
-```
-
-### If Any Scenario Fails ❌
-
-```bash
-# Analyze logs
-grep "ERROR\|Exception\|Failed" testing_logs/*/device_*.log
-
-# Identify root cause
-# Fix issue
-# Re-run failed scenario only
-```
+Do not commit or push solely because the four smoke scenarios completed; the
+full readiness gate includes the remaining protocol, SQLCipher, lifecycle, and
+privacy rows.
 
 ---
 
@@ -301,13 +286,13 @@ grep "ERROR\|Exception\|Failed" testing_logs/*/device_*.log
 If the script doesn't work, do this manually:
 
 ```bash
-# Step 1: Build APK
-cd /home/abubakar/dev/pak_connect
+# Step 1: Build a debug APK
+cd /path/to/pak_connect
 flutter clean
-flutter build apk --release
+flutter build apk --debug
 
 # Step 2: Deploy
-adb install -r build/app/outputs/flutter-app.apk
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
 
 # Step 3: Start logs on each device
 adb logcat -s "flutter" > device_a.log &
@@ -328,15 +313,13 @@ grep "✅\|ERROR" device_*.log
 ## Summary
 
 ```
-✅ Run: ./scripts/real_device_test.sh
+✅ Run: bash scripts/real_device_test.sh --debug
 ✅ Connect 2-3 devices via USB
 ✅ Follow scenario instructions
 ✅ Collect results
-✅ Validate Phase 2B.1
-✅ Commit if all pass
+✅ Record exact evidence in the device validation matrix
+✅ Keep unobserved rows blocked/not run
 
 Estimated time: 75-85 minutes
-Expected result: 100% scenario pass rate
+Required result for promoted rows: all stated observations captured
 ```
-
-**Ready? Let's validate Phase 2B.1!** 🚀

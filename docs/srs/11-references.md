@@ -158,7 +158,7 @@ This section lists all standards, specifications, documentation, and third-party
 
 **Description**: Defines HKDF (HMAC-based Key Derivation Function) used in Noise Protocol.
 
-**Relevance**: Key derivation for Noise sessions and database encryption.
+**Relevance**: Key derivation for Noise sessions.
 
 **URL**: https://csrc.nist.gov/publications/detail/sp/800-108/final
 
@@ -176,9 +176,12 @@ This section lists all standards, specifications, documentation, and third-party
 
 **Description**: Defines PBKDF2 (Password-Based Key Derivation Function 2).
 
-**Relevance**: Used for database encryption key derivation from device-specific entropy.
+**Relevance**: Password-based key derivation for encrypted export/import
+bundles. The mobile database credential itself is random secure-storage
+material, not an application passphrase.
 
-**Implementation**: `lib/data/database/database_encryption.dart` (PBKDF2-SHA512, 100,000 iterations)
+**Implementation**: `lib/domain/services/encryption_utils.dart`
+(PBKDF2-HMAC-SHA256, 600,000 iterations)
 
 **URL**: https://csrc.nist.gov/publications/detail/sp/800-132/final
 
@@ -298,7 +301,7 @@ This section lists all standards, specifications, documentation, and third-party
 
 **Description**: Embedded relational database engine.
 
-**Relevance**: Local data persistence, schema version 9.
+**Relevance**: Local data persistence, schema version 12.
 
 **Implementation**: Section 4.14 (Database Schema), `lib/data/database/database_helper.dart`
 
@@ -317,7 +320,8 @@ This section lists all standards, specifications, documentation, and third-party
 
 **Description**: Transparent 256-bit AES encryption for SQLite databases.
 
-**Relevance**: Database encryption (AES-256-CBC, PBKDF2 key derivation).
+**Relevance**: Mobile database encryption. PakConnect supplies a random
+secure-storage credential; SQLCipher owns its internal cipher/KDF details.
 
 **Implementation**: `sqflite_sqlcipher` Dart package
 
@@ -373,7 +377,7 @@ This section lists all standards, specifications, documentation, and third-party
 ### [19] bluetooth_low_energy (Flutter Plugin)
 **Package**: bluetooth_low_energy
 
-**Version**: 6.1.0
+**Version**: 6.2.1
 
 **Author**: yangbo on pub.dev
 
@@ -603,7 +607,7 @@ This section lists all standards, specifications, documentation, and third-party
 ### [32] sqflite_common_ffi (Dart Package)
 **Package**: sqflite_common_ffi
 
-**Version**: 2.3.4
+**Version**: 2.4.0+2
 
 **Author**: Tekartik
 
@@ -680,7 +684,7 @@ This document uses a hybrid citation format combining IEEE and APA styles:
 ---
 
 ## Last Updated
-**Date**: 2025-01-19
+**Date**: 2026-07-11
 
 **Total References**: 36
 

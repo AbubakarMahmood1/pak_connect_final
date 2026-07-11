@@ -26,7 +26,10 @@ The project follows a layered architecture. Keep boundaries intact:
 - `lib/domain/` — entities, use cases, and repository interfaces
 - `lib/presentation/` — UI, view models, and state management
 
-Do not import from `presentation/` into `domain/` or `data/`. Do not import from `data/` into `domain/`. When in doubt, consult the existing structure before adding new dependencies across layers.
+Keep `domain/` independent of `core/`, `data/`, and `presentation/`. `core/`
+may consume domain contracts but must not import `data/` or `presentation/`;
+`data/` must not import `presentation/`. When in doubt, consult the existing
+import graph before adding a cross-layer dependency.
 
 ### General
 
@@ -41,10 +44,22 @@ Do not import from `presentation/` into `domain/` or `data/`. Do not import from
 All functional changes must be accompanied by new or updated tests. Run the full test suite locally before pushing:
 
 ```
+flutter analyze --no-pub
 flutter test
 ```
 
-CI enforces coverage thresholds. A pull request that causes coverage to drop will not be approved. If you are adding code that is genuinely untestable (e.g., platform channel wrappers), document the reason clearly in the PR description.
+The `flutter_coverage.yml` workflow runs repository audit gates, a strict BLE
+singleton test, and the full VM-friendly suite with coverage. It uploads LCOV
+and test/analyzer logs, but it does not currently enforce a numeric coverage
+threshold. Static analysis is fatal for `release/**` branches and non-fatal on
+other branches. Physical-device tests under `integration_test/` are a separate
+manual gate and are not run by CI.
+
+The separate weekly `codeql.yml` workflow analyzes Android Java/Kotlin and
+GitHub Actions definitions. It does not analyze Dart code.
+
+If code is genuinely device-bound (for example, a platform-channel wrapper),
+document the limitation and the required device evidence in the pull request.
 
 ---
 

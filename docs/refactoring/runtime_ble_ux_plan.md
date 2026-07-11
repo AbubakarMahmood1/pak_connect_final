@@ -1,5 +1,13 @@
 # Runtime BLE UX Rework Plan
 
+**Status (2026-07-11): Implemented/superseded historical plan.** `main.dart`
+no longer uses `appBleReadyForHomeProvider` as a root navigation gate;
+`PermissionScreen` is reachable from settings/import flows, and AppCore treats
+BLE warm-up as a degradable background stage. Use
+`docs/architecture/RUNTIME_FLOWS.md` and
+`docs/status/ENGINEERING_STATUS.md` for current behavior. The analysis below
+is retained to explain the change.
+
 ## Goal
 
 Make PakConnect behave like a professional app when Bluetooth is off, permissions are missing, or BLE takes a long time to initialize.
@@ -10,8 +18,8 @@ The app should remain usable for local data and navigation. BLE should become a 
 
 ### 1. BLE is still treated as a root-app requirement
 
-- [main.dart](C:/Users/theab/Compressed/pak_connect_final/lib/main.dart) routes to `HomeScreen` or `PermissionScreen` based on `appBleReadyForHomeProvider`.
-- [app_permission_providers.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/providers/app_permission_providers.dart) defines “ready for home” as:
+- [main.dart](../../lib/main.dart) routes to `HomeScreen` or `PermissionScreen` based on `appBleReadyForHomeProvider`.
+- [app_permission_providers.dart](../../lib/presentation/providers/app_permission_providers.dart) defines “ready for home” as:
   - Bluetooth `poweredOn`
   - and BLE permissions granted
 
@@ -19,8 +27,9 @@ This means runtime Bluetooth problems are currently converted into top-level nav
 
 ### 2. App bootstrap is blocked by BLE integration
 
-- [app_core.dart](C:/Users/theab/Compressed/pak_connect_final/lib/core/app_core.dart) does not emit `AppStatus.ready` until after `_initializeBLEIntegration()`.
-- Real-device log from [device_a_fix_redeploy_v2_flutter_run.log](C:/Users/theab/Compressed/pak_connect_final/logs/ble-experiments/device_a_fix_redeploy_v2_flutter_run.log) shows:
+- [app_core.dart](../../lib/core/app_core.dart) does not emit `AppStatus.ready` until after `_initializeBLEIntegration()`.
+- The historical recovery-checkpoint log
+  `logs/ble-experiments/device_a_fix_redeploy_v2_flutter_run.log` showed:
   - BLE integration took about `33703ms`
   - full app initialization took about `35996ms`
 
@@ -28,7 +37,7 @@ That is why the user sees a long “initializing...” screen before anything us
 
 ### 3. `PermissionScreen` is doing two incompatible jobs
 
-- [permission_screen.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/screens/permission_screen.dart) acts like:
+- [permission_screen.dart](../../lib/presentation/screens/permission_screen.dart) acts like:
   - first-run setup
   - permission recovery
   - Bluetooth unavailable fallback
@@ -38,7 +47,7 @@ That is too much responsibility for one screen, and it creates awkward runtime b
 
 ### 4. Home already has the beginnings of the correct UX shape
 
-- [home_screen.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/screens/home_screen.dart) already includes:
+- [home_screen.dart](../../lib/presentation/screens/home_screen.dart) already includes:
   - a BLE status banner
   - BLE state watching
   - connection info watching
@@ -48,8 +57,8 @@ So the codebase already has enough state to support a proper in-app BLE status e
 
 ### 5. Backup import cannot be lost in the redesign
 
-- [permission_screen.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/screens/permission_screen.dart) exposes `Import Existing Data`
-- [data_storage_section.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/widgets/settings/data_storage_section.dart) also exposes `Import Backup`
+- [permission_screen.dart](../../lib/presentation/screens/permission_screen.dart) exposes `Import Existing Data`
+- [data_storage_section.dart](../../lib/presentation/widgets/settings/data_storage_section.dart) also exposes `Import Backup`
 
 If `PermissionScreen` stops being the root gate, we still need a first-run-visible import path.
 
@@ -131,7 +140,7 @@ The app becomes usable after local/core initialization, even if BLE is still sta
 
 #### Changes
 
-- Change [app_core.dart](C:/Users/theab/Compressed/pak_connect_final/lib/core/app_core.dart) so `AppStatus.ready` is emitted after:
+- Change [app_core.dart](../../lib/core/app_core.dart) so `AppStatus.ready` is emitted after:
   - DI setup
   - database/repositories
   - message queue
@@ -163,7 +172,7 @@ Stop using live BLE state to choose between `HomeScreen` and `PermissionScreen`.
 
 #### Changes
 
-- Remove the current root gate in [main.dart](C:/Users/theab/Compressed/pak_connect_final/lib/main.dart) that depends on `appBleReadyForHomeProvider`
+- Remove the current root gate in [main.dart](../../lib/main.dart) that depends on `appBleReadyForHomeProvider`
 - After app core is ready, default route becomes `HomeScreen`
 - `PermissionScreen` is no longer the runtime fallback screen
 
@@ -181,10 +190,10 @@ Make BLE loss/recovery visible, actionable, and non-blocking.
 
 #### Changes
 
-- Replace the current crude `_buildBLEStatusBanner()` in [home_screen.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/screens/home_screen.dart) with a richer runtime status component
+- Replace the current crude `_buildBLEStatusBanner()` in [home_screen.dart](../../lib/presentation/screens/home_screen.dart) with a richer runtime status component
 - Reuse or adapt:
-  - [bluetooth_status_widget.dart](C:/Users/theab/Compressed/pak_connect_final/lib/presentation/widgets/bluetooth_status_widget.dart)
-  - [bluetooth_state_models.dart](C:/Users/theab/Compressed/pak_connect_final/lib/domain/models/bluetooth_state_models.dart)
+  - historical `bluetooth_status_widget.dart` (later removed as unreachable)
+  - [bluetooth_state_models.dart](../../lib/domain/models/bluetooth_state_models.dart)
 
 - Show specific states:
   - Bluetooth off
@@ -336,7 +345,7 @@ Expected user-visible result:
 
 ### Checkpoint 2
 
-Remove root BLE gating in [main.dart](C:/Users/theab/Compressed/pak_connect_final/lib/main.dart) and make Home the runtime default after bootstrap.
+Remove root BLE gating in [main.dart](../../lib/main.dart) and make Home the runtime default after bootstrap.
 
 Expected user-visible result:
 - no more bounce back into onboarding when Bluetooth changes
