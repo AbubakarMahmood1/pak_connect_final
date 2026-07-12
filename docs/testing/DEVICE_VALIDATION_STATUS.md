@@ -1,6 +1,6 @@
 # PakConnect device validation status
 
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## Current environment
 
@@ -28,9 +28,9 @@ Use only these labels:
 
 | Item | Status | Evidence/notes |
 |---|---|---|
-| `flutter analyze --no-pub` | PASS | Clean on 2026-07-11 |
-| Desktop full unit/widget suite | PASS | 5,534 post-patch tests, 0 failures, 3m13s; 9,064,299-byte `flutter_test_latest.log`, SHA-256 `01D2A10A477FEA1174C2D62F79EA4BBFCFE0466057F9E8666E1DC5CF5406F339` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,860 bytes; SHA-256 `3B541A9C734977BF43E2621BFE300EB7CB316DFA391430722E6375DD6CF1F040`; its exact code/test/tooling tree is committed as baseline `a5c2b08` |
+| `flutter analyze --no-pub` | PASS | Clean on 2026-07-13 with Flutter 3.41.5 / Dart 3.11.3 |
+| Desktop full unit/widget suite | PASS | 5,539 tests, 0 failures, 4m56s; 9,200,096-byte `flutter_test_latest.log`, SHA-256 `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4` |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,403 bytes; SHA-256 `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`; its exact code/build-input tree is committed as baseline `fcb3013` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -41,11 +41,14 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `a5c2b08`. A documentation-only descendant is
-acceptable if
-`git diff a5c2b08..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
+Code baseline for the next run: `fcb3013215484d2e5b3c3b75f655d81c28209171`
+(`fcb3013`). A documentation-only descendant is acceptable if
+`git diff fcb3013..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
 is empty. Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
+
+The previous verified baseline `a5c2b08` and its APK/test hashes remain
+historical provenance only. Do not use them for a new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
@@ -61,11 +64,11 @@ is empty. Execute the matrix with the exact PowerShell run sheet in
 | Unicode and pipe-heavy text | BLOCKED | Exact Urdu/emoji/CJK/pipe round-trip across fragmentation |
 | Large/binary media | BLOCKED | Target-route MTU respected; byte-perfect reassembly; progress/retry sane |
 | Offline queue then reconnect | BLOCKED | Pending direct message reaches intended peer only |
-| Background then resume | BLOCKED | Dart resume hook flushes backlog on a ready link |
+| Foreground -> background -> resume | BLOCKED | Dart resume hook flushes backlog on a ready link; this does not claim delivery while killed or dozing |
 | Route disappears mid-send | BLOCKED | Sender fails promptly and retains/retries queue item; no false success |
 | Manual reconnect | BLOCKED | Finds the other PakConnect advertiser and reconnects |
 | Multi-link inventory/routing | BLOCKED | All links listed; control frames use exact route/MTU; ambiguous direct payloads defer until per-link identity/ACK binding exists |
-| Relay A -> B -> C | BLOCKED | Local-before-forward, deterministic ID, dedup window and hop cap observed |
+| Relay A -> B -> C | BLOCKED | Requires three phones. Final C delivery decodes the signed encrypted v2 inner `ProtocolMessage`, authenticates/decrypts and persists it before the routed ACK; processing failure emits no ACK and does not mark the message seen; a duplicate completed delivery resends the ACK without redelivery |
 | Log/privacy inspection | BLOCKED | No keys, plaintext payload previews, passphrases or SQLCipher key material in logs |
 
 ## SQLCipher proof
@@ -77,12 +80,16 @@ Run on a production-like Android build, not the desktop plaintext test mode:
 2. Confirm ordinary SQLite cannot read schema/content without the random
    secure-storage credential supplied to SQLCipher.
 3. Reopen through the app and confirm data remains readable.
-4. Exercise credential persistence across restart and the supported secure
-   storage failure/recovery behavior. Export/import passphrases are a separate
-   PBKDF2 flow.
+4. Exercise credential persistence across restart. Record controlled secure
+   storage failure/recovery injection as blocked unless a reviewed safe hook is
+   added. Export/import passphrases are a separate PBKDF2 flow.
 5. Save command output with secrets redacted and record the exact commit/device.
 
 Status: `BLOCKED` (no phone attached).
+
+Controlled secure-storage fault injection: `BLOCKED` because the current
+baseline has no reviewed safe injection hook. Do not delete production key
+material ad hoc.
 
 ## Background execution proof
 

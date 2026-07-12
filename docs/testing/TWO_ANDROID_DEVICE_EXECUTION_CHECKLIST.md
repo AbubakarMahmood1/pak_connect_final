@@ -7,29 +7,41 @@ repository root in Windows PowerShell. Use only `PASS`, `FAIL`, `BLOCKED`, and
 
 The fixed code/test/tooling baseline is:
 
-- commit: `a5c2b0876f3e995c95b8c28937c49789367b2337`
-- short commit: `a5c2b08`
+- commit: `fcb3013215484d2e5b3c3b75f655d81c28209171`
+- short commit: `fcb3013`
 - branch used to prepare the baseline: `codex/reconcile-pakconnect`
+- local verification toolchain: Flutter 3.41.5 / Dart 3.11.3
+- analyzer: clean on 2026-07-13
+- full desktop suite: 5,539 passed, 0 failed, 4m56s
+- full-suite log: 9,200,096 bytes; SHA-256
+  `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4`
 - verified debug APK: `build/app/outputs/flutter-apk/app-debug.apk`
-- verified debug APK size: `203988860` bytes
+- verified debug APK size: `203988403` bytes
 - verified debug APK SHA-256:
-  `3B541A9C734977BF43E2621BFE300EB7CB316DFA391430722E6375DD6CF1F040`
+  `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`
 
 A documentation-only descendant is acceptable. Any changed build input is a
 hard stop until the new code has its own baseline and desktop verification.
+The previous `a5c2b08` baseline remains historical provenance only.
 
 ## Honest two-device boundary
 
 Two Android phones can close the permissions, directional discovery,
-collision, Noise XX/KK, direct messaging, queue/reconnect, lifecycle,
-fragmentation, strict-TDM bring-up, log/privacy, and SQLCipher rows.
+collision, Noise XX/KK, direct messaging, queue/reconnect,
+foreground/background/resume, fragmentation, strict-TDM bring-up,
+log/privacy, and the SQLCipher at-rest row. They cannot prove delivery while an
+app is killed or dozing. Controlled secure-storage fault injection remains
+`BLOCKED` without a reviewed safe hook.
 
 Two phones cannot prove either of these rows:
 
 - `Multi-link inventory/routing`: requires one device to hold at least two
   simultaneous peer links, so add a third device.
 - `Relay A -> B -> C`: requires three physical peers with A unable to reach C
-  directly.
+  directly. C must decode the signed encrypted v2 inner `ProtocolMessage`,
+  authenticate/decrypt and persist it before the routed ACK. A processing
+  failure must produce no ACK and no seen mark; a retry after completed final
+  delivery must resend the ACK without redelivering the message.
 
 Record those two rows as `BLOCKED: third Android device required`; do not infer
 a pass from unit tests or a single A/B link. The full strict-TDM architecture
@@ -42,8 +54,8 @@ is run.
 Open a PowerShell terminal at the repository root and run:
 
 ```powershell
-$Baseline = 'a5c2b08'
-$ExpectedBaseline = 'a5c2b0876f3e995c95b8c28937c49789367b2337'
+$Baseline = 'fcb3013'
+$ExpectedBaseline = 'fcb3013215484d2e5b3c3b75f655d81c28209171'
 $Package = 'com.pakconnect.app'
 
 $ResolvedBaseline = (git rev-parse $Baseline).Trim()
@@ -62,7 +74,7 @@ $BuildInputs = @(
 )
 git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
 if ($LASTEXITCODE -ne 0) {
-  throw 'Build inputs differ from a5c2b08. Create and verify a new baseline.'
+  throw "Build inputs differ from $Baseline. Create and verify a new baseline."
 }
 
 git status --short
@@ -172,7 +184,7 @@ $DebugHash = (Get-FileHash $DebugApk -Algorithm SHA256).Hash
 "debug_apk_sha256=$DebugHash" | Add-Content "$Evidence\session_metadata.txt"
 Copy-Item $DebugApk "$Evidence\pakconnect_${Baseline}_debug.apk"
 
-if ($DebugHash -ne '3B541A9C734977BF43E2621BFE300EB7CB316DFA391430722E6375DD6CF1F040') {
+if ($DebugHash -ne '40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92') {
   Write-Warning 'This is a rebuilt baseline APK, not the previously hashed APK; the new hash is recorded.'
 }
 
@@ -760,7 +772,7 @@ and evidence-session name into [DEVICE_VALIDATION_STATUS.md](DEVICE_VALIDATION_S
 | Unicode and pipe-heavy text |  | debug |  |  |  |
 | Large/binary media |  | debug |  |  |  |
 | Offline queue then reconnect |  | debug |  |  |  |
-| Background then resume |  | debug |  |  |  |
+| Foreground -> background -> resume |  | debug |  |  | No killed/dozing-delivery claim |
 | Route disappears mid-send |  | debug |  |  |  |
 | Manual reconnect |  | debug |  |  |  |
 | Multi-link inventory/routing | BLOCKED | needs 3 devices |  |  | Third device required |
