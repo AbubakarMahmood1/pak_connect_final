@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
@@ -43,6 +45,12 @@ class MeshRelayHandler {
   onRelayMessageReceived;
   Function(MessageId originalMessageId, String content, String originalSender)?
   onRelayMessageReceivedIds;
+  FutureOr<void> Function(
+    String originalMessageId,
+    String content,
+    String originalSender,
+  )?
+  onProcessRelayDelivery;
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   Function(ProtocolMessage message)? onSendAckMessage;
@@ -60,6 +68,12 @@ class MeshRelayHandler {
       String originalSender,
     )?
     onRelayMessageReceivedIds,
+    FutureOr<void> Function(
+      String originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onProcessRelayDelivery,
     Function(RelayDecision decision)? onRelayDecisionMade,
     Function(RelayStatistics stats)? onRelayStatsUpdated,
   }) async {
@@ -73,6 +87,7 @@ class MeshRelayHandler {
     if (onRelayMessageReceivedIds != null) {
       this.onRelayMessageReceivedIds = onRelayMessageReceivedIds;
     }
+    this.onProcessRelayDelivery = onProcessRelayDelivery;
     if (onRelayDecisionMade != null) {
       this.onRelayDecisionMade = onRelayDecisionMade;
     }
@@ -207,6 +222,22 @@ class MeshRelayHandler {
           );
           return null;
         case RelayProcessingType.dropped:
+          if (result.isDuplicate &&
+              relayMessage.relayMetadata.finalRecipient == _currentNodeId) {
+            _logger.info(
+              '🔀 MESH RELAY: Re-sending relayAck for duplicate final delivery',
+            );
+            await _sendRelayAck(
+              originalMessageId: relayMessage.originalMessageId,
+              relayMetadata: relayMessage.relayMetadata,
+              delivered: true,
+            );
+            return null;
+          }
+          _logger.warning(
+            '🔀 MESH RELAY: Message ${result.type.name}: ${result.reason}',
+          );
+          return null;
         case RelayProcessingType.blocked:
           _logger.warning(
             '🔀 MESH RELAY: Message ${result.type.name}: ${result.reason}',
@@ -402,13 +433,15 @@ class MeshRelayHandler {
 
       ackMessage.payload['ackRoutingPath'] = relayMetadata.ackRoutingPath;
 
-      if (onSendAckMessage != null) {
-        onSendAckMessage!(ackMessage);
+      final callback = onSendAckMessage;
+      if (callback != null) {
+        await callback(ackMessage);
       } else {
         _logger.warning('⚠️ Cannot send ACK - callback not set');
       }
-    } catch (e) {
+    } catch (e, stack) {
       _logger.severe('Failed to send relay ACK: $e');
+      Error.throwWithStackTrace(e, stack);
     }
   }
 
@@ -449,21 +482,47 @@ class MeshRelayHandler {
     }
   }
 
-  void _handleRelayDeliveryToSelf(
+  Future<void> _handleRelayDeliveryToSelf(
     String originalMessageId,
     String content,
     String originalSender,
-  ) {
+  ) async {
     try {
       _logger.info(
         '🔀 RELAY DELIVERY: Message delivered to self from ${_preview(originalSender, 8)}',
       );
 
+      final processor = onProcessRelayDelivery;
+      if (processor != null) {
+        await processor(originalMessageId, content, originalSender);
+      }
+
       final id = MessageId(originalMessageId);
-      onRelayMessageReceived?.call(originalMessageId, content, originalSender);
-      onRelayMessageReceivedIds?.call(id, content, originalSender);
+      try {
+        onRelayMessageReceived?.call(
+          originalMessageId,
+          content,
+          originalSender,
+        );
+      } catch (e, stack) {
+        _logger.warning(
+          'Relay delivery observer failed after successful processing: $e',
+          e,
+          stack,
+        );
+      }
+      try {
+        onRelayMessageReceivedIds?.call(id, content, originalSender);
+      } catch (e, stack) {
+        _logger.warning(
+          'Typed relay delivery observer failed after successful processing: $e',
+          e,
+          stack,
+        );
+      }
     } catch (e) {
       _logger.severe('Failed to handle relay delivery to self: $e');
+      rethrow;
     }
   }
 

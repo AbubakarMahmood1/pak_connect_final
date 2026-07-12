@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -31,7 +32,7 @@ class _MockQueue extends Mock implements OfflineMessageQueueContract {
 class _FakeMeshRelayEngine implements MeshRelayEngine {
   String? initializedNodeId;
   Function(MeshRelayMessage message, String nextHopNodeId)? relayCallback;
-  Function(String originalMessageId, String content, String originalSender)?
+  FutureOr<void> Function(String originalMessageId, String content, String originalSender)?
   deliverCallback;
   Function(RelayDecision decision)? decisionCallback;
   Function(RelayStatistics stats)? statsCallback;
@@ -63,7 +64,7 @@ class _FakeMeshRelayEngine implements MeshRelayEngine {
   Future<void> initialize({
     required String currentNodeId,
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
-    Function(String originalMessageId, String content, String originalSender)?
+    FutureOr<void> Function(String originalMessageId, String content, String originalSender)?
     onDeliverToSelf,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,
@@ -88,6 +89,14 @@ class _FakeMeshRelayEngine implements MeshRelayEngine {
     lastMessageType = messageType;
     if (incomingError != null) {
       throw incomingError!;
+    }
+    if (incomingResult.type == RelayProcessingType.deliveredToSelf &&
+        deliverCallback != null) {
+      await deliverCallback!(
+        relayMessage.originalMessageId,
+        incomingResult.content ?? '',
+        relayMessage.relayMetadata.originalSender,
+      );
     }
     return incomingResult;
   }
@@ -371,6 +380,87 @@ void main() {
       expect(ackMessage?.relayAckOriginalMessageId, 'relay-msg-1');
       expect(ackMessage?.relayAckDelivered, isTrue);
       expect(ackMessage?.payload['ackRoutingPath'], ['relay-node', 'origin-node']);
+    });
+
+    test('delivery processing failure suppresses relay ACK', () async {
+      ProtocolMessage? ackMessage;
+      handler.onSendAckMessage = (message) => ackMessage = message;
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+        onProcessRelayDelivery: (id, content, sender) async {
+          throw StateError('persistence failed');
+        },
+      );
+      engine.incomingResult = RelayProcessingResult.deliveredToSelf('delivered');
+
+      final content = await handler.handleIncomingRelay(
+        protocolMessage: _relayProtocolMessage(),
+        senderPublicKey: 'sender-key',
+      );
+
+      expect(content, isNull);
+      expect(ackMessage, isNull);
+    });
+
+    test('duplicate final delivery re-sends an awaited relay ACK', () async {
+      var ackAttempts = 0;
+      handler.onSendAckMessage = (message) async {
+        ackAttempts++;
+        if (ackAttempts == 1) {
+          throw StateError('transient send failure');
+        }
+      };
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'recipient-key',
+        messageQueue: queue,
+      );
+      engine.incomingResult = RelayProcessingResult.deliveredToSelf('delivered');
+
+      expect(
+        await handler.handleIncomingRelay(
+          protocolMessage: _relayProtocolMessage(),
+          senderPublicKey: 'sender-key',
+        ),
+        isNull,
+      );
+      expect(ackAttempts, 1);
+
+      engine.incomingResult = RelayProcessingResult.duplicate();
+      expect(
+        await handler.handleIncomingRelay(
+          protocolMessage: _relayProtocolMessage(),
+          senderPublicKey: 'sender-key',
+        ),
+        isNull,
+      );
+      expect(ackAttempts, 2);
+    });
+
+    test('observer failure after processing does not suppress relay ACK', () async {
+      ProtocolMessage? ackMessage;
+      handler.onSendAckMessage = (message) => ackMessage = message;
+      handler.onRelayMessageReceived = (_, _, _) {
+        throw StateError('observer failure');
+      };
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+        onProcessRelayDelivery: (_, _, _) async {},
+      );
+      engine.incomingResult = RelayProcessingResult.deliveredToSelf('delivered');
+
+      expect(
+        await handler.handleIncomingRelay(
+          protocolMessage: _relayProtocolMessage(),
+          senderPublicKey: 'sender-key',
+        ),
+        'delivered',
+      );
+      expect(ackMessage?.type, ProtocolMessageType.relayAck);
     });
 
     test('handleIncomingRelay preserves encrypted relay payloads', () async {

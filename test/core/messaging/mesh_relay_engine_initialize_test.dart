@@ -128,6 +128,34 @@ void main() {
  expect(deliveredContent, _relayPayload());
  });
 
+ test('awaits delivery before marking seen and allows retry after failure', () async {
+ var attempts = 0;
+ await engine.initialize(currentNodeId: 'my_node_id',
+ onDeliverToSelf: (id, content, sender) async {
+ attempts++;
+ if (attempts == 1) {
+ throw StateError('persistence failed');
+ }
+ },
+ );
+
+ final msg = _buildRelay(recipient: 'my_node_id', msgId: 'msg_retry');
+ final first = await engine.processIncomingRelay(relayMessage: msg,
+ fromNodeId: 'sender_1',
+ );
+
+ expect(first.type, RelayProcessingType.error);
+ expect(seenStore.hasDelivered(msg.originalMessageId), isFalse);
+
+ final second = await engine.processIncomingRelay(relayMessage: msg,
+ fromNodeId: 'sender_1',
+ );
+
+ expect(second.type, RelayProcessingType.deliveredToSelf);
+ expect(seenStore.hasDelivered(msg.originalMessageId), isTrue);
+ expect(attempts, 2);
+ });
+
  test('drops TTL exhausted messages (not for us)', () async {
  final metadata = RelayMetadata(ttl: 2,
  hopCount: 2,

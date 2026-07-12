@@ -62,7 +62,11 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
 
   // Callbacks for integration
   Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage;
-  Function(String originalMessageId, String content, String originalSender)?
+  FutureOr<void> Function(
+    String originalMessageId,
+    String content,
+    String originalSender,
+  )?
   onDeliverToSelf;
   Function(MessageId originalMessageId, String content, String originalSender)?
   onDeliverToSelfIds;
@@ -146,7 +150,11 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
     NetworkTopologyAnalyzer?
     topologyAnalyzer, // Phase 3: Added topology analyzer
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
-    Function(String originalMessageId, String content, String originalSender)?
+    FutureOr<void> Function(
+      String originalMessageId,
+      String content,
+      String originalSender,
+    )?
     onDeliverToSelf,
     Function(
       MessageId originalMessageId,
@@ -251,9 +259,7 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
         _logger.info(
           '⏭️  Duplicate message detected (already delivered): $truncatedMessageId...',
         );
-        return RelayProcessingResult.dropped(
-          'Message already delivered (duplicate)',
-        );
+        return RelayProcessingResult.duplicate();
       }
 
       // Step 0A: Check if relay is enabled (Phase 1: Role Awareness)
@@ -755,20 +761,23 @@ class MeshRelayEngine implements domain_messaging.MeshRelayEngine {
       _logger.info('Delivering message to self: $truncatedMessageId...');
 
       // Extract original content
-      final originalContent =
-          relayMessage.relayPayload ?? '';
+      final originalContent = relayMessage.relayPayload ?? '';
       final originalSender = relayMessage.relayMetadata.originalSender;
       final messageId = relayMessage.originalMessageIdValue;
 
       // Notify delivery
-      onDeliverToSelf?.call(
-        relayMessage.originalMessageId,
-        originalContent,
-        originalSender,
-      );
+      final deliveryCallback = onDeliverToSelf;
+      if (deliveryCallback != null) {
+        await deliveryCallback(
+          relayMessage.originalMessageId,
+          originalContent,
+          originalSender,
+        );
+      }
       onDeliverToSelfIds?.call(messageId, originalContent, originalSender);
     } catch (e) {
       _logger.severe('Failed to deliver message to self: $e');
+      rethrow;
     }
   }
 

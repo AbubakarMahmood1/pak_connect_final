@@ -117,12 +117,6 @@ class BLEMessagingService implements IBLEMessagingService {
        _getPeripheralMessageCharacteristic = getPeripheralMessageCharacteristic,
        _getPeripheralMtuReady = getPeripheralMtuReady,
        _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu {
-    // Relay messages from handler into internal listeners.
-    _messageHandler.onRelayMessageReceived =
-        (String originalMessageId, String content, String originalSender) {
-          _emitReceivedMessage(content);
-        };
-
     // Forward binary fragments hop-by-hop; reassembly happens only at recipient.
     _messageHandler.onForwardBinaryFragment =
         (

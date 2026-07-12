@@ -656,6 +656,8 @@ class QueueSyncStats {
 
 /// Result of relay processing
 class RelayProcessingResult {
+  static const duplicateReason = 'Message already delivered (duplicate)';
+
   final RelayProcessingType type;
   final String? content;
   final String? nextHopNodeId;
@@ -687,6 +689,13 @@ class RelayProcessingResult {
   factory RelayProcessingResult.dropped(String reason) =>
       RelayProcessingResult._(RelayProcessingType.dropped, null, null, reason);
 
+  factory RelayProcessingResult.duplicate() => RelayProcessingResult._(
+    RelayProcessingType.dropped,
+    null,
+    null,
+    duplicateReason,
+  );
+
   factory RelayProcessingResult.blocked(String reason) =>
       RelayProcessingResult._(RelayProcessingType.blocked, null, null, reason);
 
@@ -698,6 +707,8 @@ class RelayProcessingResult {
       type == RelayProcessingType.relayed;
   bool get isDelivered => type == RelayProcessingType.deliveredToSelf;
   bool get isRelayed => type == RelayProcessingType.relayed;
+  bool get isDuplicate =>
+      type == RelayProcessingType.dropped && reason == duplicateReason;
   bool get isBlocked =>
       type == RelayProcessingType.blocked ||
       type == RelayProcessingType.dropped;
