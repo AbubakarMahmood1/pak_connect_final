@@ -201,6 +201,7 @@ void main() {
         await tester.longPress(find.byType(MessageBubble));
         await tester.pumpAndSettle();
 
+        expect(tester.takeException(), isNull);
         expect(find.text('Copy Message'), findsOneWidget);
         expect(find.text('Delete Message'), findsOneWidget);
 
@@ -215,6 +216,7 @@ void main() {
         await tester.tap(find.text('Delete Message'));
         await tester.pumpAndSettle();
 
+        expect(tester.takeException(), isNull);
         expect(find.text('Delete Message?'), findsOneWidget);
         expect(find.text('Delete for everyone'), findsOneWidget);
 
@@ -228,7 +230,9 @@ void main() {
       },
     );
 
-    testWidgets('uses custom long press callback when provided', (tester) async {
+    testWidgets('uses custom long press callback when provided', (
+      tester,
+    ) async {
       var longPressCalls = 0;
       await _pumpBubble(
         tester,
