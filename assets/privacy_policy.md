@@ -37,7 +37,7 @@ nothing.
 
 ## Message encryption
 
-User-message payloads use the Noise Protocol Framework:
+Direct connected user-message payloads use the Noise Protocol Framework:
 
 - first-contact sessions use Noise XX;
 - paired reconnects can use Noise KK;
@@ -45,17 +45,21 @@ User-message payloads use the Noise Protocol Framework:
 - payload encryption uses ChaCha20-Poly1305;
 - sessions rekey after the configured time/message limits.
 
-Outbound user payloads are fail-closed when an established encryption session
-is unavailable. Public keys and rotating ephemeral identifiers are protocol
-identifiers and are necessarily exchanged; private keys are intended to remain
-on the originating device.
+For an offline relay recipient with known static key material, PakConnect can
+instead create a signed encrypted v2 `sealed_v1` inner payload that only the
+final recipient is expected to decrypt. Outbound user content fails closed
+when neither an established direct Noise lane nor the recipient-key sealed
+lane is available. Public keys and rotating ephemeral identifiers are protocol
+identifiers and are necessarily exchanged; private keys are intended to
+remain on the originating device.
 
 This payload-confidentiality statement does not cover every byte sent over
 BLE. Discovery advertisements, handshake/control frames, acknowledgements,
-and routing metadata have separate exposure. The current relay path does not
-enable sealed sender or stealth routing by default, so intermediate devices
-may observe routing aliases even though they cannot read an encrypted inner
-payload.
+and routing metadata have separate exposure. Content encryption through
+`sealed_v1` is not the same feature as sealed-sender metadata privacy. The
+current relay path does not enable sealed sender or stealth routing by default,
+so intermediate devices may observe routing aliases even though they cannot
+read an encrypted inner payload.
 
 ## Local database and exports
 
