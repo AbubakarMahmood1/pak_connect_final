@@ -29,8 +29,8 @@ Use only these labels:
 | Item | Status | Evidence/notes |
 |---|---|---|
 | `flutter analyze --no-pub` | PASS | Clean on 2026-07-13 with Flutter 3.41.5 / Dart 3.11.3 |
-| Desktop full unit/widget suite | PASS | 5,539 tests, 0 failures, 4m56s; 9,200,096-byte `flutter_test_latest.log`, SHA-256 `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,403 bytes; SHA-256 `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`; its exact code/build-input tree is committed as baseline `fcb3013` |
+| Desktop full unit/widget suite | PASS | 5,539 tests, 0 failures, 5m20s; 9,515,985-byte `flutter_test_latest.log`, SHA-256 `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE` |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,403 bytes; SHA-256 `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`; its exact code/build-input tree is committed as baseline `9cccd01` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -41,14 +41,16 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `fcb3013215484d2e5b3c3b75f655d81c28209171`
-(`fcb3013`). A documentation-only descendant is acceptable if
-`git diff fcb3013..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
+Code baseline for the next run: `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3`
+(`9cccd01`). A documentation-only descendant is acceptable if
+`git diff 9cccd01..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
 is empty. Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The previous verified baseline `a5c2b08` and its APK/test hashes remain
-historical provenance only. Do not use them for a new device run.
+The previous verified baseline `a5c2b08` and superseded candidate `fcb3013`
+remain historical provenance only. Flutter 3.44 analysis required an equivalent
+null-aware syntax cleanup after `fcb3013`; do not use either older commit for a
+new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
