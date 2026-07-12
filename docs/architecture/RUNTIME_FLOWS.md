@@ -115,8 +115,11 @@ failure signaling is typed and cannot collide with user data.
 
 ## Mesh relay
 
-1. Derive the deterministic message ID from timestamp, sender key and content.
-2. Consult `SeenMessageStore` within the five-minute duplicate window.
+1. Preserve the originating opaque message ID through queue and relay handling;
+   derive SHA-256 only as an inbound fallback when a legacy/incomplete frame has
+   no protocol message ID.
+2. Consult the persistent `SeenMessageStore`, whose completed-ID sets use a
+   10,000-entry oldest-first cap per seen type.
 3. Deliver locally before considering forwarding.
 4. Forward only encrypted relay payloads and enforce the hop cap.
 5. Persist/queue when a usable next hop is unavailable.

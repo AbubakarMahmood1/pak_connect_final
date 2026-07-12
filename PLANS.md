@@ -67,6 +67,111 @@ Before finishing a multi-step task:
 
 ---
 
+# Canonical publication + duplicate-clone retirement (Codex, 2026-07-13)
+
+## Goal
+
+Make `%USERPROFILE%\repos\pak_connect` the only PakConnect working clone,
+preserve the old compressed state without keeping a second editable checkout,
+reconcile remaining public claims and CI defects, and publish the reconciled
+history to `AbubakarMahmood/pak_connect` through a normal branch and pull
+request.
+
+## Constraints
+
+- Do not force-push or write directly to public `main`.
+- Preserve the verified BLE/Noise/identity/database invariants and keep
+  device-only claims explicitly gated.
+- Do not delete unique ignored evidence or nested reference repositories with
+  the duplicate working tree.
+- A code or bundled-asset change after `fcb3013` requires a new verified
+  device-test baseline and APK hash.
+- Fresh GitHub Actions on the exact PR head, not an older local run, is the
+  public CI authority.
+
+## Facts
+
+- GitHub redirects the old
+  `AbubakarMahmood1/pak_connect_final` URL to the current public
+  `AbubakarMahmood/pak_connect` repository; there is one remote project.
+- The compressed checkout is clean at `79b5c80`. Its five commits are
+  patch-equivalent to the canonical replay ending at `e70c7a8`; it has no
+  unique tracked semantics.
+- The canonical branch is a clean descendant of `origin/main`, seven commits
+  ahead and zero behind at the start of this pass.
+- Every compressed ref is preserved in a verified complete Git bundle. The
+  distinct historical test/analyzer/coverage evidence is archived separately
+  under `%USERPROFILE%\Documents\repo-archives\pak_connect-compressed-20260713`.
+  The complete bundle SHA-256 is
+  `ABF2B337E41DDDF2127A0EBEF2C92E263B53FAE9E431D7DC6A75D347BA297AD3`.
+- Three clean third-party reference clones were moved intact to
+  `%USERPROFILE%\repos\_references`.
+- Public `main` has a stale Flutter CI failure. The failure is a current-stable
+  Material/ListTile assertion in the message context-menu test; the workflow
+  also uses a moving Flutter channel, non-fatal analysis, and failure-skipped
+  artifact upload.
+- The public README, bundled privacy policy, SRS, security, architecture and
+  toolchain guidance now distinguish implemented behavior from device-gated,
+  deferred and historical claims.
+- The current build-input baseline is commit
+  `fcb3013215484d2e5b3c3b75f655d81c28209171`. On local Flutter 3.41.5 /
+  Dart 3.11.3, analysis passed, the uninterrupted suite passed 5,539 tests in
+  4m56s; the 9,200,096-byte test log has SHA-256
+  `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4`.
+  The debug APK built at 203,988,403 bytes with SHA-256
+  `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`.
+- CI hardening is committed separately as `b32438d`; fresh GitHub Actions on
+  the eventual PR head remain the public authority.
+
+## Approach
+
+1. Preserve the duplicate repository and ignored evidence before retirement.
+2. Fix the current-Flutter Material issue and align bundled privacy/toolchain
+   inputs, with targeted regressions.
+3. Reconcile remaining public claims and make CI reproducible/fail-closed.
+4. Run analyzer, reachability, focused tests, the full suite, and Android APK
+   build; record the resulting code commit as the new device baseline.
+5. Push the branch explicitly to `origin`, open a normal PR, inspect/fix its
+   GitHub Actions checks, and merge only after required checks are green.
+6. Remove stale compressed-remote tracking and retire the duplicate directory,
+   then leave the canonical local `main` synchronized to GitHub.
+
+## Verification
+
+- `git bundle verify` and SHA-256 for the compressed archive.
+- `flutter pub get`, `flutter analyze --no-pub`.
+- `pwsh -NoProfile -File tools/dart_reachability_audit.ps1 -FailOnUnreviewed`.
+- Targeted message-bubble/context-menu widget tests.
+- Full `flutter test --no-pub` with captured log.
+- `flutter build apk --debug --no-pub` and SHA-256.
+- `git diff --check`, Markdown link/absolute-path audit.
+- Fresh PR Flutter coverage and CodeQL checks on the exact head.
+- Final one-working-clone filesystem and remote/upstream audit.
+
+## Risks
+
+- Flutter 3.44 tightened Material assertions that the older local 3.41.5 run
+  did not expose.
+- The old directory contains reproducible SDK/build caches; retire only after
+  preserving non-reproducible refs/evidence and moving the clean reference
+  repositories.
+- Physical BLE, mobile SQLCipher-at-rest, background delivery, signed release,
+  multi-link payload and three-device relay evidence remain outside this
+  publication pass.
+
+## Status
+
+- **Complete:** two-repository authority audit and zero-loss archive/move of
+  unique useful state.
+- **Complete:** Flutter compatibility fix, authenticated final-relay delivery,
+  strict BLE/crypto/reachability gates, full-suite verification, and the new
+  `fcb3013` device-test baseline plus APK/log hashes.
+- **Complete:** final public-claim/status reconciliation and exact two-device
+  execution checklist.
+- **Pending:** branch push, fresh PR checks/merge, and duplicate-tree deletion.
+
+---
+
 # Canonical reconciliation + FYP readiness (Codex, 2026-07-11)
 
 ## Goal
@@ -177,8 +282,9 @@ a defensible FYP/portfolio readiness verdict.
 Local implementation and build evidence is green. Final FYP demo/release
 readiness is still unproven until the hardware rows in
 `docs/testing/DEVICE_VALIDATION_STATUS.md` pass. The objective remains active;
-the next work is device evidence against code baseline `a5c2b08`, not
-speculative feature expansion.
+the next work was device evidence against code baseline `a5c2b08`, not
+speculative feature expansion. This closeout is historical and was superseded
+by the 2026-07-13 plan and device-test baseline `fcb3013`.
 
 ---
 

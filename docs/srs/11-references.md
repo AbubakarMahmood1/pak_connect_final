@@ -138,7 +138,9 @@ This section lists all standards, specifications, documentation, and third-party
 
 **Description**: Defines SHA-256, SHA-384, SHA-512 hash functions.
 
-**Relevance**: SHA-256 used for message ID generation, key derivation (HKDF), and integrity verification.
+**Relevance**: SHA-256 is used for key derivation/integrity operations and for
+the legacy/incomplete inbound message-ID fallback; normal originating paths
+create one opaque ID whose concrete format is not a protocol invariant.
 
 **Implementation**: Used by `crypto` package (Dart dependency)
 
@@ -234,13 +236,13 @@ material, not an application passphrase.
 
 **Publisher**: Google LLC
 
-**Version**: 3.9+
+**Version**: 3.38.4+ (CI pinned to 3.44.4)
 
 **Year**: 2024
 
 **Description**: Official documentation for Flutter framework.
 
-**Relevance**: Application built using Flutter SDK 3.9.0+.
+**Relevance**: Application requires Flutter SDK 3.38.4+; CI is pinned to 3.44.4.
 
 **URL**: https://docs.flutter.dev/
 
@@ -255,13 +257,13 @@ material, not an application passphrase.
 
 **Publisher**: Google LLC
 
-**Version**: 3.9+
+**Version**: 3.10.3+
 
 **Year**: 2024
 
 **Description**: Official specification for Dart programming language.
 
-**Relevance**: Application implemented in Dart 3.9.0+.
+**Relevance**: Application declares Dart 3.10.3+.
 
 **URL**: https://dart.dev/guides/language/spec
 

@@ -1,13 +1,15 @@
 # Contributing to PakConnect
 
-PakConnect is a proprietary internal repository. External contributions are not accepted at this time. This guide is intended for authorized team members only.
+PakConnect is a publicly visible proprietary repository. External contributions
+are not accepted at this time. This guide is intended for authorized team
+members only.
 
 ---
 
 ## Development Environment Setup
 
-- Flutter 3.9 or higher
-- Dart 3.9 or higher
+- Flutter 3.38.4 or higher (CI is pinned to 3.44.4)
+- Dart 3.10.3 or higher
 - Android or iOS physical hardware for Bluetooth Low Energy (BLE) testing — emulators do not support BLE
 - Ensure `flutter doctor` reports no critical issues before beginning work
 
@@ -51,12 +53,13 @@ flutter test
 The `flutter_coverage.yml` workflow runs repository audit gates, a strict BLE
 singleton test, and the full VM-friendly suite with coverage. It uploads LCOV
 and test/analyzer logs, but it does not currently enforce a numeric coverage
-threshold. Static analysis is fatal for `release/**` branches and non-fatal on
-other branches. Physical-device tests under `integration_test/` are a separate
+threshold. Static analysis and the reachability review are fatal on every
+workflow run. Physical-device tests under `integration_test/` are a separate
 manual gate and are not run by CI.
 
-The separate weekly `codeql.yml` workflow analyzes Android Java/Kotlin and
-GitHub Actions definitions. It does not analyze Dart code.
+The separate `codeql.yml` workflow runs for pull requests targeting `main` and
+on its weekly schedule. It analyzes Android Java/Kotlin and GitHub Actions
+definitions; it does not analyze Dart code.
 
 If code is genuinely device-bound (for example, a platform-channel wrapper),
 document the limitation and the required device evidence in the pull request.

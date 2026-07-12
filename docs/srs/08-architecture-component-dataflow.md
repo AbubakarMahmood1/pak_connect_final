@@ -137,14 +137,14 @@ C4Component
 
         Component(ble_service, "BLE Service", "Communication", "Bluetooth orchestration")
         Component(repositories, "Repositories", "Data Access", "Database abstraction")
-        Component(database, "Database", "SQLite+SQLCipher", "Encrypted persistence")
+        Component(database, "Database", "SQLite+SQLCipher", "Mobile SQLCipher path; desktop/test plaintext fallback")
     }
 
     BiRel(ui, providers, "Reads state")
     Rel(providers, domain_services, "Uses")
     Rel(domain_services, mesh, "Uses")
     Rel(domain_services, repositories, "Reads/Writes")
-    Rel(mesh, noise, "Encrypts/Decrypts")
+    Rel(mesh, noise, "Carries recipient-encrypted inner payloads")
     Rel(mesh, ble_service, "Sends/Receives")
     Rel(ble_service, handshake, "Coordinates")
     Rel(repositories, database, "Queries")
@@ -192,7 +192,8 @@ C4Component
    - Examples: ContactRepository, MessageRepository
 
 8. **Database**
-   - Provides: Encrypted persistence
+   - Provides: Persistence; SQLCipher-backed on Android/iOS, with a plaintext
+     desktop/test fallback
    - Technology: SQLCipher-backed SQLite on Android/iOS; plaintext desktop/test fallback
    - Schema: v12, 18 ordinary tables plus one FTS5 virtual table
 
@@ -230,19 +231,19 @@ C4Component
 - Chat history
 
 **Remote Device → PakConnect (via BLE)**:
-- Encrypted message packets
+- Direct Noise-encrypted user payloads
 - Handshake messages (XX/KK patterns)
-- Relay messages
+- Relay envelopes with visible routing metadata and recipient-encrypted inner payloads
 - Queue sync requests
 
 **PakConnect → Remote Device (via BLE)**:
-- Encrypted message packets
+- Direct Noise-encrypted user payloads
 - Handshake responses
-- Relay forwarding
+- Relay forwarding with visible outer routing metadata
 - Queue sync responses
 
 **PakConnect ↔ Platform Services**:
-- Read/Write: Encrypted database (SQLCipher)
+- Read/Write: SQLCipher-backed mobile database; plaintext desktop/test fallback
 - Read/Write: Secure key storage
 - Read: Battery level
 - Read/Write: BLE adapter state
@@ -261,8 +262,8 @@ flowchart LR
     User -->|Messages, Actions| PakConnect
     PakConnect -->|Messages, Status, Notifications| User
 
-    RemoteDevice -->|BLE Encrypted Packets| PakConnect
-    PakConnect -->|BLE Encrypted Packets| RemoteDevice
+    RemoteDevice -->|BLE Protocol Packets| PakConnect
+    PakConnect -->|BLE Protocol Packets| RemoteDevice
 
     PakConnect <-->|DB, Keys, Battery, BLE| Platform
 ```
@@ -285,9 +286,10 @@ flowchart LR
 **Outputs**: Plaintext message (to User), Message record (to Database)
 **Sub-processes**:
 2.1. Reassemble fragments
-2.2. Decrypt with Noise session
-2.3. Check if relay required
-2.4. Save to database
+2.2. Parse the protocol envelope
+2.3. Check if the relay envelope targets this node
+2.4. If local, decrypt/authenticate the encrypted inner payload and save it; if
+     relay, pass the opaque inner payload to Process 3
 
 ### Process 3: Mesh Relay
 **Inputs**: Relay message (from Remote Device)
@@ -295,8 +297,8 @@ flowchart LR
 **Sub-processes**:
 3.1. Check duplicate (SeenMessageStore)
 3.2. Determine next hop (SmartMeshRouter)
-3.3. Re-encrypt for next hop
-3.4. Forward message
+3.3. Update visible relay metadata while preserving the encrypted inner payload
+3.4. Serialize/fragment the updated envelope and forward it over BLE
 
 ### Process 4: Handshake
 **Inputs**: Connection event (from Platform), Remote public key
@@ -357,7 +359,7 @@ flowchart TD
     P1 -->|Save| DB
 
     Remote -->|BLE Packet| P2
-    P2 -->|Decrypt| User
+    P2 -->|Final-recipient decrypt| User
     P2 -->|Save| DB
     P2 -.->|If relay| P3
 
@@ -389,12 +391,12 @@ flowchart TD
 ```mermaid
 graph TB
     subgraph "Presentation Layer"
-        Flutter[Flutter 3.9+]
+        Flutter[Flutter 3.38.4+]
         Riverpod[Riverpod 3.0]
     end
 
     subgraph "Business Logic"
-        Dart[Dart 3.9+]
+        Dart[Dart 3.10.3+]
     end
 
     subgraph "Security & Crypto"

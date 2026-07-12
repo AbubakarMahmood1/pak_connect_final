@@ -101,7 +101,7 @@ README slogan, define the currently allowed edges.
 | Resolve chat identity as `persistentPublicKey ?? publicKey` | contact/chat services and message routing |
 | Noise phases are sequential; no encryption before established | handshake coordinator/service, Noise session/security manager |
 | Noise nonces are sequential; rekey at 10k messages or one hour | Noise session and security/session management |
-| Mesh ID is deterministic; local delivery precedes forwarding; hop cap and five-minute dedup | relay coordinator/engine and seen-message store |
+| Mesh IDs remain stable and opaque; local delivery precedes forwarding; hop cap and persistent capped dedup | relay coordinator/engine and seen-message store |
 | BLE Phase 1 response is the ACK; Noise blocks Phase 2; Phase 0 negotiates MTU | lifecycle, handshake and connection services |
 | Foreign keys cascade; WAL stays enabled; schema changes use migrations | database factory/schema/migrations |
 

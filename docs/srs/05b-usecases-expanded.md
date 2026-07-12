@@ -2,6 +2,10 @@
 
 Detailed use case specifications with full template format.
 
+Numeric performance, frequency, and scale values in this document are design
+targets, not measured product evidence, unless a row cites the current
+readiness ledger.
+
 ---
 
 ## UC-1: Send Message
@@ -14,9 +18,10 @@ Detailed use case specifications with full template format.
 **Actor**: User (Primary), BLE System (Supporting)
 **Stakeholders**: User (wants reliable message delivery), Recipient (wants to receive messages)
 **Preconditions**:
-- User is logged into the app
+- User has initialized a local identity (PakConnect has no account login)
 - Contact exists in contact list
-- Noise session established with contact OR contact is offline (will queue)
+- A direct Noise session is established, or the offline recipient has the
+  static key material required for a signed encrypted relay payload
 - BLE adapter is available
 
 **Postconditions**:
@@ -28,7 +33,7 @@ Detailed use case specifications with full template format.
 2. User types message in text field
 3. User taps Send button
 4. System validates message (not empty)
-5. System generates message ID (timestamp + hash)
+5. System creates one opaque message ID and preserves it through queue/send
 6. System checks if recipient is connected
 7. System retrieves Noise session for recipient
 8. System encrypts message with ChaCha20-Poly1305
@@ -50,13 +55,14 @@ Detailed use case specifications with full template format.
 - 6a3. System calculates nextRetryAt with exponential backoff
 - 6a4. System displays "Queued for delivery" in UI
 - 6a5. Use case continues at step 14 (save to repository)
-- 6a6. Background process monitors for reconnection (see UC-3)
+- 6a6. The in-process lifecycle/retry scheduler monitors for reconnection while
+  the app is alive; killed/doze delivery is not currently guaranteed
 
-**7a. No Noise session exists**
-- 7a1. System initiates handshake (see UC-8)
-- 7a2. If handshake succeeds, continue at step 8
-- 7a3. If handshake fails, display error "Failed to establish secure connection"
-- 7a4. Use case ends in failure
+**7a. No direct Noise session exists**
+- 7a1. If the peer is connected, system initiates a handshake (see UC-8)
+- 7a2. If the peer is offline and has a known Noise static key, system creates
+  a signed encrypted `sealed_v1` inner payload for relay
+- 7a3. If neither secure path is available, fail closed without sending
 
 **8a. Encryption fails**
 - 8a1. Log error with details
@@ -75,8 +81,8 @@ Detailed use case specifications with full template format.
 - 12a3. Use case ends
 
 ### Special Requirements
-- **Performance**: Message encryption < 50ms
-- **Performance**: BLE transmission < 200ms per fragment
+- **Performance target (unverified on devices)**: Message encryption < 50ms
+- **Performance target (unverified on devices)**: BLE transmission < 200ms per fragment
 - **Security**: Must use established Noise session (no plaintext)
 - **Reliability**: Messages must persist in queue if offline
 - **Usability**: UI must show real-time status updates
@@ -91,9 +97,10 @@ Detailed use case specifications with full template format.
 **Expected**: 10-100 messages per day per user
 
 ### Open Issues
-- Delivery receipts not yet implemented (message status stops at "Sent")
-- Read receipts planned for future version
-- Typing indicators not implemented
+- Delivery/relay acknowledgements are implemented, but their reliability still
+  requires physical-device validation
+- Killed-process/doze delivery is not guaranteed
+- Typing indicators are not implemented
 
 ---
 
@@ -302,22 +309,24 @@ recipient-side group history, shared reply path, owner/admin rules, or group key
 1. System receives BLE characteristic notification
 2. System passes data to BLEMessageHandler
 3. System reassembles fragments (if fragmented)
-4. System decrypts using sender's Noise session
-5. System extracts MeshRelayMetadata from message
+4. System parses the reassembled `ProtocolMessage.meshRelay` envelope; the
+   encrypted inner payload remains opaque
+5. System extracts visible MeshRelayMetadata from the relay envelope
 6. System parses: originalMessageId, finalRecipient, originalSender, hopCount
 7. System checks if finalRecipient == current node's publicKey
 8. IF NOT for self, proceed to relay decision:
    9. System queries SeenMessageStore with messageId
    10. IF message not seen before:
       11. System marks message as seen (timestamp)
-      12. System checks hopCount < maxHops (5)
+      12. System checks hopCount < configured maxHops (default 3, cap 5)
       13. System queries SpamPreventionManager
       14. System calls SmartMeshRouter.determineOptimalRoute()
       15. System gets list of available next hops (connected devices)
       16. Router analyzes topology and connection quality
       17. Router returns optimal next hop
       18. System increments hopCount
-      19. System re-encrypts for next hop's Noise session
+      19. System carries the unchanged encrypted inner payload into the updated
+          relay envelope
       20. System sends to next hop via BLE
       21. System logs relay statistics
 9. IF for self:
@@ -360,8 +369,8 @@ recipient-side group history, shared reply path, owner/admin rules, or group key
 - 14a2. Keep message in buffer (may retry later)
 - 14a3. Use case ends
 
-**19a. Re-encryption fails**
-- 19a1. Log "Failed to encrypt for next hop"
+**19a. Encrypted inner payload is missing or the BLE send fails**
+- 19a1. Log the relay-send failure without payload or key material
 - 19a2. Drop message
 - 19a3. Use case ends
 
@@ -371,25 +380,30 @@ recipient-side group history, shared reply path, owner/admin rules, or group key
 - 20a3. Use case ends
 
 ### Special Requirements
-- **Performance**: Relay decision < 100ms
-- **Security**: Must verify MAC before relaying (prevent forgery)
-- **Reliability**: Duplicate detection window = 5 minutes
-- **Scalability**: Should handle network of 50-100 nodes
+- **Performance target (unverified on devices)**: Relay decision < 100ms
+- **Security**: The encrypted inner payload must remain opaque at relays; only
+  the final recipient decrypts/authenticates it
+- **Reliability**: Completed-delivery IDs persist in `SeenMessageStore`, capped
+  at 10,000 IDs per seen type with oldest-first eviction
+- **Scalability target (unverified)**: 50-100 nodes
 
 ### Technology & Data Variations
-**Duplicate Detection**: In-memory SeenMessageStore (5-minute TTL)
+**Duplicate Detection**: Persistent production `SeenMessageStore`; isolated
+tests may inject an in-memory implementation
 **Routing**: SmartMeshRouter with topology analysis
-**Hop Limit**: Configurable (default 5)
+**Hop Limit**: Configurable (default 3, hard cap 5)
 **Storage**: Relay statistics logged, but messages not stored unless for self
 
 ### Frequency of Use
 **Expected**: 0-50 relay decisions per hour (depending on network activity)
 
 ### Open Issues
-- Route caching not implemented (recalculate every message)
-- Mesh network size estimation inaccurate
-- No mechanism to report delivery confirmation back to originator
-- SeenMessageStore not persisted (lost on app restart)
+- Route caching is not implemented (recalculate every message)
+- Mesh network-size estimation is approximate
+- Routed delivery acknowledgements are implemented, including duplicate retry,
+  but three-device reliability remains unverified
+- Production composition injects the persistent `SeenMessageStore`; fallback
+  in-memory stores remain for isolated/test composition
 
 ---
 

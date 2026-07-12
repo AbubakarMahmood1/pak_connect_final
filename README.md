@@ -1,7 +1,7 @@
 # PakConnect
 
-[![Flutter](https://img.shields.io/badge/Flutter-3.9%2B-02569B?logo=flutter)](https://flutter.dev)
-[![Dart](https://img.shields.io/badge/Dart-3.9%2B-0175C2?logo=dart)](https://dart.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.38.4-02569B?logo=flutter)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-%3E%3D3.10.3-0175C2?logo=dart)](https://dart.dev)
 [![Riverpod](https://img.shields.io/badge/State-Riverpod_3.0-6E56CF)](https://riverpod.dev)
 [![Security](https://img.shields.io/badge/Security-Noise_XX%2FKK-2E7D32)](https://noiseprotocol.org)
 [![Storage](https://img.shields.io/badge/Storage-SQLCipher-1565C0)](https://www.zetetic.net/sqlcipher/)
@@ -13,17 +13,21 @@ Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environment
 
 ## Highlights
 
-- End-to-end encrypted messaging using Noise XX/KK, X25519, and ChaCha20-Poly1305.
+- Direct/session messaging uses Noise XX/KK, X25519, and
+  ChaCha20-Poly1305; offline relay uses a signed encrypted v2 `sealed_v1`
+  inner payload when recipient static key material is available.
 - Dual-role BLE runtime operating as central and peripheral simultaneously.
 - Offline-first delivery with queue sync, retry orchestration, and relay-aware routing.
-- Mesh relay with multi-hop message forwarding and store-and-forward for offline recipients.
+- Mesh relay code supports multi-hop forwarding and store-and-forward for
+  offline recipients; automated regressions cover the logic, while physical
+  `A -> B -> C` evidence still requires three Android devices.
 - Stealth-addressing, sealed-sender, and Hashcash policy primitives are present,
   but are not enabled as production relay guarantees yet.
-- Broadcast mode for small networks of up to 30 peers.
 - Rich messaging: text, binary payloads, archive/search, sender-local broadcast
   lists, and topology views. Broadcast recipients receive ordinary direct
   messages; PakConnect does not currently implement a shared group protocol.
-- Export/import with HMAC-SHA256 authenticated v2 bundles containing an embedded encrypted database.
+- Export/import with AES-256-GCM encrypted, HMAC-SHA256 authenticated v2.1
+  bundles containing encrypted metadata, keys, preferences, and database bytes.
 - Custom `ServiceRegistry` + `AppRuntimeServicesRegistry` for dependency injection with no GetIt dependency.
 - CI analysis/test workflows with coverage artifact generation; a numeric
   coverage threshold is not currently enforced.
@@ -36,6 +40,10 @@ PakConnect is in active hardening and release-preparation. Core transport,
 persistence, archive/search, and advanced UI flows are implemented. The
 VM-friendly test suite has a current clean local baseline; device transport,
 mobile SQLCipher, and release-build evidence remain explicit validation gates.
+The current device-test code/build baseline is `fcb3013`: 5,539 local tests
+passed in 4m56s and its 203,988,403-byte debug Android APK was built and hashed.
+Exact commands and artifact hashes are recorded in
+[`docs/testing/DEVICE_VALIDATION_STATUS.md`](docs/testing/DEVICE_VALIDATION_STATUS.md).
 
 ---
 
@@ -64,7 +72,7 @@ graph TD
 
     subgraph Data["Data"]
         REPO["Repositories"]
-        DB["SQLCipher / flutter_secure_storage"]
+        DB["Mobile SQLCipher path / desktop-test SQLite fallback"]
         BLEF["BLE Facades & Data Services"]
     end
 
@@ -84,7 +92,6 @@ graph TD
     REPO --> IF
     REPO --> DB
     BLEF --> RELAY
-    RELAY --> NOISE
     RELAY --> QUEUE
     DB --> MON
     QUEUE --> MON
@@ -94,7 +101,7 @@ graph TD
 
 | Layer | Libraries |
 |---|---|
-| Framework | Flutter 3.9+ / Dart 3.9+ |
+| Framework | Flutter >=3.38.4 / Dart >=3.10.3 (CI: Flutter 3.44.4) |
 | State | Riverpod 3.0 |
 | BLE | `bluetooth_low_energy` |
 | Persistence | `sqflite_sqlcipher`, `flutter_secure_storage` |
@@ -106,12 +113,15 @@ graph TD
 
 ### Noise XX/KK Protocol
 
-End-to-end user payload encryption uses the
+Direct connected user-payload encryption uses the
 [Noise Protocol Framework](https://noiseprotocol.org). XX is used for initial
 mutual authentication with no prior key knowledge; KK is used for subsequent
 sessions where both static keys are already known. Key agreement is X25519;
 transport encryption is ChaCha20-Poly1305. Protocol control metadata must be
 assessed separately and is not covered by this payload-confidentiality claim.
+Offline relay delivery uses a separately signed, recipient-key encrypted
+`sealed_v1` inner `ProtocolMessage`; this content lane does not provide
+sealed-sender metadata anonymity.
 
 ### Relay Metadata Privacy Primitives
 
@@ -128,7 +138,12 @@ proof-of-work is not enforced on live outgoing or incoming relay traffic.
 
 ### Export/Import Security
 
-Data exports are packaged as HMAC-SHA256 authenticated v2 bundles. The bundle embeds an encrypted copy of the database. Import validates the authentication tag before any data is read or written.
+Export v2.1 derives a key from the user passphrase with PBKDF2, AES-256-GCM
+encrypts metadata, keys, preferences, and the database bytes, then authenticates
+the encrypted fields and restore metadata with HMAC-SHA256. Import validates the
+bundle version and authentication tag before writing data. The source database
+bytes have independent SQLCipher protection only when exported from the
+Android/iOS SQLCipher path.
 
 ### Fail-Closed Encryption
 
@@ -136,7 +151,9 @@ On Android/iOS, database initialization requires the random SQLCipher credential
 held in platform secure storage and fails closed if it cannot be obtained.
 Desktop/test execution may use plaintext SQLite and is not mobile-encryption
 evidence. New outbound encrypted transport rejects removed legacy modes;
-`SimpleCrypto` compatibility naming does not enable a legacy decrypt lane.
+offline relay also fails closed unless it can build the signed recipient-key
+`sealed_v1` lane. `SimpleCrypto` compatibility naming does not enable a legacy
+decrypt lane.
 
 ---
 
@@ -160,8 +177,8 @@ docs/             security, testing, refactoring, and SRS material
 
 ### Prerequisites
 
-- Flutter SDK 3.9+
-- Dart SDK 3.9+ (bundled with Flutter)
+- Flutter SDK 3.38.4 or newer (CI is pinned to 3.44.4)
+- Dart SDK 3.10.3 or newer (bundled with Flutter)
 - Android or iOS hardware for BLE validation (emulators do not support BLE)
 - Android Studio or VS Code with the Flutter plugin
 
@@ -204,10 +221,11 @@ Integration tests require a physical device:
 flutter test integration_test/ -d <android-or-ios-device-id>
 ```
 
-The GitHub Actions test workflow runs `flutter test --coverage` and uploads the
-LCOV file and logs. It does not run `integration_test/`, and it does not enforce
-a numeric coverage threshold. Analyzer failures are fatal on `release/**`
-branches; the regular-branch analyzer step is currently non-fatal.
+The GitHub Actions test workflow pins Flutter 3.44.4, treats analyzer and
+reachability failures as fatal, runs `flutter test --coverage`, and uploads
+LCOV/log artifacts even after a failure. It does not run `integration_test/`
+and does not enforce a numeric coverage threshold. CodeQL runs on pull requests
+to `main` and on the weekly schedule.
 
 ---
 
@@ -216,7 +234,7 @@ branches; the regular-branch analyzer step is currently non-fatal.
 | Document | Description |
 |---|---|
 | [Threat Model](ThreatModel.md) | Attacker model, trust boundaries, and mitigations |
-| [Security Guarantees](docs/security/security_guarantees.md) | Implemented cryptographic and operational guarantees |
+| [Security Boundaries](docs/security/security_guarantees.md) | Implemented code boundaries, automated evidence, and device-gated limits |
 | [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md) | ServiceRegistry migration and DI consolidation plan |
 | [Testing Strategy](TESTING_STRATEGY.md) | Test philosophy, coverage policy, and CI integration |
 | [Testing Quick Start](docs/testing/QUICK_START_TESTING.md) | How to run tests locally and interpret results |
@@ -239,7 +257,8 @@ branches; the regular-branch analyzer step is currently non-fatal.
 
 ## Contribution Expectations
 
-This is a proprietary internal repository.
+This is a publicly visible proprietary repository. External contributions are
+not accepted at this time.
 
 - Keep architecture layer boundaries intact. Domain code stays independent of
   core/data/presentation; core may consume domain contracts but not data or

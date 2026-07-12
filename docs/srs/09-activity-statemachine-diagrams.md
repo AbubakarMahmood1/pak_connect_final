@@ -117,9 +117,9 @@ flowchart TD
 
 **Start**: Receive BLE packet
 
-1. **Decrypt Message**
-   - Get Noise session for sender
-   - Decrypt with ChaCha20-Poly1305
+1. **Parse Relay Envelope**
+   - Reassemble and decode the `ProtocolMessage.meshRelay` frame
+   - Leave the encrypted inner payload opaque
 
 2. **Parse Relay Metadata**
    - Extract hopCount, finalRecipient, originalSender
@@ -131,7 +131,8 @@ flowchart TD
 
 **Path A: Deliver to Self**
 
-4A. **Save to Repository**
+4A. **Decrypt and Save to Repository**
+   - Decrypt/authenticate the encrypted inner payload as final recipient
    - Insert into messages table
    - Set isFromMe = false
 
@@ -148,7 +149,7 @@ flowchart TD
    - No → Continue
 
 5B. **Check Hop Limit**
-   - Decision: hopCount < maxHops (5)?
+   - Decision: hopCount < configured maxHops (default 3, cap 5)?
    - Yes → Continue
    - No → Drop message
 
@@ -163,9 +164,9 @@ flowchart TD
    - Use topology analysis
    - Use connection quality scores
 
-8B. **Re-encrypt**
-   - Get Noise session for next hop
-   - Encrypt message
+8B. **Prepare Forward**
+   - Preserve the encrypted inner payload unchanged
+   - Update visible relay metadata
 
 9B. **Forward Message**
    - Increment hopCount
@@ -182,12 +183,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     Start([Receive BLE Packet])
-    Decrypt[Decrypt Message]
+    Decrypt[Parse Relay Envelope]
     Parse[Parse Relay Metadata]
     CheckSelf{For me?}
 
     subgraph Delivery Path
-        SaveRepo[Save to Repository]
+        SaveRepo[Decrypt Inner Payload and Save]
         NotifyUser[Show Notification]
     end
 
@@ -196,7 +197,7 @@ flowchart TD
         CheckHop{Hop < 5?}
         CheckSpam{Spam check pass?}
         Route[Determine Next Hop]
-        Reencrypt[Re-encrypt for next hop]
+        Reencrypt[Prepare Opaque Payload Forward]
         Forward[Forward via BLE]
         LogRelay[Log Relay Stats]
     end

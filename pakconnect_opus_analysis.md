@@ -1,5 +1,16 @@
 # PakConnect Deep Codebase Review
 
+> **Historical review — not current repository authority.** This snapshot was
+> preserved in commit `e70c7a8` from an earlier static review. It contains
+> conclusions and portfolio opinions that were not all runtime- or
+> device-verified and are now partly stale. In particular, do not use it as
+> evidence that proof-of-work is production-enabled, metadata is unlinkable,
+> SQLCipher has physical-device proof, exports/groups are absent, or the crypto
+> implementation has received an independent audit. Current authority is
+> [README.md](README.md),
+> [READINESS_AUDIT.md](docs/status/READINESS_AUDIT.md), and
+> [DEVICE_VALIDATION_STATUS.md](docs/testing/DEVICE_VALIDATION_STATUS.md).
+
 **Reviewer context**: 462 Dart files, ~125,712 lines. Solo developer (Abubakar Mahmood, BSSE FAST Faisalabad). FYP-origin project. Flutter BLE mesh messenger with Noise Protocol encryption.
 
 ---
@@ -31,7 +42,7 @@ The **UI screens** (`home_screen.dart` at 925 lines, `chat_screen.dart` at 783 l
 The scope is **too large for a solo FYP**. The feature list reads like a product roadmap:
 
 - Offline BLE mesh routing (real)
-- Noise Protocol KK + XX handshakes (real)  
+- Noise Protocol KK + XX handshakes (real)
 - Stealth addressing (real but untested in production mesh scenarios)
 - Sealed sender (real cryptographic implementation)
 - PoW spam prevention (real)
@@ -124,7 +135,7 @@ The `CipherState` (lines 4701–4980) correctly:
 The scheme is **cryptographically sound** and well-documented:
 
 1. Sender generates ephemeral X25519 keypair `(r, R)`
-2. Shared secret via `X25519(r, recipientScanKey)` 
+2. Shared secret via `X25519(r, recipientScanKey)`
 3. View tag: first byte of `HMAC-SHA256(sharedSecret, "pakconnect/stealth/view")` — fast 99.6% reject filter
 4. Stealth address: `HMAC-SHA256(sharedSecret, "pakconnect/stealth/addr")` — 256-bit full match
 5. Constant-time comparison for the full stealth address (line 5255–5261)

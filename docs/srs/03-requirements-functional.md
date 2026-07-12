@@ -65,7 +65,7 @@ membership state, so this is not a synchronized group conversation.
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-2.1.1 | Relay messages through intermediate nodes | `MeshRelayEngine.processIncomingMessage()` |
-| FR-2.1.2 | Detect and prevent duplicate relays | `SeenMessageStore` with 5-minute window |
+| FR-2.1.2 | Detect and prevent duplicate completed delivery | Persistent `SeenMessageStore`, capped at 10,000 IDs per seen type with oldest-first eviction |
 | FR-2.1.3 | Limit relay hops (max 5) | `MeshRelayMetadata.hopCount`, `maxHops` check |
 | FR-2.1.4 | Route optimization via topology analysis | `SmartMeshRouter.determineOptimalRoute()` |
 | FR-2.1.5 | Flood prevention | `SpamPreventionManager.shouldRelay()` |
@@ -92,7 +92,7 @@ membership state, so this is not a synchronized group conversation.
 | FR-2.3.2 | Compare queue hashes | `OfflineMessageQueue.calculateQueueHash()` |
 | FR-2.3.3 | Exchange missing messages | `QueueSyncManager.exchangeMessages()` |
 | FR-2.3.4 | Track deleted message IDs | `deleted_message_ids` SQL table |
-| FR-2.3.5 | Prevent duplicate delivery after sync | Hash-based deduplication |
+| FR-2.3.5 | Prevent duplicate delivery after sync | Stable protocol-ID tracking and queue merge guards; queue hashes compare inventory state |
 
 ## FR-3: Security & Cryptography
 
@@ -203,27 +203,27 @@ membership state, so this is not a synchronized group conversation.
 
 ### FR-6.1: Archive Operations
 **Priority**: Medium
-**Status**: Implemented
+**Status**: Partial
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-6.1.1 | Archive chat with messages | `ArchiveManagementService.archiveChat()` |
 | FR-6.1.2 | Restore archived chat | `ArchiveManagementService.restoreChat()` |
 | FR-6.1.3 | Full-text search archived messages | `ArchiveSearchService` with FTS5 |
-| FR-6.1.4 | Auto-archive by policy | `ArchivePolicy` (age-based, size-based) |
-| FR-6.1.5 | Archive compression | `archived_chats.is_compressed` flag |
+| FR-6.1.4 | Auto-archive by policy | Policy/configuration and in-process scheduling exist; policy application is still a no-op placeholder |
+| FR-6.1.5 | Archive compression | Schema flag only; compression work is not implemented |
 
 ### FR-6.2: Archive Maintenance
 **Priority**: Low
-**Status**: Implemented
+**Status**: Partial
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-6.2.1 | Scheduled maintenance tasks | `AutoArchiveScheduler.start()` |
-| FR-6.2.2 | Archive integrity checks | `ArchiveManagementService.performMaintenance()` |
-| FR-6.2.3 | Storage capacity monitoring | Archive analytics |
-| FR-6.2.4 | Archive policies configuration | `ArchivePolicy` management |
-| FR-6.2.5 | Archive analytics | `ArchiveManagementService.getArchiveAnalytics()` |
+| FR-6.2.1 | Scheduled maintenance tasks | In-process timers invoke maintenance, but task bodies currently report zero work |
+| FR-6.2.2 | Archive integrity checks | Maintenance surface exists; cleanup/rebuild/compress/expiry task bodies are placeholders |
+| FR-6.2.3 | Storage capacity monitoring | Repository statistics are compared with the configured byte cap |
+| FR-6.2.4 | Archive policies configuration | Configuration persists; policy evaluation/application is not implemented |
+| FR-6.2.5 | Archive analytics | `ArchiveManagementService.getArchiveAnalytics()` is implemented; policy metrics remain empty |
 
 ## FR-7: BLE Communication
 
@@ -237,7 +237,7 @@ membership state, so this is not a synchronized group conversation.
 | FR-7.1.2 | Peripheral mode advertising | `PeripheralInitializer.startAdvertising()` |
 | FR-7.1.3 | Simultaneous central/peripheral | Dual-mode architecture |
 | FR-7.1.4 | MTU negotiation | `BLEConnectionManager.negotiateMTU()` |
-| FR-7.1.5 | Connection management | `BLEConnectionManager` (up to 7 connections) |
+| FR-7.1.5 | Connection management | Configurable limits exist, but the current payload policy is single-link; multi-link capacity remains device-unverified |
 
 ### FR-7.2: Handshake Protocol
 **Priority**: Critical
@@ -297,7 +297,7 @@ membership state, so this is not a synchronized group conversation.
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-9.1.1 | SQLite storage with SQLCipher encryption | `DatabaseHelper` with encryption |
+| FR-9.1.1 | SQLCipher-backed SQLite on Android/iOS | Implemented mobile path; desktop/test may use plaintext SQLite; device at-rest proof pending |
 | FR-9.1.2 | WAL mode for concurrency | `PRAGMA journal_mode = WAL` |
 | FR-9.1.3 | Foreign key constraints | `PRAGMA foreign_keys = ON` |
 | FR-9.1.4 | Database migrations | `DatabaseMigrationRunner` (v1-v12) |
