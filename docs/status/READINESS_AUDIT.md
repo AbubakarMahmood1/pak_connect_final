@@ -19,10 +19,12 @@ radio behavior, mobile SQLCipher bytes at rest, OS background behavior,
 release signing and installation still require external evidence.
 
 The exact verified code/build-input tree is committed as
-`fcb3013215484d2e5b3c3b75f655d81c28209171` (`fcb3013`) on
+`9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`) on
 `codex/reconcile-pakconnect`. A documentation-only descendant is acceptable
 only when its build-input diff from that commit is empty. The former
-`a5c2b08` baseline remains historical provenance.
+`a5c2b08` baseline remains historical provenance. Candidate `fcb3013` is also
+historical because Flutter 3.44 analysis required an equivalent null-aware
+syntax cleanup now included in `9cccd01`.
 
 ## Objective evidence matrix
 
@@ -52,13 +54,13 @@ only when its build-input diff from that commit is empty. The former
 - Focused promotion suites: 273 change-log/reveal/runtime tests; 52
   broadcast-list tests; 38 fragment/model regressions; 36 app widget/smoke
   regressions, all green.
-- Full `flutter test --no-pub`: 5,539 passed, zero failed, 4m56s. Complete
-  terminal output is saved in the 9,200,096-byte
+- Full `flutter test --no-pub`: 5,539 passed, zero failed, 5m20s. Complete
+  terminal output is saved in the 9,515,985-byte
   `flutter_test_latest.log` (SHA-256
-  `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4`).
+  `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE`).
 - Debug APK:
   `build/app/outputs/flutter-apk/app-debug.apk`, 203,988,403 bytes, SHA-256
-  `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`.
+  `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`.
 - Final relay regression evidence proves that the signed encrypted v2 inner
   `ProtocolMessage` is decoded, authenticated/decrypted and persisted before
   the routed ACK. Processing failure emits no ACK and does not mark the message
@@ -88,7 +90,7 @@ not SQLCipher-at-rest evidence.
    membership, transcript, replies, admin rules or a group key.
 8. Change-log peer replay and relay privacy/PoW primitives remain dormant and
    must not appear as shipped guarantees.
-9. Hardware evidence must cite `fcb3013` (or a documentation-only descendant
+9. Hardware evidence must cite `9cccd01` (or a documentation-only descendant
    with an empty build-input diff) plus the APK hash. `a5c2b08` is historical
    evidence only.
 
@@ -97,7 +99,7 @@ not SQLCipher-at-rest evidence.
 Do not expand the architecture before the current hardware facts exist. The
 recommended next sequence is:
 
-1. Build/install code baseline `fcb3013` on two Android phones, execute
+1. Build/install code baseline `9cccd01` on two Android phones, execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`, and update every
    observed row in `docs/testing/DEVICE_VALIDATION_STATUS.md`, saving redacted
    logs by device/build/commit.

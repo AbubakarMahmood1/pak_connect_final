@@ -84,7 +84,7 @@ request.
   device-only claims explicitly gated.
 - Do not delete unique ignored evidence or nested reference repositories with
   the duplicate working tree.
-- A code or bundled-asset change after `fcb3013` requires a new verified
+- A code or bundled-asset change after `9cccd01` requires a new verified
   device-test baseline and APK hash.
 - Fresh GitHub Actions on the exact PR head, not an older local run, is the
   public CI authority.
@@ -114,12 +114,17 @@ request.
   toolchain guidance now distinguish implemented behavior from device-gated,
   deferred and historical claims.
 - The current build-input baseline is commit
-  `fcb3013215484d2e5b3c3b75f655d81c28209171`. On local Flutter 3.41.5 /
+  `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3`. On local Flutter 3.41.5 /
   Dart 3.11.3, analysis passed, the uninterrupted suite passed 5,539 tests in
-  4m56s; the 9,200,096-byte test log has SHA-256
-  `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4`.
+  5m20s; the 9,515,985-byte test log has SHA-256
+  `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE`.
   The debug APK built at 203,988,403 bytes with SHA-256
-  `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92`.
+  `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`.
+- The first Flutter 3.44 CI run exposed four `use_null_aware_elements`
+  analyzer infos that local Flutter 3.41.5 did not report. Commit `9cccd01`
+  applies the equivalent null-aware collection-element fixes; the prior
+  `fcb3013` build is superseded as a candidate baseline. Fresh exact-head CI
+  remains pending.
 - CI hardening is committed separately as `b32438d`; fresh GitHub Actions on
   the eventual PR head remain the public authority.
 
@@ -165,10 +170,11 @@ request.
   unique useful state.
 - **Complete:** Flutter compatibility fix, authenticated final-relay delivery,
   strict BLE/crypto/reachability gates, full-suite verification, and the new
-  `fcb3013` device-test baseline plus APK/log hashes.
+  `9cccd01` device-test baseline plus APK/log hashes.
 - **Complete:** final public-claim/status reconciliation and exact two-device
   execution checklist.
-- **Pending:** branch push, fresh PR checks/merge, and duplicate-tree deletion.
+- **Pending:** fresh PR checks rerun on `9cccd01`, merge, and duplicate-tree
+  deletion.
 
 ---
 
@@ -284,7 +290,7 @@ readiness is still unproven until the hardware rows in
 `docs/testing/DEVICE_VALIDATION_STATUS.md` pass. The objective remains active;
 the next work was device evidence against code baseline `a5c2b08`, not
 speculative feature expansion. This closeout is historical and was superseded
-by the 2026-07-13 plan and device-test baseline `fcb3013`.
+by the 2026-07-13 plan and device-test baseline `9cccd01`.
 
 ---
 

@@ -114,7 +114,7 @@ or higher.
 artifact for the intended build mode and a documented data-retention target.
 
 **Current evidence**:
-- The verified debug APK for baseline `fcb3013` is 203,988,403 bytes; installed
+- The verified debug APK for baseline `9cccd01` is 203,988,403 bytes; installed
   size can be larger.
 - A 20-30 MB release binary is only a future optimization target until a
   signed release artifact is measured.

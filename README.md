@@ -40,8 +40,8 @@ PakConnect is in active hardening and release-preparation. Core transport,
 persistence, archive/search, and advanced UI flows are implemented. The
 VM-friendly test suite has a current clean local baseline; device transport,
 mobile SQLCipher, and release-build evidence remain explicit validation gates.
-The current device-test code/build baseline is `fcb3013`: 5,539 local tests
-passed in 4m56s and its 203,988,403-byte debug Android APK was built and hashed.
+The current device-test code/build baseline is `9cccd01`: 5,539 local tests
+passed in 5m20s and its 203,988,403-byte debug Android APK was built and hashed.
 Exact commands and artifact hashes are recorded in
 [`docs/testing/DEVICE_VALIDATION_STATUS.md`](docs/testing/DEVICE_VALIDATION_STATUS.md).
 

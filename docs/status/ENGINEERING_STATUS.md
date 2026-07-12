@@ -19,12 +19,14 @@ not yet a signed or hardware-validated release.
 - The compressed working copy was checkpointed before reconciliation.
 - Active reconciliation branch: `codex/reconcile-pakconnect`.
 - Verified code/build-input device-test baseline:
-  `fcb3013215484d2e5b3c3b75f655d81c28209171` (`fcb3013`). A
+  `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`). A
   documentation-only descendant is acceptable only when its build-input diff
   from this commit is empty.
 - The former baseline `a5c2b08` (`fix: harden runtime and prune unreachable
   code`) and its test/APK hashes remain historical provenance, not the baseline
   for the next device run.
+- Candidate `fcb3013` is also historical: Flutter 3.44 analysis required an
+  equivalent null-aware syntax cleanup, which is included in `9cccd01`.
 - The reconciled history contains the mainline plus the preserved runtime,
   guidance, two-device-prep and Fable audit commits.
 - Do not use the compressed copy for new work; it is recovery evidence only.
@@ -49,8 +51,8 @@ not yet a signed or hardware-validated release.
 | Change-log/friend-reveal promotion suite | 273 tests | Green |
 | Broadcast-list service/provider/UI suite | 52 tests | Green |
 | Full-run failure regressions | 38 model/fragment tests + 36 app widget/smoke tests | Green |
-| Current full desktop suite | 5,539 tests, 0 failures, 4m56s; 9,200,096-byte `flutter_test_latest.log`, SHA-256 `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4` | Green |
-| Android debug APK | 203,988,403 bytes; SHA-256 `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92` | Green build |
+| Current full desktop suite | 5,539 tests, 0 failures, 5m20s; 9,515,985-byte `flutter_test_latest.log`, SHA-256 `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE` | Green |
+| Android debug APK | 203,988,403 bytes; SHA-256 `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50` | Green build |
 | Android device matrix | No phone attached | Device-gated |
 | SQLCipher at-rest proof | Desktop loader falls back to plaintext | Device-gated |
 
@@ -126,7 +128,7 @@ mistaken for production encryption evidence.
 
 ## Immediate sequence
 
-1. Use code baseline `fcb3013` (or its documentation-only descendant) as the
+1. Use code baseline `9cccd01` (or its documentation-only descendant) as the
    device-evidence ID.
 2. Install its debug APK and execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` when two phones are
