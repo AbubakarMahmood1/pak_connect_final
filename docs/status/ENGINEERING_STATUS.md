@@ -1,14 +1,15 @@
 # PakConnect engineering status
 
-Last updated: 2026-07-11
+Last updated: 2026-07-13
 
 ## Current verdict
 
 The canonical source is reconciled, statically clean, green across the full
 desktop suite, and produces an Android debug APK. The post-patch suite passes
-5,534 tests; the lower count versus the 5,748 baseline is explained by the
+5,539 tests; the lower count versus the 5,748 baseline is explained by the
 deliberate removal of six isolated dead implementations and their dedicated
-test clusters. Real BLE, SQLCipher-at-rest, native background behavior,
+test clusters, with later focused regressions added. Real BLE,
+SQLCipher-at-rest, native background behavior,
 release signing and installation remain device/environment-gated, so this is
 not yet a signed or hardware-validated release.
 
@@ -17,8 +18,13 @@ not yet a signed or hardware-validated release.
 - Canonical remote: `AbubakarMahmood/pak_connect`.
 - The compressed working copy was checkpointed before reconciliation.
 - Active reconciliation branch: `codex/reconcile-pakconnect`.
-- Verified code/device-test baseline: `a5c2b08` (`fix: harden runtime and
-  prune unreachable code`). No push was performed.
+- Verified code/build-input device-test baseline:
+  `fcb3013215484d2e5b3c3b75f655d81c28209171` (`fcb3013`). A
+  documentation-only descendant is acceptable only when its build-input diff
+  from this commit is empty.
+- The former baseline `a5c2b08` (`fix: harden runtime and prune unreachable
+  code`) and its test/APK hashes remain historical provenance, not the baseline
+  for the next device run.
 - The reconciled history contains the mainline plus the preserved runtime,
   guidance, two-device-prep and Fable audit commits.
 - Do not use the compressed copy for new work; it is recovery evidence only.
@@ -30,7 +36,7 @@ not yet a signed or hardware-validated release.
 | Flutter/Dart toolchain | Flutter 3.41.5 stable, Dart 3.11.3 | Green |
 | Static analysis before current patch | `flutter analyze --no-pub` | Green |
 | Pre-patch full desktop suite | 5,748 tests, 0 failures, about 4m42s | Green baseline |
-| Current static analysis | `flutter analyze --no-pub` | Green |
+| Current static analysis | `flutter analyze --no-pub`, clean on 2026-07-13 | Green |
 | Dart reachability enforcement | 437 libraries; 433 runtime, 4 reviewed test-only, 0 unreviewed | Green |
 | Facade/reconnect regression | 121 focused tests | Green |
 | Queue correlation, route containment and shared ACK | 169 focused tests | Green |
@@ -43,8 +49,8 @@ not yet a signed or hardware-validated release.
 | Change-log/friend-reveal promotion suite | 273 tests | Green |
 | Broadcast-list service/provider/UI suite | 52 tests | Green |
 | Full-run failure regressions | 38 model/fragment tests + 36 app widget/smoke tests | Green |
-| Post-patch full desktop suite | 5,534 tests, 0 failures, 3m13s; 9,064,299-byte `flutter_test_latest.log`, SHA-256 `01D2A10A477FEA1174C2D62F79EA4BBFCFE0466057F9E8666E1DC5CF5406F339` | Green |
-| Android debug APK | 203,988,860 bytes; SHA-256 `3B541A9C734977BF43E2621BFE300EB7CB316DFA391430722E6375DD6CF1F040` | Green build |
+| Current full desktop suite | 5,539 tests, 0 failures, 4m56s; 9,200,096-byte `flutter_test_latest.log`, SHA-256 `80BCAA4C731DA95071547487DEFAFA612945CF338F55DCF491567D4A0395C2B4` | Green |
+| Android debug APK | 203,988,403 bytes; SHA-256 `40DBD095BF796A71B8B66DB6194724E2699325D3BF457093758276903EAF3C92` | Green build |
 | Android device matrix | No phone attached | Device-gated |
 | SQLCipher at-rest proof | Desktop loader falls back to plaintext | Device-gated |
 
@@ -72,6 +78,7 @@ mistaken for production encryption evidence.
 | Queue response mutation | Tokenless, replayed or wrong-address responses return an error before adding/reverse-sending any queued payload |
 | Direct queue route isolation | Direct queued payloads require one active BLE route; sync-triggered payloads must name that exact sole address; ambiguous multi-link sends defer safely |
 | Message ACK ownership | The write adapter shares the handler tracker completed by inbound ACK dispatch; peripheral sends now wait for ACK and the queue no longer starts an unwired second tracker |
+| Final relay delivery | The recipient decodes the signed encrypted v2 inner `ProtocolMessage`, authenticates/decrypts and persists it before the routed relay ACK; processing failure produces no ACK and no seen mark; a duplicate completed delivery resends the ACK without redelivery |
 | Archive detail | Archive list and inline search results open persisted archive/message detail instead of a fabricated empty archive |
 | Mark unread | HomeScreen and interaction-service actions persist an unread marker and refresh the chat list |
 | Change-log scope | Production gossip no longer composes the metadata-only peer-replay prototype; local capture/export/import/pruning remain active and peer cursors cannot advance |
@@ -91,6 +98,8 @@ mistaken for production encryption evidence.
 - Noise XX/KK implementation and desktop regression coverage.
 - Direct encrypted messages, offline queue, acknowledgements and retries.
 - Mesh relay/dedup/hop policy and queue-sync coordination.
+- Authenticated final-relay delivery with persistence-before-ACK and idempotent
+  duplicate ACK behavior in desktop regression coverage.
 - SQLCipher-capable mobile database path, schema v12 and migrations.
 - Contacts, chats, sender-local broadcast lists, archive/search models and UI
   surfaces. Broadcast recipients receive ordinary direct-chat messages.
@@ -117,7 +126,7 @@ mistaken for production encryption evidence.
 
 ## Immediate sequence
 
-1. Use code baseline `a5c2b08` (or its documentation-only descendant) as the
+1. Use code baseline `fcb3013` (or its documentation-only descendant) as the
    device-evidence ID.
 2. Install its debug APK and execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` when two phones are
