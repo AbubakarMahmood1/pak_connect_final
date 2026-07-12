@@ -118,6 +118,10 @@ void main() {
     });
 
     group('Identity reveal routing', () {
+      setUp(() async {
+        await facade.dispose();
+      });
+
       ProtocolMessage reveal() => ProtocolMessage.friendReveal(
         myPersistentKey: 'persistent-key',
         proof: 'proof',
@@ -162,17 +166,19 @@ void main() {
 
       test('fails closed with zero or multiple BLE routes', () async {
         final noRoute = await createFacadeWithRoutes(const []);
+        expect(await noRoute.debugSendIdentityReveal(reveal()), isFalse);
+        expect(
+          (noRoute.messagingService as _StubMessagingService).protocolMessages,
+          isEmpty,
+        );
+        await noRoute.dispose();
+
         final manyRoutes = await createFacadeWithRoutes([
           'device-a',
           'device-b',
         ]);
 
-        expect(await noRoute.debugSendIdentityReveal(reveal()), isFalse);
         expect(await manyRoutes.debugSendIdentityReveal(reveal()), isFalse);
-        expect(
-          (noRoute.messagingService as _StubMessagingService).protocolMessages,
-          isEmpty,
-        );
         expect(
           (manyRoutes.messagingService as _StubMessagingService)
               .protocolMessages,
