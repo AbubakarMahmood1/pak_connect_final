@@ -569,7 +569,7 @@ class BLEMessagingService implements IBLEMessagingService {
       metadata: {
         'recipientId': recipientId,
         'originalType': originalType,
-        if (metadata != null) ...metadata,
+        ...?metadata,
       },
     );
     unawaited(_mediaStore.cleanupStaleTransfers());
