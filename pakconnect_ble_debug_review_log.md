@@ -1,5 +1,14 @@
 # Pak Connect BLE/GATT + TDM + Gossip Debug Review Log
 
+> **Historical static audit — not a current defect ledger.** This review was
+> preserved in commit `e70c7a8` from an earlier uploaded archive. Subsequent
+> reconciliation changed many of the cited paths and behaviors, so findings
+> below may be fixed, superseded, or still device-gated. Use
+> [ENGINEERING_STATUS.md](docs/status/ENGINEERING_STATUS.md),
+> [READINESS_AUDIT.md](docs/status/READINESS_AUDIT.md), and
+> [DEVICE_VALIDATION_STATUS.md](docs/testing/DEVICE_VALIDATION_STATUS.md) for
+> current status; re-check code before treating any item below as open.
+
 Generated from static review of `pak_connect_final.zip`.
 
 ## Scope and constraints

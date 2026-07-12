@@ -2,15 +2,24 @@
 
 **Version**: 1.0
 **Date**: Originally extracted 2025-01-19, last updated 2026-04
-**Status**: Complete - Extracted from Production Code
+**Status**: Living, implementation-derived specification; verification tracked
+separately
 
-> **Note**: This SRS was extracted from production code. Features added after January 2025 (stealth addressing, sealed sender, proof-of-work spam prevention, v2 export/import bundles) are documented in ThreatModel.md and security_guarantees.md but not yet reflected in the functional requirements tables below.
+> **Note**: This SRS is derived from implementation and historical design
+> material. Presence in code is not the same as production composition or
+> device proof. Stealth addressing, sealed sender and proof-of-work include
+> implemented/tested primitives but are not enabled default relay guarantees.
+> Use [READINESS_AUDIT.md](../status/READINESS_AUDIT.md) and
+> [DEVICE_VALIDATION_STATUS.md](../testing/DEVICE_VALIDATION_STATUS.md) for the
+> current evidence state.
 
 ---
 
 ## Document Structure
 
-This SRS is organized into 10 comprehensive documents, all extracted directly from the actual implementation (no assumptions, no future features):
+This SRS is organized into 10 documents. Each requirement must still be checked
+against current composition and the cited verification status; future,
+dormant, and device-gated statements are called out where known.
 
 ### 1. Abstract (`01-abstract.md`)
 High-level overview of PakConnect's capabilities, technology stack, and key design principles.
@@ -117,7 +126,9 @@ Detailed interaction flows for key scenarios.
 
 **Diagrams**:
 1. **Send Message (Direct Delivery)**: User → ChatScreen → MeshNetworkingService → NoiseSessionManager → BLEService
-2. **Receive Message**: Sender → BLEService → BLEMessageHandler → NoiseSessionManager → MeshRelayEngine → MessageRepository
+2. **Receive Message**: Sender → BLEService → BLEMessageHandler, then either
+   direct authentication/decryption → MessageRepository, or relay-envelope
+   routing → final-recipient authentication/decryption → MessageRepository
 3. **Noise Handshake (XX Pattern)**: 3-message exchange between User A and User B
 4. **Mesh Relay (A→B→C)**: Multi-hop message forwarding with smart routing
 5. **Offline Message Queue**: Queue, retry, backoff, delivery on reconnection
@@ -179,7 +190,9 @@ Process flows and state transitions.
 
 **Activity Diagrams**:
 1. **Send Message Flow**: Validation → Encrypt → Fragment → Send OR Queue → Retry
-2. **Mesh Relay Flow**: Decrypt → Parse → Check duplicate/hop/spam → Route → Re-encrypt → Forward
+2. **Mesh Relay Flow**: Parse the relay envelope → Inspect visible metadata →
+   Check duplicate/hop/spam → Route → Forward the unchanged encrypted inner
+   payload over BLE
 3. **Handshake (XX Pattern)**: 4 phases with 3-message Noise exchange
 
 **State Machines**:
@@ -209,7 +222,8 @@ Complete database documentation.
 - **change_log**: Incremental change tracking (v11)
 
 **Features**:
-- SQLCipher encryption (AES-256)
+- SQLCipher-backed mobile database path (Android/iOS); desktop/test may use
+  plaintext SQLite, and device at-rest proof remains pending
 - WAL mode for concurrency
 - Foreign key constraints (11 relationships)
 - 30+ indexes for performance

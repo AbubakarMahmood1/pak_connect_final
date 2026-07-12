@@ -258,7 +258,7 @@ System -----> (Rotate Ephemeral Keys) : scheduled
 
 **UC-34: Block Duplicate**
 - Actor: System
-- Precondition: Message ID seen in last 5 minutes
+- Precondition: Message ID is present in the persistent delivered-ID set
 - Main Flow: Check SeenMessageStore → Drop message
 
 **UC-35: Prevent Spam**

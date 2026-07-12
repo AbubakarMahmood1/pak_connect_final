@@ -9,7 +9,8 @@ separate architecture document.
 
 PakConnect is a Flutter/Dart BLE mesh messaging app with:
 - Noise Protocol end-to-end encryption
-- SQLCipher-backed local persistence
+- SQLCipher-backed Android/iOS persistence path; desktop/test may use
+  plaintext SQLite, and mobile at-rest proof remains device-gated
 - Riverpod 3.0 state management
 - Strict layered architecture: `presentation`, `domain`, `core`, `data`
 
@@ -19,7 +20,9 @@ PakConnect is a Flutter/Dart BLE mesh messaging app with:
 - `persistentPublicKey ?? publicKey` is the chat identity rule.
 - No encryption before Noise handshake establishment.
 - Nonces are sequential.
-- Message IDs are deterministic.
+- Originating message IDs are opaque and remain stable through queue/relay
+  handling; the receive helper derives a fallback only when an inbound frame
+  lacks an ID.
 - Relay delivers locally before forwarding.
 - Database changes preserve WAL, FK behavior, and migration tracking.
 

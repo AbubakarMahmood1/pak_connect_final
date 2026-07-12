@@ -21,6 +21,8 @@ Critical invariants to preserve:
 - Chat identity uses `persistentPublicKey ?? publicKey`.
 - Noise encryption only starts after handshake establishment.
 - Nonces are sequential.
-- Message IDs are deterministic.
+- Originating message IDs are opaque and remain stable through queue/relay
+  handling; the receive helper derives a fallback only when an inbound frame
+  lacks an ID.
 - Relay delivers locally before forwarding.
 - Database changes preserve WAL, foreign keys, and migration tracking.

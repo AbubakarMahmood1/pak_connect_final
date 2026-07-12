@@ -12,7 +12,9 @@ Preserve these invariants:
 - No encryption before Noise handshake establishment.
 - Nonces remain strictly sequential.
 - Handshake phases remain ordered and Phase 1.5 blocks Phase 2.
-- Message IDs remain deterministic.
+- Originating message IDs remain opaque and stable through queue/relay
+  handling; the receive helper derives a fallback only when an inbound frame
+  lacks an ID.
 - Relay still delivers locally before forwarding.
 - Database migrations remain transactional and preserve WAL plus FK behavior.
 

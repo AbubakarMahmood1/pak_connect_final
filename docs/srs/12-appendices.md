@@ -74,7 +74,10 @@ Cryptographic checksum proving message authenticity and integrity. Poly1305 is t
 Decentralized network where nodes relay messages for each other. Extends communication range beyond direct BLE.
 
 ### Message ID
-Unique identifier for message, calculated as SHA-256 hash of (timestamp + sender + content). Deterministic for duplicate detection.
+Opaque stable identifier created once by the originating path and preserved
+through queue/relay handling; its concrete format is not an invariant. The inbound
+receive helper derives SHA-256 only as a fallback when legacy/incomplete data
+has no protocol message ID.
 
 ### MTU (Maximum Transmission Unit)
 Maximum size of single BLE packet. Typically 23-512 bytes. Messages larger than MTU are fragmented.
@@ -125,7 +128,9 @@ Trust tier for contact: LOW (ephemeral), MEDIUM (verified PIN), HIGH (cryptograp
 Established encrypted communication channel between two peers. Contains cipher states for send/receive.
 
 ### SHA-256
-Cryptographic hash function producing 256-bit digest. Used for message IDs, key derivation, and integrity checks.
+Cryptographic hash function producing a 256-bit digest. Used for key
+derivation, integrity operations, and the missing-ID inbound fallback; normal
+originating paths use opaque IDs.
 
 ### SQLCipher
 SQLite extension providing transparent AES-256 database encryption. Used to protect local data at rest.
@@ -208,19 +213,19 @@ Elliptic curve Diffie-Hellman key exchange using Curve25519. Standard DH algorit
 ## Prerequisites
 
 ### Required Software
-- **Flutter SDK**: 3.9.0 or higher
-- **Dart SDK**: 3.9.0 or higher (bundled with Flutter)
+- **Flutter SDK**: 3.38.4 or higher (CI pinned to 3.44.4)
+- **Dart SDK**: 3.10.3 or higher (bundled with Flutter)
 - **Git**: Version control
 
 ### Platform-Specific Tools
 
 #### Android Development
 - **Android Studio**: 2023.1+ (Hedgehog or later)
-- **Android SDK**: API 36 compile/target with the reconciliation environment's
-  Flutter 3.41.5 SDK (the repository does not pin an exact Flutter SDK)
+- **Android SDK**: API 36 compile/target with the locally verified Flutter
+  3.41.5 SDK; recheck against the CI Flutter 3.44.4 pin
 - **Minimum Android SDK**: API 24 (`flutter.minSdkVersion`)
 - **Android NDK**: 28.2.13676358
-- **Java Development Kit (JDK)**: Version 11
+- **Java Development Kit (JDK)**: Version 17 (pinned in CI)
 - **Gradle**: 8.11.1 wrapper
 
 #### iOS Development (macOS only)
@@ -424,7 +429,7 @@ When message exceeds MTU:
 ├─────────────────────────────────────────────┤
 │ Fragment Index             [1 byte]         │
 │ Total Fragments            [1 byte]         │
-│ Message ID (SHA-256)       [32 bytes]       │
+│ Opaque transport ID        [variable]       │
 │ Fragment Payload           [MTU - 34 bytes] │
 └─────────────────────────────────────────────┘
 ```
@@ -443,8 +448,8 @@ When message exceeds MTU:
   "originalSender": "AkNOTE9VUCB...",
   "finalRecipient": "BmFLKMNOPQR...",
   "hopCount": 2,
-  "maxHops": 5,
-  "messageId": "sha256_hash_hex",
+  "maxHops": 3,
+  "messageId": "opaque-message-id",
   "timestamp": 1705678901234,
   "ttl": 3600
 }
@@ -532,7 +537,9 @@ before claiming them as measured performance.
 
 ## BLE Performance
 
-| Metric | Typical Value | Range |
+These are historical target/example values, not current measured evidence.
+
+| Metric | Historical target | Example range |
 |--------|---------------|-------|
 | Connection Establishment | 2-5 seconds | 1-10s |
 | MTU Negotiation | 200-300 ms | 100-500ms |
@@ -542,6 +549,9 @@ before claiming them as measured performance.
 | Scanning Battery Drain | ~5-10% per hour | Device-dependent |
 
 ## Database Operations
+
+These are targets until a cited benchmark artifact proves them on the stated
+device/build.
 
 | Operation | Target Latency | Query Type |
 |-----------|----------------|------------|
@@ -606,11 +616,14 @@ before claiming them as measured performance.
 
 ### Platform Limitations
 
-1. **Android BLE Connection Limit**: Maximum 7 simultaneous connections per device (hardware/OS limit)
+1. **Android BLE Connection Target**: The configuration permits up to 7, but
+the current user-payload policy is single-link and no device matrix proves a
+seven-link maximum.
 
 2. **iOS Background BLE**: Severely restricted by iOS. App must be in foreground for reliable operation.
 
-3. **BLE Range**: 10-30 meters line-of-sight. Walls, interference reduce range significantly.
+3. **BLE Range**: A historical 10-30 meter line-of-sight figure is a test
+target only; actual range depends on the device and environment.
 
 4. **MTU Variability**: MTU negotiation not guaranteed. Some devices limited to 23-byte MTU (default GATT).
 
@@ -630,9 +643,13 @@ group history, or shared reply path.
 
 9. **Noise Session Not Backed Up**: Session state ephemeral. After restore from backup, all contacts must re-handshake.
 
-10. **Message Size Limit**: Practically limited to ~10 KB due to BLE fragmentation overhead and timeout.
+10. **Message Size Limits**: Relay spam policy limits an individual relayed
+payload to about 10 KiB. Direct fragmented text and binary/media paths have
+different limits; physical MTU, timeout, memory, and byte-equality evidence is
+still required.
 
-11. **Relay Hop Limit**: Messages cannot traverse more than 5 hops. Prevents infinite loops but limits range.
+11. **Relay Hop Limit**: The configured limit defaults to 3 and is capped at
+5. This bounds loops but limits range.
 
 12. **Archive Compression Not Implemented**: Archive system designed for compression but not yet implemented (v1.0).
 
@@ -646,9 +663,11 @@ The following features are **not implemented** in the current version but docume
 **Description**: Record and send encrypted voice messages
 **Complexity**: Medium (requires audio encoding, larger message handling)
 
-### 2. File Attachments
-**Description**: Send encrypted files (images, documents)
-**Complexity**: High (requires chunking, progress tracking, MIME type handling)
+### 2. General File Attachments
+**Description**: Arbitrary encrypted document/file attachments. Image/binary
+media transport exists, but a general document picker/MIME contract is not a
+shipped capability.
+**Complexity**: High (requires broader type handling and device validation)
 
 ### 3. Multi-Device Sync
 **Description**: Sync messages across user's multiple devices
@@ -686,22 +705,22 @@ The following features are **not implemented** in the current version but docume
 
 # Appendix K: Compliance and Legal Notices
 
-## Open Source License
+## Project License
 
-**Project License**: MIT License
+**Project License**: Proprietary and confidential
 
-**Summary**: PakConnect is open-source software. You are free to use, modify, and distribute this software, provided the original copyright notice is retained.
+**Summary**: Public source visibility does not grant permission to use, modify,
+or redistribute PakConnect. The rights and restrictions in the root `LICENSE`
+control.
 
 **Full License**: See `LICENSE` file in project root.
 
 ## Third-Party Licenses
 
-All dependencies are licensed under permissive open-source licenses:
-- **MIT**: flutter_riverpod, bluetooth_low_energy, sqflite_sqlcipher, shared_preferences, and others
-- **Apache 2.0**: pinenacl, cryptography, Dart SDK
-- **BSD**: Flutter SDK
-
-**Compliance**: No copyleft (GPL) licenses used. Safe for commercial/proprietary derivative works.
+Third-party dependencies retain their own licenses and notices. The repository
+does not currently provide a completed release-distribution license audit, so
+do not infer that every dependency is permissive or that every distribution
+scenario is cleared from package names alone.
 
 ## Cryptographic Export Notice
 
@@ -711,18 +730,24 @@ This software includes cryptographic functionality:
 - SHA-256 cryptographic hash
 - PBKDF2 key derivation
 
-**Export Classification**: Publicly available cryptographic software using standard algorithms. Generally exempt from export restrictions under Wassenaar Arrangement.
+**Export Classification**: Cryptographic export/import obligations vary by
+jurisdiction. No Wassenaar or other legal exemption is claimed here; obtain an
+appropriate review before distribution.
 
 **Disclaimer**: Users responsible for compliance with local export/import regulations.
 
 ## Privacy and Data Protection
 
-**Data Collection**: PakConnect collects NO user data. All data stored locally on device.
+**Data Collection**: The default app has no project-operated account,
+messaging, analytics, or advertising server. User payloads, public/ephemeral
+identity data, acknowledgements, and routing metadata still leave the device
+when the user communicates over BLE; OS services may process permission,
+notification, file, or Bluetooth metadata.
 
-**GDPR Compliance**:
+**Privacy design notes (not an independent GDPR compliance audit)**:
 - Data minimization: Only essential data stored
 - User control: Users can export and delete all data
-- No third-party sharing: Zero external data transmission
+- No project-server telemetry in the current default composition
 
 **Privacy Policy**: See `assets/privacy_policy.md` (accessible in-app)
 
@@ -740,7 +765,7 @@ This software includes cryptographic functionality:
 
 ## Code Style
 
-- **Language**: Dart 3.9+ with null safety
+- **Language**: Dart 3.10.3+ with null safety
 - **Formatting**: `dart format` (official formatter)
 - **Linting**: `flutter analyze` must pass with zero errors
 - **Style authority**: `dart format lib test` and `analysis_options.yaml`

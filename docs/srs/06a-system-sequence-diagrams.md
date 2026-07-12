@@ -160,15 +160,19 @@ sequenceDiagram
 - **PakConnect System**: The application (black box)
 
 ### Scenario
-User receives an encrypted message from a remote device via BLE.
+User receives a protocol packet from a remote device via BLE. Direct user
+payloads are Noise-encrypted; an offline relay packet exposes its outer routing
+metadata while carrying a signed recipient-encrypted inner payload.
 
 ### Sequence
 
-1. **Remote Device → System**: sendBLEPacket(encryptedMessage)
-   - Remote device sends encrypted message via BLE characteristic
+1. **Remote Device → System**: sendBLEPacket(protocolEnvelope)
+   - Remote device sends a direct or relay protocol envelope via BLE
 
-2. **System → System**: [Internal: decrypt, validate, process relay decision]
-   - System decrypts and determines if message is for local user or relay
+2. **System → System**: [Internal: parse relay envelope and process relay
+   decision]
+   - The system parses routing metadata first; only the final recipient
+     decrypts/authenticates the encrypted inner payload
 
 3. **System → User**: displayNotification(senderName, previewText)
    - System shows notification banner
@@ -198,10 +202,10 @@ sequenceDiagram
     participant System as PakConnect System
     actor User
 
-    Remote->>System: sendBLEPacket(encryptedMessage)
+    Remote->>System: sendBLEPacket(protocolEnvelope)
 
     rect rgb(200, 220, 250)
-        note right of System: Internal Operations:<br/>Decrypt, Validate,<br/>Check if for self or relay
+        note right of System: Internal Operations:<br/>Parse relay envelope,<br/>inspect routing metadata
     end
 
     alt Message for Local User
@@ -214,7 +218,7 @@ sequenceDiagram
         end
     else Message for Relay
         rect rgb(255, 240, 200)
-            note right of System: Forward to next hop<br/>(transparent to user)
+            note right of System: Forward unchanged encrypted inner payload<br/>(transparent to user)
         end
     end
 ```

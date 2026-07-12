@@ -8,7 +8,7 @@ PakConnect is a Flutter/Dart application for off-grid peer-to-peer messaging ove
 - Export/import bundles that contain encrypted database snapshots and keys.
 - Mesh metadata (TTL, hop counts, relay decisions) that can reveal network topology.
 
-Security-sensitive components are concentrated in `lib/core/security/` (Noise, sealed encryption, SecureKey), `lib/core/services/security_manager.dart`, `lib/domain/services/` (ephemeral IDs, signing, encryption utilities), and `lib/data/services/` (handshake, protocol parsing, fragmentation, relay handling). The app uses Noise XX/KK with X25519 + ChaCha20-Poly1305 (`lib/core/security/noise/*`), SQLCipher for on-device encryption (`lib/data/database/*`), export/import encryption with PBKDF2 + AES-256-GCM and HMAC (`lib/domain/services/encryption_utils.dart`), and spam/DoS controls for relay traffic (`lib/domain/services/spam_prevention_manager.dart`, `lib/core/services/queue_policy_manager.dart`).
+Security-sensitive components are concentrated in `lib/core/security/` (Noise, sealed encryption, SecureKey), `lib/core/services/security_manager.dart`, `lib/domain/services/` (ephemeral IDs, signing, encryption utilities), and `lib/data/services/` (handshake, protocol parsing, fragmentation, relay handling). The app uses Noise XX/KK with X25519 + ChaCha20-Poly1305 (`lib/core/security/noise/*`), an Android/iOS SQLCipher database path whose at-rest proof remains device-gated (`lib/data/database/*`), export/import encryption with PBKDF2 + AES-256-GCM and HMAC (`lib/domain/services/encryption_utils.dart`), and spam/DoS controls for relay traffic (`lib/domain/services/spam_prevention_manager.dart`, `lib/core/services/queue_policy_manager.dart`).
 
 ## 2. Threat model, Trust boundaries and assumptions
 ### Trust boundaries
@@ -79,7 +79,10 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 **Threats**: Relay flooding, fragment bombs, TTL loops, queue exhaustion, and battery drain. Since every node can relay, untrusted peers can generate high traffic.
 
 **Mitigations**:
-- Multi-layer spam prevention with rate limits, hop-count validation, size caps, duplicate detection, and optional proof-of-work (`SpamPreventionManager`).
+- Multi-layer spam prevention with rate limits, hop-count validation, size caps,
+  and duplicate detection. Optional proof-of-work primitives exist, but the
+  production relay factory does not currently inject a cost policy, so PoW is
+  not enforced by default (`SpamPreventionManager`).
 - Fragment reassembly timeouts and deduplication to drop stale/duplicate chunks (`MessageFragmentationHandler`).
 - Per-peer queue limits and priority policy (`QueuePolicyManager`).
 - Connection limit enforcement and RSSI gating (`ConnectionLimitEnforcer`).
@@ -94,7 +97,9 @@ Security-sensitive components are concentrated in `lib/core/security/` (Noise, s
 **Threats**: Extraction of SQLCipher keys, static identity keys, or session material from a compromised device; plaintext storage on non-mobile platforms; sensitive data in logs.
 
 **Mitigations**:
-- SQLCipher encryption with keys stored in OS keychain; fail-closed if secure storage is unavailable (`DatabaseEncryption`).
+- Android/iOS SQLCipher path with keys stored in OS keychain; initialization is
+  fail-closed if secure storage is unavailable. Physical-file unreadability
+  remains device-gated (`DatabaseEncryption`).
 - SecureKey zeroing of key material in memory (`SecureKey`, `NoiseSessionManager`).
 - Ephemeral signing keys remain in memory only; old persisted private keys are scrubbed (`EphemeralKeyManager`).
 - Explicit logging redaction and truncated identifiers in many logs.

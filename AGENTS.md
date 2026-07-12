@@ -18,12 +18,13 @@ Core characteristics:
 - Decentralized BLE mesh communication
 - Noise Protocol for end-to-end encryption
 - Dual-role BLE (central + peripheral)
-- SQLCipher-backed local persistence
+- SQLCipher-backed mobile persistence path; desktop/test fallback may use
+  plaintext SQLite, and mobile at-rest proof remains device-gated
 - Riverpod 3.0 state management
 
 Primary stack:
-- Flutter 3.9+
-- Dart 3.9+
+- Flutter 3.38.4+ (CI pinned to 3.44.4)
+- Dart 3.10.3+
 - Riverpod 3.0
 - Noise Protocol (XX/KK patterns)
 - SQLite + SQLCipher
@@ -148,11 +149,17 @@ These must not be violated.
 
 ### Mesh Relay
 
-1. Message IDs are deterministic:
-   `SHA-256(timestamp + senderKey + content)`.
-2. Duplicate detection window is 5 minutes.
+1. Message IDs are opaque stable identifiers created once by the originating
+   path. Their concrete format is not an invariant. Relays preserve that ID,
+   and a final relay envelope ID must match its signed inner `ProtocolMessage`
+   ID.
+   The receive helper's SHA-256 value is only a fallback for legacy/incomplete
+   inbound data that lacks an ID.
+2. Completed delivery/read deduplication uses the persistent
+   `SeenMessageStore`, capped at 10,000 IDs per type with oldest-first
+   eviction. Do not describe it as a five-minute window.
 3. Local delivery happens before forwarding.
-4. Relay hops are capped at 3-5.
+4. Relay hop limit defaults to 3 and is capped at 5.
 
 ### BLE Handshake
 
@@ -200,7 +207,8 @@ Database:
 - DB-heavy and service-level tests should boot via
   `TestSetup.initializeTestEnvironment(dbLabel: ...)`.
 - Use `configureTestDatabase` and `setupTestDI` so each suite gets an isolated
-  SQLCipher file and DI graph.
+  database file and DI graph. Desktop/test mode may use plaintext SQLite; do
+  not treat it as SQLCipher-at-rest evidence.
 - BLE tests must go through `IBLEPlatformHost`.
 - For BLE facade tests, inject `_FakeBlePlatformHost`.
 - Stub messaging/advertising/handshake sub-services to avoid platform channel
