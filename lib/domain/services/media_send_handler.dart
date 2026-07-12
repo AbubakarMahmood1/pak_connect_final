@@ -152,7 +152,7 @@ class MediaSendHandler {
         'filename': _extractFilename(file.path),
         'mimeType': mimeType,
         'originalSize': size,
-        if (metadata != null) ...metadata,
+        ...?metadata,
       };
 
       // CRITICAL: Verify Noise session is established before sending
@@ -236,7 +236,7 @@ class MediaSendHandler {
         'filename': _extractFilename(file.path),
         'mimeType': mimeType,
         'originalSize': size,
-        if (metadata != null) ...metadata,
+        ...?metadata,
       };
 
       // CRITICAL: Verify Noise session is established before sending
