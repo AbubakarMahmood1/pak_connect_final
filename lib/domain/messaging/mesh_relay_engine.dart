@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/models/message_priority.dart';
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
@@ -15,7 +17,11 @@ abstract interface class MeshRelayEngine {
   Future<void> initialize({
     required String currentNodeId,
     Function(MeshRelayMessage message, String nextHopNodeId)? onRelayMessage,
-    Function(String originalMessageId, String content, String originalSender)?
+    FutureOr<void> Function(
+      String originalMessageId,
+      String content,
+      String originalSender,
+    )?
     onDeliverToSelf,
     Function(RelayDecision decision)? onRelayDecision,
     Function(RelayStatistics stats)? onStatsUpdated,

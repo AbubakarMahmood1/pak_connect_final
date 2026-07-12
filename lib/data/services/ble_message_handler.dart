@@ -284,6 +284,7 @@ class BLEMessageHandler {
         currentNodeId: currentNodeId,
         messageQueue: messageQueue,
         onRelayMessageReceived: onRelayMessageReceived,
+        onProcessRelayDelivery: _processDeliveredRelayPayload,
         onRelayDecisionMade: onRelayDecisionMade,
         onRelayStatsUpdated: onRelayStatsUpdated,
       );
@@ -542,33 +543,12 @@ class BLEMessageHandler {
     try {
       switch (protocolMessage.type) {
         case ProtocolMessageType.textMessage:
-          final inboundResult = await _inboundTextProcessor.process(
+          return _processInboundTextProtocolMessage(
             protocolMessage: protocolMessage,
             senderPublicKey: senderPublicKey,
             onMessageIdFound: onMessageIdFound,
+            sendDirectAck: true,
           );
-
-          final inboundMessageId = protocolMessage.textMessageId;
-          if (inboundResult.shouldAck && inboundMessageId != null) {
-            await _sendAckForMessage(
-              inboundMessageId,
-              senderPublicKey: senderPublicKey,
-            );
-          }
-
-          if (inboundResult.content != null && onTextMessageReceived != null) {
-            try {
-              await onTextMessageReceived!(
-                inboundResult.content!,
-                protocolMessage.textMessageId,
-                inboundResult.resolvedSenderKey ?? senderPublicKey,
-              );
-            } catch (e, stack) {
-              _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
-            }
-          }
-
-          return inboundResult.content;
 
         case ProtocolMessageType.ack:
           // ACKs are handled in ProtocolMessageDispatcher; ignore here.
@@ -597,10 +577,11 @@ class BLEMessageHandler {
           );
 
         case ProtocolMessageType.meshRelay:
-          return await _meshRelayHandler.handleIncomingRelay(
+          await _meshRelayHandler.handleIncomingRelay(
             protocolMessage: protocolMessage,
             senderPublicKey: senderPublicKey,
           );
+          return null;
 
         case ProtocolMessageType.friendReveal:
           // Handle friend identity reveal in spy mode
@@ -613,6 +594,106 @@ class BLEMessageHandler {
       _logger.severe('Failed to process protocol message: $e');
       return null;
     }
+  }
+
+  Future<void> _processDeliveredRelayPayload(
+    String originalMessageId,
+    String encodedInnerProtocolMessage,
+    String originalSender,
+  ) async {
+    try {
+      final innerProtocolMessage = ProtocolMessage.fromBytes(
+        base64.decode(encodedInnerProtocolMessage),
+      );
+      if (innerProtocolMessage.type != ProtocolMessageType.textMessage) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Unsupported inner protocol type '
+          '${innerProtocolMessage.type.name}',
+        );
+      }
+      if (innerProtocolMessage.version < 2 ||
+          !innerProtocolMessage.isEncrypted ||
+          innerProtocolMessage.signature == null ||
+          innerProtocolMessage.signature!.trim().isEmpty) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner text must be encrypted and signed v2',
+        );
+      }
+
+      final innerMessageId = innerProtocolMessage.textMessageId;
+      if (innerMessageId != originalMessageId) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner message ID does not match relay envelope',
+        );
+      }
+
+      final inboundResult = await _inboundTextProcessor.process(
+        protocolMessage: innerProtocolMessage,
+        senderPublicKey: originalSender,
+      );
+      if (!inboundResult.shouldAck || inboundResult.content == null) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner text failed authentication/decryption',
+        );
+      }
+
+      final callback = onTextMessageReceived;
+      if (callback == null) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inbound persistence callback is not configured',
+        );
+      }
+
+      // MeshRelayHandler owns the routed relayAck. Calling the normal direct
+      // path here would send a duplicate ACK to the immediate relay hop.
+      await callback(
+        inboundResult.content!,
+        innerMessageId,
+        inboundResult.resolvedSenderKey ?? originalSender,
+      );
+    } catch (e, stack) {
+      _logger.severe(
+        '🔀 RELAY DELIVERY: Invalid encrypted inner protocol payload: $e',
+        e,
+        stack,
+      );
+      rethrow;
+    }
+  }
+
+  Future<String?> _processInboundTextProtocolMessage({
+    required ProtocolMessage protocolMessage,
+    required String? senderPublicKey,
+    required bool sendDirectAck,
+    String? Function(String)? onMessageIdFound,
+  }) async {
+    final inboundResult = await _inboundTextProcessor.process(
+      protocolMessage: protocolMessage,
+      senderPublicKey: senderPublicKey,
+      onMessageIdFound: onMessageIdFound,
+    );
+
+    final inboundMessageId = protocolMessage.textMessageId;
+    if (sendDirectAck && inboundResult.shouldAck && inboundMessageId != null) {
+      await _sendAckForMessage(
+        inboundMessageId,
+        senderPublicKey: senderPublicKey,
+      );
+    }
+
+    if (inboundResult.content != null && onTextMessageReceived != null) {
+      try {
+        await onTextMessageReceived!(
+          inboundResult.content!,
+          protocolMessage.textMessageId,
+          inboundResult.resolvedSenderKey ?? senderPublicKey,
+        );
+      } catch (e, stack) {
+        _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
+      }
+    }
+
+    return inboundResult.content;
   }
 
   Future<void> handleQRIntroductionClaim({

@@ -108,6 +108,7 @@ class _BleMessagingReceiveHelper {
       );
     } catch (e) {
       _owner._logger.warning('⚠️ Failed to persist inbound message: $e');
+      rethrow;
     }
   }
 
