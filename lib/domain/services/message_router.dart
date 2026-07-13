@@ -10,6 +10,13 @@ import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
+class _ResolvedOfflineQueue {
+  const _ResolvedOfflineQueue(this.queue, {required this.disposeWithRouter});
+
+  final OfflineMessageQueueContract queue;
+  final bool disposeWithRouter;
+}
+
 /// Routes messages with offline queue support (based on BitChat's MessageRouter)
 ///
 /// **ARCHITECTURE CHANGE**: This is now a thin wrapper around OfflineMessageQueue
@@ -36,6 +43,9 @@ class MessageRouter {
 
   // Singleton
   static MessageRouter? _instance;
+  static Future<void>? _initializationFuture;
+  static int _lifecycleGeneration = 0;
+  static Completer<void> _generationResetSignal = Completer<void>();
   static MessageRouter get instance {
     if (_instance == null) {
       throw StateError(
@@ -53,6 +63,7 @@ class MessageRouter {
   // Dependencies
   late final IConnectionService _bleService;
   late final OfflineMessageQueueContract _offlineQueue;
+  bool _disposeOfflineQueueWithRouter = false;
 
   OfflineMessageQueueContract get offlineQueue => _offlineQueue;
 
@@ -90,6 +101,24 @@ class MessageRouter {
     _sharedQueueProviderResolver = null;
   }
 
+  /// Reset router-owned singleton state and composition hooks.
+  ///
+  /// AppCore calls this during rebootstrap so a failed or disposed runtime
+  /// cannot retain a half-initialized router or an old queue binding.
+  static void reset() {
+    _lifecycleGeneration++;
+    if (!_generationResetSignal.isCompleted) {
+      _generationResetSignal.complete();
+    }
+    _generationResetSignal = Completer<void>();
+    _instance?.dispose();
+    _instance = null;
+    _initializationFuture = null;
+    _standaloneQueueFactory = null;
+    _initializedQueueFactory = null;
+    clearDependencyResolvers();
+  }
+
   /// Initialize the message router
   static Future<void> initialize(
     IConnectionService bleService, {
@@ -97,10 +126,15 @@ class MessageRouter {
     Future<OfflineMessageQueueContract> Function()? fallbackQueueBuilder,
     IPreferencesRepository? preferencesRepository,
     ISharedMessageQueueProvider? sharedQueueProvider,
-  }) async {
+  }) {
     if (_instance != null) {
       _logger.warning('MessageRouter already initialized');
-      return;
+      return Future<void>.value();
+    }
+
+    final inFlight = _initializationFuture;
+    if (inFlight != null) {
+      return inFlight;
     }
 
     if (preferencesRepository != null) {
@@ -111,20 +145,100 @@ class MessageRouter {
       _sharedQueueProviderResolver = () => sharedQueueProvider;
     }
 
-    _instance = MessageRouter._();
-    _instance!._bleService = bleService;
-
-    // 🔧 FIX: Direct access to messageQueue (no polling needed)
-    // messageQueue is now initialized BEFORE core services in AppCore,
-    // so it's guaranteed to be available when BLEService initializes
-    _instance!._offlineQueue = await _resolveOfflineQueue(
-      providedQueue: offlineQueue,
+    final generation = _lifecycleGeneration;
+    final initialization = _initializeForGeneration(
+      bleService,
+      generation: generation,
+      resetSignal: _generationResetSignal.future,
+      offlineQueue: offlineQueue,
       fallbackQueueBuilder: fallbackQueueBuilder,
     );
+    _initializationFuture = initialization;
+    return initialization;
+  }
 
-    _logger.info(
-      '✅ MessageRouter initialized (delegating to OfflineMessageQueue)',
-    );
+  static Future<void> _initializeForGeneration(
+    IConnectionService bleService, {
+    required int generation,
+    required Future<void> resetSignal,
+    OfflineMessageQueueContract? offlineQueue,
+    Future<OfflineMessageQueueContract> Function()? fallbackQueueBuilder,
+  }) async {
+    OfflineMessageQueueContract? pendingOwnedQueue;
+    try {
+      // 🔧 FIX: Direct access to messageQueue (no polling needed)
+      // messageQueue is now initialized BEFORE core services in AppCore,
+      // so it's guaranteed to be available when BLEService initializes
+      final queueResolution = _resolveOfflineQueue(
+        providedQueue: offlineQueue,
+        fallbackQueueBuilder: fallbackQueueBuilder,
+        onOwnedQueueCreated: (queue) => pendingOwnedQueue = queue,
+      );
+      final guardedQueueResolution = queueResolution.then((resolved) {
+        if (generation != _lifecycleGeneration) {
+          if (resolved.disposeWithRouter) {
+            _disposeQueueSafely(resolved.queue);
+          }
+          throw StateError(
+            'MessageRouter initialization was invalidated by reset().',
+          );
+        }
+        return resolved;
+      });
+      final resolved = await Future.any<_ResolvedOfflineQueue>([
+        guardedQueueResolution,
+        resetSignal.then<_ResolvedOfflineQueue>((_) {
+          throw StateError(
+            'MessageRouter initialization was invalidated by reset().',
+          );
+        }),
+      ]);
+
+      if (generation != _lifecycleGeneration) {
+        if (resolved.disposeWithRouter) {
+          _disposeQueueSafely(resolved.queue);
+        }
+        throw StateError(
+          'MessageRouter initialization was invalidated by reset().',
+        );
+      }
+
+      // Publish the singleton only after every late dependency resolves. A
+      // queue initialization failure therefore leaves retryable null state.
+      final router = MessageRouter._();
+      router._bleService = bleService;
+      router._offlineQueue = resolved.queue;
+      router._disposeOfflineQueueWithRouter = resolved.disposeWithRouter;
+      _instance = router;
+      pendingOwnedQueue = null;
+
+      _logger.info(
+        '✅ MessageRouter initialized (delegating to OfflineMessageQueue)',
+      );
+    } catch (_) {
+      final queue = pendingOwnedQueue;
+      if (queue != null) {
+        // Queue initialization may still be running. This first dispose stops
+        // partial resources; guardedQueueResolution disposes it again if that
+        // initialization later completes after reset.
+        _disposeQueueSafely(queue);
+      }
+      rethrow;
+    } finally {
+      // A reset starts a new generation and may already have installed a new
+      // initializer. The stale generation must not clear that fresh future.
+      if (generation == _lifecycleGeneration) {
+        _initializationFuture = null;
+      }
+    }
+  }
+
+  static void _disposeQueueSafely(OfflineMessageQueueContract queue) {
+    try {
+      queue.dispose();
+    } catch (error) {
+      _logger.warning('Failed to dispose rejected offline queue: $error');
+    }
   }
 
   /// Send a message with automatic offline queueing
@@ -301,23 +415,29 @@ class MessageRouter {
 
   /// Dispose resources
   void dispose() {
-    _logger.info(
-      'MessageRouter disposed (queue managed by OfflineMessageQueue)',
-    );
+    if (_disposeOfflineQueueWithRouter) {
+      _disposeOfflineQueueWithRouter = false;
+      _disposeQueueSafely(_offlineQueue);
+    }
+    _logger.info('MessageRouter disposed');
   }
 
-  static Future<OfflineMessageQueueContract> _resolveOfflineQueue({
+  static Future<_ResolvedOfflineQueue> _resolveOfflineQueue({
     OfflineMessageQueueContract? providedQueue,
     Future<OfflineMessageQueueContract> Function()? fallbackQueueBuilder,
+    void Function(OfflineMessageQueueContract queue)? onOwnedQueueCreated,
   }) async {
     if (providedQueue != null) {
-      return providedQueue;
+      return _ResolvedOfflineQueue(providedQueue, disposeWithRouter: false);
     }
 
     final sharedQueueProvider = _resolveSharedQueueProvider();
     if (sharedQueueProvider != null) {
       try {
-        return await sharedQueueProvider.waitForMessageQueue();
+        return _ResolvedOfflineQueue(
+          await sharedQueueProvider.waitForMessageQueue(),
+          disposeWithRouter: false,
+        );
       } catch (error) {
         _logger.warning(
           'Shared queue provider unavailable during MessageRouter init: $error',
@@ -329,16 +449,44 @@ class MessageRouter {
       _logger.info(
         'MessageRouter using fallback OfflineMessageQueue from builder',
       );
-      return fallbackQueueBuilder();
+      return _ResolvedOfflineQueue(
+        await fallbackQueueBuilder(),
+        disposeWithRouter: false,
+      );
     }
 
-    return createInitializedStandaloneQueue();
+    final standaloneFactory = _standaloneQueueFactory;
+    if (standaloneFactory != null) {
+      final queue = standaloneFactory();
+      onOwnedQueueCreated?.call(queue);
+      try {
+        await queue.initialize();
+      } catch (_) {
+        _disposeQueueSafely(queue);
+        rethrow;
+      }
+      return _ResolvedOfflineQueue(queue, disposeWithRouter: true);
+    }
+
+    final initializedFactory = _initializedQueueFactory;
+    if (initializedFactory != null) {
+      final queue = await initializedFactory();
+      onOwnedQueueCreated?.call(queue);
+      return _ResolvedOfflineQueue(queue, disposeWithRouter: true);
+    }
+
+    throw StateError(
+      'No durable offline queue is configured. '
+      'Initialize AppCore or provide an explicit queue factory.',
+    );
   }
 
   /// Create an uninitialized standalone queue instance.
   /// Used by non-core consumers that need a fallback without importing concrete
   /// queue types directly.
-  static OfflineMessageQueueContract createStandaloneQueue() {
+  static OfflineMessageQueueContract createStandaloneQueue({
+    bool allowVolatileFallback = false,
+  }) {
     if (_standaloneQueueFactory != null) {
       return _standaloneQueueFactory!();
     }
@@ -348,17 +496,27 @@ class MessageRouter {
       return sharedQueueProvider.messageQueue;
     }
 
-    return _FallbackOfflineMessageQueue();
+    if (allowVolatileFallback) {
+      return _FallbackOfflineMessageQueue();
+    }
+
+    throw StateError(
+      'No durable offline queue is configured. '
+      'Initialize AppCore or provide an explicit queue factory.',
+    );
   }
 
   /// Create and initialize a standalone queue instance.
-  static Future<OfflineMessageQueueContract>
-  createInitializedStandaloneQueue() async {
+  static Future<OfflineMessageQueueContract> createInitializedStandaloneQueue({
+    bool allowVolatileFallback = false,
+  }) async {
     if (_initializedQueueFactory != null) {
       return _initializedQueueFactory!();
     }
 
-    final queue = createStandaloneQueue();
+    final queue = createStandaloneQueue(
+      allowVolatileFallback: allowVolatileFallback,
+    );
     await queue.initialize();
     return queue;
   }

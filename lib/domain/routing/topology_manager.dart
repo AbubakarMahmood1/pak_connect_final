@@ -26,7 +26,7 @@ class TopologyManager {
   final Map<String, NetworkNode> _nodes = {};
   final Set<NetworkConnection> _connections = {};
   String? _currentNodeId;
-  final DateTime _startTime = DateTime.now();
+  DateTime _startTime = DateTime.now();
 
   // Update listeners for UI/consumers (listener set, no manual controllers)
   final Set<void Function(NetworkTopology)> _listeners = {};
@@ -52,6 +52,7 @@ class TopologyManager {
 
   /// Initialize topology manager
   void initialize(String currentNodeId) {
+    _startTime = DateTime.now();
     _currentNodeId = currentNodeId;
 
     // Add self to network
@@ -402,6 +403,11 @@ class TopologyManager {
   /// Dispose resources
   void dispose() {
     _cleanupTimer?.cancel();
+    _cleanupTimer = null;
+    _nodes.clear();
+    _connections.clear();
+    _currentNodeId = null;
+    _isTestMode = false;
     _listeners.clear();
     _logger.info('TopologyManager disposed');
   }

@@ -56,14 +56,16 @@ class SecurityManager implements ISecurityService {
       return;
     }
 
+    final candidate = NoiseEncryptionService(secureStorage: secureStorage);
     try {
-      _noiseService = NoiseEncryptionService(secureStorage: secureStorage);
-      await _noiseService!.initialize();
+      await candidate.initialize();
+      _noiseService = candidate;
 
-      final fingerprint = _noiseService!.getIdentityFingerprint();
+      final fingerprint = candidate.getIdentityFingerprint();
       _logger.info('🔒 SecurityManager initialized with Noise Protocol');
       _logger.info('🔒 Identity fingerprint: ${fingerprint.shortId()}...');
     } catch (e) {
+      candidate.shutdown();
       _logger.severe('🔒 Failed to initialize SecurityManager: $e');
       rethrow;
     }
@@ -510,9 +512,7 @@ class SecurityManager implements ISecurityService {
         return decrypted;
 
       case EncryptionType.global:
-        throw Exception(
-          'Legacy/global decrypt is no longer supported',
-        );
+        throw Exception('Legacy/global decrypt is no longer supported');
     }
   }
 
