@@ -242,7 +242,11 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }
 
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async {
     return ArchiveOperationResult.success(
       message: 'Restored',
       operationType: ArchiveOperationType.restore,

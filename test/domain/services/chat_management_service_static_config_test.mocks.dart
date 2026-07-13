@@ -353,14 +353,30 @@ class MockIArchiveRepository extends _i1.Mock
 
   @override
   _i6.Future<_i2.ArchiveOperationResult> restoreChat(
-    _i10.ArchiveId? archiveId,
-  ) =>
+    _i10.ArchiveId? archiveId, {
+    _i10.ChatId? targetChatId,
+    bool? overwriteExisting = false,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#restoreChat, [archiveId]),
+            Invocation.method(
+              #restoreChat,
+              [archiveId],
+              {
+                #targetChatId: targetChatId,
+                #overwriteExisting: overwriteExisting,
+              },
+            ),
             returnValue: _i6.Future<_i2.ArchiveOperationResult>.value(
               _FakeArchiveOperationResult_0(
                 this,
-                Invocation.method(#restoreChat, [archiveId]),
+                Invocation.method(
+                  #restoreChat,
+                  [archiveId],
+                  {
+                    #targetChatId: targetChatId,
+                    #overwriteExisting: overwriteExisting,
+                  },
+                ),
               ),
             ),
           )

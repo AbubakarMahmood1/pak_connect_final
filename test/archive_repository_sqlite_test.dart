@@ -170,7 +170,10 @@ void main() {
       expect(clearedMessages.isEmpty, true);
 
       // Restore the archive
-      final restoreResult = await repository.restoreChat(archiveId);
+      final restoreResult = await repository.restoreChat(
+        archiveId,
+        overwriteExisting: true,
+      );
 
       expect(restoreResult.success, true);
       expect(restoreResult.metadata?['restoredMessages'], 3);

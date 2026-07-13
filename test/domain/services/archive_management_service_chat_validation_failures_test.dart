@@ -141,6 +141,8 @@ void main() {
       );
 
       expect(result.success, true);
+      expect(repository.lastRestoreOverwriteExisting, true);
+      expect(repository.lastRestoreTargetChatId?.value, 'chat_overwrite');
       await svc.dispose();
     });
 
@@ -153,13 +155,27 @@ void main() {
       await svc.initialize();
       final archiveId = repository.seedArchive('chat_target');
 
+      final events = <ArchiveUpdateEvent>[];
+      final subscription = svc.archiveUpdates.listen(events.add);
       final result = await svc.restoreChat(
         archiveId: archiveId,
         targetChatId: 'custom_target',
       );
+      await Future<void>.delayed(Duration.zero);
 
       expect(result.success, true);
       expect(engine.lastConflictTargetChatId?.value, 'custom_target');
+      expect(repository.lastRestoreTargetChatId?.value, 'custom_target');
+      expect(repository.lastRestoreOverwriteExisting, false);
+      expect(
+        events
+            .singleWhere(
+              (event) => event.type == ArchiveUpdateEventType.restored,
+            )
+            .chatId,
+        'custom_target',
+      );
+      await subscription.cancel();
       await svc.dispose();
     });
 
@@ -754,6 +770,8 @@ class _FakeArchiveRepository implements IArchiveRepository {
   bool throwOnRestore = false;
   bool throwOnGetArchivedChats = false;
   bool throwOnGetStatistics = false;
+  ChatId? lastRestoreTargetChatId;
+  bool? lastRestoreOverwriteExisting;
 
   ArchiveStatistics? statistics = ArchiveStatistics.empty();
   final Map<String, ArchivedChat> _archivesById = {};
@@ -792,7 +810,13 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }
 
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async {
+    lastRestoreTargetChatId = targetChatId;
+    lastRestoreOverwriteExisting = overwriteExisting;
     if (throwOnRestore) throw StateError('restore failed');
     if (!_archivesById.containsKey(archiveId.value)) {
       return ArchiveOperationResult.failure(

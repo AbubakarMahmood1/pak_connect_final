@@ -67,6 +67,70 @@ Before finishing a multi-step task:
 
 ---
 
+# Atomic archive restore (Codex, 2026-07-13)
+
+## Goal
+
+Make restore all-or-preserve: either the selected archived snapshot becomes a
+complete live chat and the archive is removed, or every live/archive row stays
+as it was before the attempt.
+
+## Constraints
+
+- Preserve archive-field decoding before writing live-message rows.
+- Treat overwrite as permission to replace only the selected target chat.
+- A message-ID collision outside that target must fail the whole restore.
+- Do not delete the archive until every live row is committed successfully.
+- Keep schema and migration semantics unchanged.
+
+## Facts
+
+- Current restore saves messages one at a time through forgiving upsert logic
+  and deletes the archive after any partial success.
+- Archive rows and live rows have different identity, timestamp, target-chat,
+  JSON-validation, and audit-timestamp semantics, so raw `INSERT ... SELECT`
+  is not a valid restore path. Current archive field wrappers are pass-through;
+  intended mobile at-rest encryption is provided by SQLCipher.
+- The detail/dialog double-owner restore flow is already fixed separately.
+
+## Approach
+
+1. Extend the repository contract with target/overwrite arguments.
+2. Decode and validate the complete archive before mutation.
+3. In one SQLite transaction, revalidate counts, enforce target conflicts,
+   reconstruct the chat, strictly insert every decoded message, and delete the
+   archive only after exact row-count checks.
+4. Prove rollback, collision, overwrite, custom-target and corrupt-count paths
+   with SQLite-backed tests.
+
+## Verification
+
+- Focused archive repository/service/provider tests.
+- `flutter analyze`.
+- Full suite and Android debug APK before promoting a new device baseline.
+
+## Risks
+
+- Archive/live schemas do not store identical representations; mapping must be
+  explicit and strict.
+- Existing tests that recreate an empty target chat must opt into overwrite or
+  stop creating a conflicting target.
+
+## Status
+
+- **Complete:** repository target/overwrite contract, strict row validation,
+  single SQLite transaction, original-message-ID restoration, service
+  forwarding/event identity, and regenerated mock contract.
+- **Regression evidence:** nine SQLite-backed atomic tests cover implicit
+  conflict rejection, explicit overwrite, overwrite rollback, new-target
+  rollback, cross-chat ID collision, custom target rewrite, stored/actual
+  count mismatch, malformed JSON, contact-FK retention/fallback, and archive
+  child cleanup. Existing archive mapping semantics remain unchanged.
+- **Remaining verification:** full suite and Android debug APK are required
+  before promoting a new device-test baseline.
+
+---
+
 # Canonical publication + duplicate-clone retirement (Codex, 2026-07-13)
 
 ## Goal

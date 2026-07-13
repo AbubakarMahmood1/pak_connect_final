@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
+import 'package:sqflite_sqlcipher/sqflite.dart' show ConflictAlgorithm;
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/enhanced_message.dart';
@@ -221,70 +222,191 @@ class ArchiveRepository implements IArchiveRepository {
 
   /// Restore an archived chat
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async {
     final startTime = DateTime.now();
 
     try {
       _logger.info('Starting restore operation for archive: $archiveId');
 
-      // Get archived chat
-      final archivedChat = await getArchivedChat(archiveId);
-      if (archivedChat == null) {
-        return ArchiveOperationResult.failure(
-          message: 'Archive not found: $archiveId',
-          operationType: ArchiveOperationType.restore,
-          operationTime: DateTime.now().difference(startTime),
+      final db = await DatabaseHelper.database;
+      final restoreOutcome = await db.transaction((txn) async {
+        final archiveRows = await txn.query(
+          'archived_chats',
+          where: 'archive_id = ?',
+          whereArgs: [archiveId.value],
+          limit: 1,
         );
-      }
-
-      // Check restoration compatibility
-      final preview = archivedChat.getRestorationPreview();
-      final warnings = List<String>.from(preview.warnings);
-
-      // Decompress if necessary
-      ArchivedChat workingArchive = archivedChat;
-      if (archivedChat.isCompressed) {
-        workingArchive = await _decompressArchive(archivedChat);
-      }
-
-      // Restore messages
-      int restoredCount = 0;
-      for (final archivedMessage in workingArchive.messages) {
-        try {
-          final restoredMessage = archivedMessage.toRestoredMessage();
-          await _messageRepository.saveMessage(restoredMessage);
-          restoredCount++;
-        } catch (e) {
-          _logger.warning(
-            'Failed to restore message ${archivedMessage.id}: $e',
-          );
-          warnings.add('Some messages could not be restored');
+        if (archiveRows.isEmpty) {
+          throw StateError('Archive not found: $archiveId');
         }
-      }
 
-      if (restoredCount == 0) {
-        return ArchiveOperationResult.failure(
-          message: 'No messages could be restored from archive',
-          operationType: ArchiveOperationType.restore,
-          operationTime: DateTime.now().difference(startTime),
+        final archiveRow = archiveRows.single;
+        final messageRows = await txn.query(
+          'archived_messages',
+          where: 'archive_id = ?',
+          whereArgs: [archiveId.value],
+          orderBy: 'timestamp ASC',
         );
-      }
+        _validateArchiveRowsForRestore(archiveRow, messageRows);
+
+        final archivedMessages = messageRows
+            .map(_mapToArchivedMessage)
+            .toList(growable: false);
+        final archivedChat = _mapToArchivedChat(archiveRow, archivedMessages);
+        final effectiveTarget = targetChatId ?? archivedChat.originalChatId;
+        if (effectiveTarget.value.trim().isEmpty) {
+          throw StateError('Restore target chat ID cannot be empty');
+        }
+
+        final storedMessageCount = archiveRow['message_count'] as int;
+        if (storedMessageCount == 0 ||
+            storedMessageCount != messageRows.length ||
+            storedMessageCount != archivedMessages.length) {
+          throw StateError(
+            'Archive message count mismatch: expected $storedMessageCount, '
+            'found ${messageRows.length}',
+          );
+        }
+
+        final restoredIds = messageRows
+            .map(_restoredMessageIdForRow)
+            .toList(growable: false);
+        if (restoredIds.toSet().length != restoredIds.length) {
+          throw StateError('Archive contains duplicate restored message IDs');
+        }
+
+        final targetRows = await txn.query(
+          'chats',
+          columns: ['chat_id'],
+          where: 'chat_id = ?',
+          whereArgs: [effectiveTarget.value],
+          limit: 1,
+        );
+        final targetExists = targetRows.isNotEmpty;
+        if (targetExists && !overwriteExisting) {
+          throw StateError(
+            'Target chat already exists: ${effectiveTarget.value}',
+          );
+        }
+
+        final restoredAt = DateTime.now().millisecondsSinceEpoch;
+        final liveMessageRows = <Map<String, Object?>>[];
+        for (var index = 0; index < archivedMessages.length; index++) {
+          liveMessageRows.add(
+            _dataHelper.restoredMessageToMap(
+              archivedMessages[index],
+              MessageId(restoredIds[index]),
+              effectiveTarget,
+              restoredAt,
+            ),
+          );
+        }
+
+        String? contactPublicKey = archivedChat.contactPublicKey;
+        var contactWasUnlinked = false;
+        if (contactPublicKey != null) {
+          final contactRows = await txn.query(
+            'contacts',
+            columns: ['public_key'],
+            where: 'public_key = ?',
+            whereArgs: [contactPublicKey],
+            limit: 1,
+          );
+          if (contactRows.isEmpty) {
+            contactPublicKey = null;
+            contactWasUnlinked = true;
+          }
+        }
+
+        if (targetExists) {
+          final deleted = await txn.delete(
+            'chats',
+            where: 'chat_id = ?',
+            whereArgs: [effectiveTarget.value],
+          );
+          if (deleted != 1) {
+            throw StateError('Failed to replace existing target chat');
+          }
+        }
+
+        final lastMessage = archivedMessages.reduce(
+          (current, next) =>
+              next.originalTimestamp.isAfter(current.originalTimestamp)
+              ? next
+              : current,
+        );
+        await txn.insert('chats', <String, Object?>{
+          'chat_id': effectiveTarget.value,
+          'contact_public_key': contactPublicKey,
+          'contact_name': archivedChat.contactName,
+          'last_message': lastMessage.content,
+          'last_message_time':
+              lastMessage.originalTimestamp.millisecondsSinceEpoch,
+          'unread_count': archivedChat.metadata.originalUnreadCount,
+          'is_archived': 0,
+          'is_muted': 0,
+          'is_pinned': 0,
+          'created_at': restoredAt,
+          'updated_at': restoredAt,
+        }, conflictAlgorithm: ConflictAlgorithm.abort);
+
+        for (final messageRow in liveMessageRows) {
+          await txn.insert(
+            'messages',
+            messageRow,
+            conflictAlgorithm: ConflictAlgorithm.abort,
+          );
+        }
+
+        final restoredCountRows = await txn.rawQuery(
+          'SELECT COUNT(*) AS count FROM messages WHERE chat_id = ?',
+          [effectiveTarget.value],
+        );
+        final restoredCount = restoredCountRows.single['count'] as int;
+        if (restoredCount != storedMessageCount) {
+          throw StateError(
+            'Restored message count mismatch: expected $storedMessageCount, '
+            'found $restoredCount',
+          );
+        }
+
+        final deletedArchiveCount = await txn.delete(
+          'archived_chats',
+          where: 'archive_id = ?',
+          whereArgs: [archiveId.value],
+        );
+        if (deletedArchiveCount != 1) {
+          throw StateError('Archive source could not be deleted after restore');
+        }
+
+        return (
+          archivedChat: archivedChat,
+          effectiveTarget: effectiveTarget,
+          restoredCount: restoredCount,
+          targetWasOverwritten: targetExists,
+          contactWasUnlinked: contactWasUnlinked,
+        );
+      });
 
       final operationTime = DateTime.now().difference(startTime);
       _recordOperationTime('restore', operationTime);
 
       _logger.info(
-        'Successfully restored $restoredCount messages from archive $archiveId',
+        'Successfully restored ${restoreOutcome.restoredCount} messages from '
+        'archive $archiveId to ${restoreOutcome.effectiveTarget}',
       );
 
-      // Delete archive + cascade archived messages now that data is restored
-      final db = await DatabaseHelper.database;
-      await db.delete(
-        'archived_chats',
-        where: 'archive_id = ?',
-        whereArgs: [archiveId.value],
-      );
-      _logger.info('Archive $archiveId deleted after restoration');
+      final preview = restoreOutcome.archivedChat.getRestorationPreview();
+      final warnings = List<String>.from(preview.warnings);
+      if (restoreOutcome.contactWasUnlinked) {
+        warnings.add(
+          'The archived contact no longer exists; the restored chat is unlinked.',
+        );
+      }
 
       return ArchiveOperationResult.success(
         message: 'Chat restored successfully',
@@ -292,15 +414,22 @@ class ArchiveRepository implements IArchiveRepository {
         archiveId: archiveId,
         operationTime: operationTime,
         metadata: {
-          'restoredMessages': restoredCount,
-          'totalMessages': workingArchive.messageCount,
-          'wasCompressed': archivedChat.isCompressed,
+          'restoredMessages': restoreOutcome.restoredCount,
+          'totalMessages': restoreOutcome.archivedChat.messageCount,
+          'wasCompressed': restoreOutcome.archivedChat.isCompressed,
+          'targetChatId': restoreOutcome.effectiveTarget.value,
+          'overwroteExisting': restoreOutcome.targetWasOverwritten,
         },
         warnings: warnings,
       );
     } catch (e) {
       final operationTime = DateTime.now().difference(startTime);
-      _logger.severe('Restore operation failed for $archiveId: $e');
+      final failureMessage = 'Restore operation failed for $archiveId: $e';
+      if (e is StateError || e is FormatException) {
+        _logger.warning(failureMessage);
+      } else {
+        _logger.severe(failureMessage);
+      }
 
       return ArchiveOperationResult.failure(
         message: 'Failed to restore chat: $e',
@@ -310,6 +439,123 @@ class ArchiveRepository implements IArchiveRepository {
           'archiveId': archiveId,
         }),
       );
+    }
+  }
+
+  void _validateArchiveRowsForRestore(
+    Map<String, Object?> archiveRow,
+    List<Map<String, Object?>> messageRows,
+  ) {
+    _validateJsonField(
+      archiveRow,
+      'metadata_json',
+      expectList: false,
+      encrypted: true,
+    );
+    _validateJsonField(archiveRow, 'compression_info_json', expectList: false);
+    _validateJsonField(
+      archiveRow,
+      'custom_data_json',
+      expectList: false,
+      encrypted: true,
+    );
+
+    for (final row in messageRows) {
+      final messageId =
+          (row['original_message_id'] as String?) ?? row['id'] as String;
+      if (messageId.trim().isEmpty) {
+        throw const FormatException('Restored message ID cannot be empty');
+      }
+
+      final status = row['status'] as int;
+      if (status < 0 || status >= MessageStatus.values.length) {
+        throw FormatException('Invalid message status for $messageId');
+      }
+      final priority = row['priority'] as int? ?? 1;
+      if (priority < 0 || priority >= MessagePriority.values.length) {
+        throw FormatException('Invalid message priority for $messageId');
+      }
+
+      final content = row['content'] as String;
+      if (ArchiveCrypto.isUnsupportedLegacyCiphertext(content)) {
+        throw FormatException(
+          'Unsupported legacy archive content for $messageId',
+        );
+      }
+      final originalContent = row['original_content'] as String?;
+      if (originalContent != null &&
+          ArchiveCrypto.isUnsupportedLegacyCiphertext(originalContent)) {
+        throw FormatException(
+          'Unsupported legacy original content for $messageId',
+        );
+      }
+
+      _validateJsonField(
+        row,
+        'metadata_json',
+        expectList: false,
+        encrypted: true,
+      );
+      _validateJsonField(
+        row,
+        'delivery_receipt_json',
+        expectList: false,
+        encrypted: true,
+      );
+      _validateJsonField(
+        row,
+        'read_receipt_json',
+        expectList: false,
+        encrypted: true,
+      );
+      _validateJsonField(
+        row,
+        'reactions_json',
+        expectList: true,
+        encrypted: true,
+      );
+      _validateJsonField(
+        row,
+        'attachments_json',
+        expectList: true,
+        encrypted: true,
+      );
+      _validateJsonField(row, 'encryption_info_json', expectList: false);
+      _validateJsonField(
+        row,
+        'archive_metadata_json',
+        expectList: false,
+        encrypted: true,
+      );
+      _validateJsonField(
+        row,
+        'preserved_state_json',
+        expectList: false,
+        encrypted: true,
+      );
+    }
+  }
+
+  String _restoredMessageIdForRow(Map<String, Object?> row) =>
+      (row['original_message_id'] as String?) ?? row['id'] as String;
+
+  void _validateJsonField(
+    Map<String, Object?> row,
+    String fieldName, {
+    required bool expectList,
+    bool encrypted = false,
+  }) {
+    final rawValue = row[fieldName] as String?;
+    if (rawValue == null || rawValue.isEmpty) {
+      return;
+    }
+    if (encrypted && ArchiveCrypto.isUnsupportedLegacyCiphertext(rawValue)) {
+      throw FormatException('Unsupported legacy archive field: $fieldName');
+    }
+    final value = encrypted ? ArchiveCrypto.decryptField(rawValue) : rawValue;
+    final decoded = jsonDecode(value);
+    if (expectList ? decoded is! List : decoded is! Map) {
+      throw FormatException('Invalid archive field shape for $fieldName');
     }
   }
 
@@ -763,9 +1009,6 @@ class ArchiveRepository implements IArchiveRepository {
 
   Future<ArchivedChat> _compressArchive(ArchivedChat archive) =>
       _mappingHelper.compressArchive(archive);
-
-  Future<ArchivedChat> _decompressArchive(ArchivedChat archive) =>
-      _mappingHelper.decompressArchive(archive);
 
   void _recordOperationTime(String operation, Duration time) =>
       _mappingHelper.recordOperationTime(operation, time);

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import '../../domain/entities/archived_message.dart';
 import '../../domain/entities/archived_chat.dart';
+import '../../domain/entities/enhanced_message.dart';
 import '../../domain/values/id_types.dart';
 import '../../domain/services/archive_crypto.dart';
 
@@ -113,6 +114,63 @@ class ArchiveDataHelper {
       'custom_data_json': encryptedCustomData,
       'created_at': DateTime.now().millisecondsSinceEpoch,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
+    };
+  }
+
+  /// Builds a live-message row from already decrypted archive data.
+  ///
+  /// JSON encoding is intentionally strict: an unserializable field must abort
+  /// the enclosing restore transaction instead of silently losing data.
+  Map<String, Object?> restoredMessageToMap(
+    ArchivedMessage archivedMessage,
+    MessageId restoredMessageId,
+    ChatId targetChatId,
+    int restoredAt,
+  ) {
+    final EnhancedMessage message = archivedMessage.toRestoredMessage(
+      newChatId: targetChatId,
+    );
+
+    return <String, Object?>{
+      'id': restoredMessageId.value,
+      'chat_id': targetChatId.value,
+      'content': message.content,
+      'timestamp': message.timestamp.millisecondsSinceEpoch,
+      'is_from_me': message.isFromMe ? 1 : 0,
+      'status': message.status.index,
+      'reply_to_message_id': message.replyToMessageId?.value,
+      'thread_id': message.threadId,
+      'is_starred': message.isStarred ? 1 : 0,
+      'is_forwarded': message.isForwarded ? 1 : 0,
+      'priority': message.priority.index,
+      'edited_at': message.editedAt?.millisecondsSinceEpoch,
+      'original_content': message.originalContent,
+      'has_media': message.attachments.isNotEmpty ? 1 : 0,
+      'media_type': message.attachments.isNotEmpty
+          ? message.attachments.first.type.toString().split('.').last
+          : null,
+      'metadata_json': message.metadata != null
+          ? jsonEncode(message.metadata)
+          : null,
+      'delivery_receipt_json': message.deliveryReceipt != null
+          ? jsonEncode(message.deliveryReceipt!.toJson())
+          : null,
+      'read_receipt_json': message.readReceipt != null
+          ? jsonEncode(message.readReceipt!.toJson())
+          : null,
+      'reactions_json': message.reactions.isNotEmpty
+          ? jsonEncode(message.reactions.map((item) => item.toJson()).toList())
+          : null,
+      'attachments_json': message.attachments.isNotEmpty
+          ? jsonEncode(
+              message.attachments.map((item) => item.toJson()).toList(),
+            )
+          : null,
+      'encryption_info_json': message.encryptionInfo != null
+          ? jsonEncode(message.encryptionInfo!.toJson())
+          : null,
+      'created_at': restoredAt,
+      'updated_at': restoredAt,
     };
   }
 

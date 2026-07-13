@@ -20,8 +20,15 @@ abstract class IArchiveRepository {
     bool compressLargeArchives = true,
   });
 
-  /// Restore a chat from archives
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId);
+  /// Restore a chat from archives.
+  ///
+  /// Existing live chats are preserved unless [overwriteExisting] is explicit.
+  /// [targetChatId] allows restoring under a different live chat identity.
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  });
 
   /// Get count of archived chats
   Future<int> getArchivedChatsCount();

@@ -69,69 +69,6 @@ class _ArchiveRepositoryMappingHelper {
     }
   }
 
-  Future<ArchivedChat> decompressArchive(ArchivedChat archive) async {
-    try {
-      // Check if archive is actually compressed
-      if (!archive.isCompressed || archive.customData == null) {
-        ArchiveRepository._logger.fine(
-          'Archive ${archive.id} is not compressed, returning as-is',
-        );
-        return archive;
-      }
-
-      final customData = archive.customData!;
-      final compressedBase64 =
-          customData['_compressed_messages_blob'] as String?;
-      final originalSize = customData['_compression_original_size'] as int?;
-
-      if (compressedBase64 == null) {
-        ArchiveRepository._logger.warning(
-          'Archive ${archive.id} marked as compressed but no compressed data found',
-        );
-        return archive;
-      }
-
-      ArchiveRepository._logger.info('Decompressing archive ${archive.id}');
-
-      // Decode base64 and decompress
-      final compressedData = base64Decode(compressedBase64);
-      final decompressed = CompressionUtil.decompress(
-        Uint8List.fromList(compressedData),
-        originalSize: originalSize,
-        config: CompressionConfig.aggressive,
-      );
-
-      if (decompressed == null) {
-        ArchiveRepository._logger.severe(
-          'Failed to decompress archive ${archive.id}, using stored messages',
-        );
-        return archive;
-      }
-
-      // Deserialize messages from decompressed JSON
-      final messagesJson = utf8.decode(decompressed);
-      final messagesList = jsonDecode(messagesJson) as List<dynamic>;
-      final messages = messagesList
-          .map((m) => ArchivedMessage.fromJson(m as Map<String, dynamic>))
-          .toList();
-
-      ArchiveRepository._logger.info(
-        'Archive ${archive.id} decompressed: ${messages.length} messages restored',
-      );
-
-      // Return archive with decompressed messages
-      // Remove compression info since we're working with uncompressed data now
-      return archive.copyWith(messages: messages);
-    } catch (e, stackTrace) {
-      ArchiveRepository._logger.severe(
-        'Decompression failed for archive ${archive.id}, using stored messages: $e',
-        e,
-        stackTrace,
-      );
-      return archive; // Fall back to stored messages
-    }
-  }
-
   void recordOperationTime(String operation, Duration time) {
     _owner._storageUtils.recordOperationTime(operation, time);
   }

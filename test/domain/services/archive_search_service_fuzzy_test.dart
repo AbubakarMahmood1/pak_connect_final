@@ -53,8 +53,11 @@ class _FakeArchiveRepository implements IArchiveRepository {
     bool compressLargeArchives = true,
   }) async => throw UnimplementedError();
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
-      throw UnimplementedError();
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async => throw UnimplementedError();
   @override
   Future<int> getArchivedChatsCount() async => 0;
   @override

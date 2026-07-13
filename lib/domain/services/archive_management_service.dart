@@ -369,7 +369,14 @@ class ArchiveManagementService {
       }
 
       // Perform the restore operation
-      final result = await _archiveRepository.restoreChat(archiveId);
+      final effectiveTargetChatId = targetChatId != null
+          ? ChatId(targetChatId)
+          : archive.originalChatId;
+      final result = await _archiveRepository.restoreChat(
+        archiveId,
+        targetChatId: effectiveTargetChatId,
+        overwriteExisting: overwriteExisting,
+      );
 
       if (result.success) {
         // Post-restore business logic
@@ -377,7 +384,7 @@ class ArchiveManagementService {
 
         // Emit update event
         _emitArchiveUpdate(
-          ArchiveUpdateEvent.restored(archiveId, archive.originalChatId.value),
+          ArchiveUpdateEvent.restored(archiveId, effectiveTargetChatId.value),
         );
 
         // Update metrics

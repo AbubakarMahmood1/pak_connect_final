@@ -633,7 +633,11 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }
 
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async {
     if (!_archivesById.containsKey(archiveId.value)) {
       return ArchiveOperationResult.failure(
         message: 'missing archive',
