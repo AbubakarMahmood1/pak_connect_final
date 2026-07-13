@@ -1,11 +1,15 @@
 name: "CodeQL Analysis"
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
   schedule:
     - cron: "0 2 * * 0" # Weekly Sunday at 2am UTC
+  workflow_dispatch:
 
 jobs:
   analyze-java-kotlin:
@@ -43,7 +47,7 @@ jobs:
           channel: stable
 
       - name: Generate local.properties and resolve dependencies
-        run: flutter pub get
+        run: flutter pub get --enforce-lockfile
 
       - name: Build Android project
         working-directory: android
