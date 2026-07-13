@@ -48,7 +48,9 @@ abstract class IArchiveRepository {
   });
 
   /// Permanently delete an archive
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId);
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    ArchiveId archivedChatId,
+  );
 
   /// Get archive statistics
   Future<ArchiveStatistics?> getArchiveStatistics();

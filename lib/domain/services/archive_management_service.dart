@@ -312,6 +312,16 @@ class ArchiveManagementService {
       throw StateError('Archive management service not initialized');
     }
 
+    final operationKey = 'archive:${archiveId.value}';
+    if (_operationsInProgress.contains(operationKey)) {
+      return ArchiveOperationResult.failure(
+        message: 'Another operation is already in progress for this archive',
+        operationType: ArchiveOperationType.restore,
+        operationTime: Duration.zero,
+      );
+    }
+
+    _operationsInProgress.add(operationKey);
     try {
       _logger.info(
         'Starting managed restore operation for archive: $archiveId',
@@ -390,6 +400,61 @@ class ArchiveManagementService {
           'archiveId': archiveId,
         }),
       );
+    } finally {
+      _operationsInProgress.remove(operationKey);
+    }
+  }
+
+  /// Permanently delete an archived chat and publish the resulting update.
+  Future<ArchiveOperationResult> deleteArchivedChat(ArchiveId archiveId) async {
+    if (!_isInitialized) {
+      throw StateError('Archive management service not initialized');
+    }
+
+    final operationKey = 'archive:${archiveId.value}';
+    if (_operationsInProgress.contains(operationKey)) {
+      return ArchiveOperationResult.failure(
+        message: 'Another operation is already in progress for this archive',
+        operationType: ArchiveOperationType.delete,
+        operationTime: Duration.zero,
+      );
+    }
+
+    _operationsInProgress.add(operationKey);
+    try {
+      _logger.info('Starting managed delete operation for archive: $archiveId');
+      final archive = await _archiveRepository.getArchivedChat(archiveId);
+      if (archive == null) {
+        return ArchiveOperationResult.failure(
+          message: 'Archive not found: $archiveId',
+          operationType: ArchiveOperationType.delete,
+          operationTime: Duration.zero,
+        );
+      }
+
+      final result = await _archiveRepository.permanentlyDeleteArchive(
+        archiveId,
+      );
+      if (result.success) {
+        _emitArchiveUpdate(
+          ArchiveUpdateEvent.deleted(archiveId, archive.originalChatId.value),
+        );
+        await _updateArchiveMetrics(ArchiveOperationType.delete, result);
+        _logger.info('Successfully deleted archive $archiveId');
+      }
+      return result;
+    } catch (e) {
+      _logger.severe('Managed delete operation failed for $archiveId: $e');
+      return ArchiveOperationResult.failure(
+        message: 'Delete operation failed: $e',
+        operationType: ArchiveOperationType.delete,
+        operationTime: Duration.zero,
+        error: ArchiveError.storageError('Managed delete failed', {
+          'archiveId': archiveId,
+        }),
+      );
+    } finally {
+      _operationsInProgress.remove(operationKey);
     }
   }
 

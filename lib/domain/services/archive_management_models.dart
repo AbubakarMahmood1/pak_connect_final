@@ -389,9 +389,14 @@ class ArchiveUpdateEvent {
     : timestamp = DateTime.now(),
       type = ArchiveUpdateEventType.restored,
       reason = null;
+
+  ArchiveUpdateEvent.deleted(this.archiveId, this.chatId)
+    : timestamp = DateTime.now(),
+      type = ArchiveUpdateEventType.deleted,
+      reason = null;
 }
 
-enum ArchiveUpdateEventType { archived, restored }
+enum ArchiveUpdateEventType { archived, restored, deleted }
 
 class ArchiveMaintenanceEvent {
   final DateTime timestamp;

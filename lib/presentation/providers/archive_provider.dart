@@ -13,6 +13,7 @@ import 'di_providers.dart';
 
 /// Logger for archive provider
 final _logger = Logger('ArchiveProvider');
+const _archiveOperationUnset = Object();
 
 /// Archive management service provider (singleton)
 /// ✅ FIXED: Uses singleton instance instead of creating new instances
@@ -212,7 +213,7 @@ class ArchiveOperationsState {
     bool? isArchiving,
     bool? isRestoring,
     bool? isDeleting,
-    String? currentOperation,
+    Object? currentOperation = _archiveOperationUnset,
     Map<String, double>? operationProgress,
     List<String>? recentErrors,
     List<String>? recentSuccesses,
@@ -221,7 +222,9 @@ class ArchiveOperationsState {
       isArchiving: isArchiving ?? this.isArchiving,
       isRestoring: isRestoring ?? this.isRestoring,
       isDeleting: isDeleting ?? this.isDeleting,
-      currentOperation: currentOperation ?? this.currentOperation,
+      currentOperation: identical(currentOperation, _archiveOperationUnset)
+          ? this.currentOperation
+          : currentOperation as String?,
       operationProgress: operationProgress ?? this.operationProgress,
       recentErrors: recentErrors ?? this.recentErrors,
       recentSuccesses: recentSuccesses ?? this.recentSuccesses,
@@ -256,16 +259,38 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
   }
 
   void _handleArchiveUpdateEvent(ArchiveUpdateEvent event) {
-    // Handle different types of archive update events
+    final isArchiving = event.type == ArchiveUpdateEventType.archived
+        ? false
+        : state.isArchiving;
+    final isRestoring = event.type == ArchiveUpdateEventType.restored
+        ? false
+        : state.isRestoring;
+    final isDeleting = event.type == ArchiveUpdateEventType.deleted
+        ? false
+        : state.isDeleting;
+    final message = switch (event.type) {
+      ArchiveUpdateEventType.archived => 'Archived chat ${event.chatId}',
+      ArchiveUpdateEventType.restored => 'Restored archive ${event.archiveId}',
+      ArchiveUpdateEventType.deleted => 'Deleted archive ${event.archiveId}',
+    };
+
     state = state.copyWith(
-      isArchiving: false,
-      isRestoring: false,
-      currentOperation: null,
-      recentSuccesses: [
-        ...state.recentSuccesses,
-        'Archive operation completed',
-      ],
+      isArchiving: isArchiving,
+      isRestoring: isRestoring,
+      isDeleting: isDeleting,
+      currentOperation: isArchiving || isRestoring || isDeleting
+          ? state.currentOperation
+          : null,
+      recentSuccesses: _appendSuccess(message),
     );
+  }
+
+  List<String> _appendSuccess(String message) {
+    if (state.recentSuccesses.isNotEmpty &&
+        state.recentSuccesses.last == message) {
+      return state.recentSuccesses;
+    }
+    return [...state.recentSuccesses, message];
   }
 
   /// Debounced search to avoid hammering DB on each keystroke
@@ -389,17 +414,22 @@ class ArchiveOperationsNotifier extends Notifier<ArchiveOperationsState> {
     );
 
     try {
-      // For now, we'll simulate deletion - proper API would be needed
-      await Future.delayed(Duration(milliseconds: 500)); // Simulate operation
-      // Would actually delete through proper API and get real result
+      final managementService = ref.read(archiveManagementServiceProvider);
+      final result = await managementService.deleteArchivedChat(archiveId);
+
+      if (!result.success) {
+        state = state.copyWith(
+          isDeleting: false,
+          currentOperation: null,
+          recentErrors: [...state.recentErrors, result.message],
+        );
+        return false;
+      }
 
       state = state.copyWith(
         isDeleting: false,
         currentOperation: null,
-        recentSuccesses: [
-          ...state.recentSuccesses,
-          'Deleted archive $archiveId',
-        ],
+        recentSuccesses: _appendSuccess('Deleted archive $archiveId'),
       );
 
       return true;

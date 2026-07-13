@@ -439,13 +439,19 @@ class MockIArchiveRepository extends _i1.Mock
           as _i6.Future<_i2.ArchiveSearchResult>);
 
   @override
-  _i6.Future<void> permanentlyDeleteArchive(_i10.ArchiveId? archivedChatId) =>
+  _i6.Future<_i2.ArchiveOperationResult> permanentlyDeleteArchive(
+    _i10.ArchiveId? archivedChatId,
+  ) =>
       (super.noSuchMethod(
             Invocation.method(#permanentlyDeleteArchive, [archivedChatId]),
-            returnValue: _i6.Future<void>.value(),
-            returnValueForMissingStub: _i6.Future<void>.value(),
+            returnValue: _i6.Future<_i2.ArchiveOperationResult>.value(
+              _FakeArchiveOperationResult_0(
+                this,
+                Invocation.method(#permanentlyDeleteArchive, [archivedChatId]),
+              ),
+            ),
           )
-          as _i6.Future<void>);
+          as _i6.Future<_i2.ArchiveOperationResult>);
 
   @override
   _i6.Future<_i2.ArchiveStatistics?> getArchiveStatistics() =>
@@ -580,6 +586,21 @@ class MockArchiveManagementService extends _i1.Mock
                   #overwriteExisting: overwriteExisting,
                   #targetChatId: targetChatId,
                 }),
+              ),
+            ),
+          )
+          as _i6.Future<_i2.ArchiveOperationResult>);
+
+  @override
+  _i6.Future<_i2.ArchiveOperationResult> deleteArchivedChat(
+    _i10.ArchiveId? archiveId,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteArchivedChat, [archiveId]),
+            returnValue: _i6.Future<_i2.ArchiveOperationResult>.value(
+              _FakeArchiveOperationResult_0(
+                this,
+                Invocation.method(#deleteArchivedChat, [archiveId]),
               ),
             ),
           )
