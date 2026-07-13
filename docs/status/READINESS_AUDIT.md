@@ -19,9 +19,9 @@ radio behavior, mobile SQLCipher bytes at rest, OS background behavior,
 release signing and installation still require external evidence.
 
 The exact verified code/build-input tree is committed as
-`9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`) on
-`codex/reconcile-pakconnect`. A documentation-only descendant is acceptable
-only when its build-input diff from that commit is empty. The former
+`9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`) on public `main` via
+merged PR #71. A documentation-only descendant is acceptable only when its
+build-input diff from that commit is empty. The former
 `a5c2b08` baseline remains historical provenance. Candidate `fcb3013` is also
 historical because Flutter 3.44 analysis required an equivalent null-aware
 syntax cleanup now included in `9cccd01`.
