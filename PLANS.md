@@ -67,6 +67,77 @@ Before finishing a multi-step task:
 
 ---
 
+# Target-bound BLE reconnect (Codex, 2026-07-13)
+
+## Goal
+
+Make automatic reconnect after link loss or Bluetooth power cycling retry only
+the previously connected platform peripheral, while preserving that target
+through cleanup and cancelling delayed reconnect work when state changes.
+
+## Constraints
+
+- Preserve the existing dual-role, collision-resolution, and handshake flows.
+- Do not infer a cryptographic identity from a platform peripheral UUID.
+- Never auto-connect to a different service advertiser when the expected UUID
+  is absent; timeout is the safe outcome.
+- Keep manual chat reconnect identity verification unchanged.
+- No claim that platform peripheral UUIDs remain stable across every Android
+  power cycle until two-device hardware evidence exists.
+
+## Facts
+
+- Power-off handling saves `_lastConnectedDevice` and then cleanup immediately
+  clears it.
+- Starting monitoring while disconnected overwrites the saved target with
+  `null`.
+- The reconnect scan currently accepts the first service advertiser, even when
+  it is not the previous peripheral.
+- The policy's 800 ms resume timer is not owned/cancelled on later state changes
+  or manager disposal.
+
+## Approach
+
+1. Preserve a non-null last target through monitoring startup and monitored
+   cleanup; explicitly restore it after power-off cleanup.
+2. Add a target-bound scan that ignores nonmatching advertisers and returns
+   `null` on timeout.
+3. Route automatic health-monitor reconnect through that target-bound scan;
+   leave the generic/manual scan behavior intact.
+4. Own and cancel the delayed power-on timer on state transitions, explicit
+   monitoring stop, and disposal.
+5. Prove target preservation, wrong-then-right filtering, timeout, and timer
+   cancellation with focused tests before broader BLE verification.
+
+## Verification
+
+- Reconnect-policy and BLE connection-manager tests.
+- Connection-health-monitor and BLE service/facade tests.
+- `flutter analyze --no-pub`.
+- Full suite and Android debug APK before device-baseline promotion.
+
+## Risks
+
+- Android may rotate the exposed peripheral UUID after power state changes;
+  this patch must fail closed rather than dial an unrelated advertiser.
+- Reconnect retries must remain live after a failed dial without reviving work
+  after an explicit stop or dispose.
+
+## Status
+
+- **Complete:** last-target preservation, target-bound service scan, false-link
+  success rejection, retry-preserving failure cleanup, and owned/cancellable
+  power-on restart timer.
+- **Regression evidence:** 39 focused manager/health/policy tests and 213
+  affected BLE service/facade tests pass; analyzer is clean.
+- **Device boundary:** validate whether each Android phone keeps the same
+  exposed peripheral UUID across Bluetooth off/on. Rotation must produce a
+  safe timeout/manual identity-verified reconnect, not first-advertiser dial.
+- **Remaining verification:** full suite and Android debug APK are required
+  before promoting a new device-test baseline.
+
+---
+
 # Atomic archive restore (Codex, 2026-07-13)
 
 ## Goal

@@ -14,11 +14,17 @@ class ConnectionHealthMonitor {
   final int maxInterval;
   final int healthCheckInterval;
   final Peripheral? Function() getConnectedDevice;
+  final Peripheral? Function() getReconnectTarget;
   final GATTCharacteristic? Function() getMessageCharacteristic;
   final bool Function() hasBleConnection;
   final Future<void> Function({bool keepMonitoring}) clearConnectionState;
-  final Future<Peripheral?> Function({Duration timeout}) scanForSpecificDevice;
+  final Future<Peripheral?> Function({
+    required String expectedPeripheralUuid,
+    Duration timeout,
+  })
+  scanForReconnectTarget;
   final Future<void> Function(Peripheral device) connectToDevice;
+  final bool Function(String expectedPeripheralUuid) hasReconnectTargetLink;
   final bool Function() hasViableRelayConnection;
   final void Function(bool active)? onMonitoringChanged;
   final void Function(bool isReconnection)? onReconnectionFlagChanged;
@@ -40,6 +46,7 @@ class ConnectionHealthMonitor {
   bool _awaitingHandshake = false;
   bool _isReconnection = false;
   ConnectionMonitorState _monitorState = ConnectionMonitorState.idle;
+  int _lifecycleGeneration = 0;
 
   ConnectionHealthMonitor({
     required Logger logger,
@@ -49,11 +56,13 @@ class ConnectionHealthMonitor {
     required this.maxReconnectAttempts,
     required this.healthCheckInterval,
     required this.getConnectedDevice,
+    required this.getReconnectTarget,
     required this.getMessageCharacteristic,
     required this.hasBleConnection,
     required this.clearConnectionState,
-    required this.scanForSpecificDevice,
+    required this.scanForReconnectTarget,
     required this.connectToDevice,
+    required this.hasReconnectTargetLink,
     required this.hasViableRelayConnection,
     this.onMonitoringChanged,
     this.onReconnectionFlagChanged,
@@ -97,6 +106,7 @@ class ConnectionHealthMonitor {
   }
 
   void stop() {
+    _lifecycleGeneration++;
     _isMonitoring = false;
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
@@ -105,6 +115,7 @@ class ConnectionHealthMonitor {
     _healthCheckGraceUntil = null;
     _awaitingHandshake = false;
     _reconnectAttempts = 0;
+    _setReconnectionFlag(false);
     onMonitoringChanged?.call(false);
     _logger.info('Monitoring stopped');
   }
@@ -297,12 +308,12 @@ class ConnectionHealthMonitor {
       } catch (_) {}
 
       await clearConnectionState(keepMonitoring: true);
-      _isReconnection = true;
-      onReconnectionFlagChanged?.call(true);
+      _setReconnectionFlag(true);
     }
   }
 
   Future<void> _attemptReconnection() async {
+    final attemptGeneration = _lifecycleGeneration;
     if (_isCollisionResolving?.call() ?? false) {
       _logger.fine(
         '⏸️ Skipping reconnection attempt during collision resolution',
@@ -317,6 +328,7 @@ class ConnectionHealthMonitor {
       _reconnectAttempts = 0;
       _monitorState = ConnectionMonitorState.healthChecking;
       _monitoringInterval = healthCheckInterval;
+      _setReconnectionFlag(false);
       return;
     }
 
@@ -342,6 +354,7 @@ class ConnectionHealthMonitor {
       _reconnectAttempts = 0;
       _monitorState = ConnectionMonitorState.healthChecking;
       _monitoringInterval = healthCheckInterval;
+      _setReconnectionFlag(false);
       return;
     }
 
@@ -349,33 +362,82 @@ class ConnectionHealthMonitor {
     _logger.info(
       '🔄 Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts',
     );
-    onReconnectionAttemptStarted?.call(null);
+    final reconnectTarget = getReconnectTarget();
+    final expectedPeripheralUuid = reconnectTarget?.uuid.toString();
+    onReconnectionAttemptStarted?.call(expectedPeripheralUuid);
+
+    if (expectedPeripheralUuid == null) {
+      _setReconnectionFlag(false);
+      onReconnectionAttemptFinished?.call(null, false);
+      _logger.warning('⚠️ No previous peripheral available for reconnection');
+      return;
+    }
 
     try {
-      final foundDevice = await scanForSpecificDevice(
+      final foundDevice = await scanForReconnectTarget(
+        expectedPeripheralUuid: expectedPeripheralUuid,
         timeout: Duration(seconds: 8),
       );
+      if (!_isReconnectAttemptActive(attemptGeneration)) {
+        return;
+      }
 
       if (foundDevice != null) {
+        if (_normalizePeripheralUuid(foundDevice.uuid.toString()) !=
+            _normalizePeripheralUuid(expectedPeripheralUuid)) {
+          _setReconnectionFlag(false);
+          onReconnectionAttemptFinished?.call(expectedPeripheralUuid, false);
+          _logger.warning(
+            '⚠️ Reconnect scan returned a nonmatching peripheral; ignoring it',
+          );
+          return;
+        }
         _logger.info('✅ Found device for reconnection');
-        _isReconnection = true;
-        onReconnectionFlagChanged?.call(true);
+        _setReconnectionFlag(true);
+        if (!_isReconnectAttemptActive(attemptGeneration)) {
+          return;
+        }
         await connectToDevice(foundDevice);
+        if (!_isReconnectAttemptActive(attemptGeneration)) {
+          return;
+        }
+        if (!hasReconnectTargetLink(expectedPeripheralUuid)) {
+          throw StateError(
+            'Reconnect attempt returned without establishing the target BLE link',
+          );
+        }
 
         _reconnectAttempts = 0;
         _monitorState = ConnectionMonitorState.healthChecking;
         _monitoringInterval = minInterval;
-        _isReconnection = false;
-        onReconnectionFlagChanged?.call(false);
+        _setReconnectionFlag(false);
         onReconnectionAttemptFinished?.call(foundDevice.uuid.toString(), true);
         _logger.info('✅ Reconnection successful');
       } else {
-        onReconnectionAttemptFinished?.call(null, false);
+        _setReconnectionFlag(false);
+        onReconnectionAttemptFinished?.call(expectedPeripheralUuid, false);
         _logger.warning('⚠️ No device found for reconnection');
       }
     } catch (e) {
-      onReconnectionAttemptFinished?.call(null, false);
+      if (!_isReconnectAttemptActive(attemptGeneration)) {
+        return;
+      }
+      _setReconnectionFlag(false);
+      onReconnectionAttemptFinished?.call(expectedPeripheralUuid, false);
       _logger.warning('❌ Reconnection failed: $e');
     }
+  }
+
+  bool _isReconnectAttemptActive(int generation) =>
+      _isMonitoring && generation == _lifecycleGeneration;
+
+  String _normalizePeripheralUuid(String value) => value.toLowerCase();
+
+  void _setReconnectionFlag(bool value) {
+    if (_isReconnection == value) {
+      return;
+    }
+    _isReconnection = value;
+    onReconnectionFlagChanged?.call(value);
   }
 }

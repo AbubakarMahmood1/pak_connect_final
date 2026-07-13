@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/mockito.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
+import 'package:pak_connect/domain/constants/ble_constants.dart';
 
 import '../../helpers/ble/ble_fakes.dart';
 import 'ble_messaging_service_test.mocks.dart';
@@ -251,6 +254,174 @@ void main() {
         expect(manager.serverConnectionCount, 1);
         expect(manager.hasServerConnection(address), isTrue);
         expect(manager.clientConnectionCount, 0);
+      },
+    );
+
+    test(
+      'reconnect scan ignores wrong advertiser then returns target',
+      () async {
+        final discoveries = StreamController<DiscoveredEventArgs>.broadcast();
+        final wrong = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000204',
+        );
+        final target = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000205',
+        );
+        when(
+          centralManager.state,
+        ).thenReturn(BluetoothLowEnergyState.poweredOn);
+        when(centralManager.discovered).thenAnswer((_) => discoveries.stream);
+        when(
+          centralManager.startDiscovery(serviceUUIDs: anyNamed('serviceUUIDs')),
+        ).thenAnswer((_) async {});
+        when(centralManager.stopDiscovery()).thenAnswer((_) async {});
+
+        var completed = false;
+        final scan = manager
+            .scanForReconnectTarget(
+              expectedPeripheralUuid: target.uuid.toString(),
+              timeout: const Duration(milliseconds: 200),
+            )
+            .whenComplete(() => completed = true);
+        await _settle(5);
+        discoveries.add(
+          DiscoveredEventArgs(wrong, -45, Advertisement(name: 'PakConnect')),
+        );
+        await _settle(5);
+        expect(completed, isFalse);
+
+        discoveries.add(
+          DiscoveredEventArgs(target, -50, Advertisement(name: 'PakConnect')),
+        );
+        expect(await scan, same(target));
+        verify(centralManager.stopDiscovery()).called(1);
+        await discoveries.close();
+      },
+    );
+
+    test(
+      'reconnect scan times out when only a wrong advertiser appears',
+      () async {
+        final discoveries = StreamController<DiscoveredEventArgs>.broadcast();
+        final wrong = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000206',
+        );
+        final target = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000207',
+        );
+        when(
+          centralManager.state,
+        ).thenReturn(BluetoothLowEnergyState.poweredOn);
+        when(centralManager.discovered).thenAnswer((_) => discoveries.stream);
+        when(
+          centralManager.startDiscovery(serviceUUIDs: anyNamed('serviceUUIDs')),
+        ).thenAnswer((_) async {
+          discoveries.add(
+            DiscoveredEventArgs(wrong, -45, Advertisement(name: 'PakConnect')),
+          );
+        });
+        when(centralManager.stopDiscovery()).thenAnswer((_) async {});
+
+        final stopwatch = Stopwatch()..start();
+        final result = await manager.scanForReconnectTarget(
+          expectedPeripheralUuid: target.uuid.toString(),
+          timeout: const Duration(milliseconds: 40),
+        );
+        stopwatch.stop();
+
+        expect(result, isNull);
+        expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 300)));
+        verify(centralManager.stopDiscovery()).called(1);
+        await discoveries.close();
+      },
+    );
+
+    test('reconnect scan bounds a stalled discovery startup', () async {
+      final discoveries = StreamController<DiscoveredEventArgs>.broadcast();
+      final target = fakePeripheralFromString(
+        '00000000-0000-0000-0000-000000000209',
+      );
+      final discoveryStart = Completer<void>();
+      when(centralManager.state).thenReturn(BluetoothLowEnergyState.poweredOn);
+      when(centralManager.discovered).thenAnswer((_) => discoveries.stream);
+      when(
+        centralManager.startDiscovery(serviceUUIDs: anyNamed('serviceUUIDs')),
+      ).thenAnswer((_) => discoveryStart.future);
+      when(centralManager.stopDiscovery()).thenAnswer((_) async {});
+
+      final stopwatch = Stopwatch()..start();
+      final result = await manager.scanForReconnectTarget(
+        expectedPeripheralUuid: target.uuid.toString(),
+        timeout: const Duration(milliseconds: 40),
+      );
+      stopwatch.stop();
+
+      expect(result, isNull);
+      expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 300)));
+      verify(centralManager.stopDiscovery()).called(1);
+      await discoveries.close();
+    });
+
+    test('reconnect scan bounds stalled stop-discovery cleanup', () async {
+      final discoveries = StreamController<DiscoveredEventArgs>.broadcast();
+      final target = fakePeripheralFromString(
+        '00000000-0000-0000-0000-000000000210',
+      );
+      final discoveryStop = Completer<void>();
+      when(centralManager.state).thenReturn(BluetoothLowEnergyState.poweredOn);
+      when(centralManager.discovered).thenAnswer((_) => discoveries.stream);
+      when(
+        centralManager.startDiscovery(serviceUUIDs: anyNamed('serviceUUIDs')),
+      ).thenAnswer((_) async {
+        discoveries.add(
+          DiscoveredEventArgs(target, -45, Advertisement(name: 'PakConnect')),
+        );
+      });
+      when(
+        centralManager.stopDiscovery(),
+      ).thenAnswer((_) => discoveryStop.future);
+
+      final stopwatch = Stopwatch()..start();
+      final result = await manager.scanForReconnectTarget(
+        expectedPeripheralUuid: target.uuid.toString(),
+        timeout: const Duration(milliseconds: 60),
+      );
+      stopwatch.stop();
+
+      expect(result, same(target));
+      expect(stopwatch.elapsed, lessThan(const Duration(milliseconds: 300)));
+      verify(centralManager.stopDiscovery()).called(1);
+      await discoveries.close();
+    });
+
+    test(
+      'monitored cleanup and restart preserve the reconnect target',
+      () async {
+        final target = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000208',
+        );
+        final messageCharacteristic = FakeGATTCharacteristic(
+          uuid: BLEConstants.messageCharacteristicUUID,
+        );
+        final messagingService = FakeGATTService(
+          uuid: BLEConstants.serviceUUID,
+          characteristics: [messageCharacteristic],
+        );
+        when(centralManager.connect(any)).thenAnswer((_) async {});
+        when(
+          centralManager.getMaximumWriteLength(any, type: anyNamed('type')),
+        ).thenAnswer((_) async => 20);
+        when(
+          centralManager.discoverGATT(any),
+        ).thenAnswer((_) async => [messagingService]);
+
+        await manager.connectToDevice(target);
+        expect(manager.lastConnectedDevice, same(target));
+
+        manager.clearConnectionState(keepMonitoring: true);
+        expect(manager.lastConnectedDevice, same(target));
+        manager.startConnectionMonitoring();
+        expect(manager.lastConnectedDevice, same(target));
       },
     );
   });

@@ -266,7 +266,10 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
       if (_isClientAttemptCurrent(address, attemptId)) {
         _clientConnections.remove(address);
         _connectionTracker.removeConnection(address);
-        clearConnectionState(keepMonitoring: _serverConnections.isNotEmpty);
+        clearConnectionState(
+          keepMonitoring:
+              _healthMonitor.isMonitoring || _serverConnections.isNotEmpty,
+        );
       } else {
         _logger.fine(
           'Skipping stale failure cleanup for client attempt#$attemptId '
@@ -294,22 +297,57 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
 
   Future<Peripheral?> _runtimeScanForSpecificDevice({
     Duration timeout = const Duration(seconds: 10),
+    String? expectedPeripheralUuid,
   }) async {
     if (centralManager.state != BluetoothLowEnergyState.poweredOn) {
       return null;
     }
 
-    _logger.info('🔍 Scanning for service-advertising devices only');
+    _logger.info(
+      expectedPeripheralUuid == null
+          ? '🔍 Scanning for service-advertising devices only'
+          : '🔍 Scanning for reconnect target $expectedPeripheralUuid',
+    );
 
     final completer = Completer<Peripheral?>();
     StreamSubscription? discoverySubscription;
     Timer? timeoutTimer;
+    final deadline = DateTime.now().add(timeout);
+
+    Duration remainingTime() {
+      final remaining = deadline.difference(DateTime.now());
+      return remaining.isNegative ? Duration.zero : remaining;
+    }
+
+    Future<void> runBoundedCleanup(
+      Future<void> Function() operation,
+      String label,
+    ) async {
+      final remaining = remainingTime();
+      final budget = remaining > const Duration(seconds: 1)
+          ? const Duration(seconds: 1)
+          : (remaining == Duration.zero
+                ? const Duration(milliseconds: 1)
+                : remaining);
+      try {
+        await operation().timeout(budget);
+      } catch (error) {
+        _logger.warning('Reconnect scan $label cleanup failed: $error');
+      }
+    }
 
     try {
       discoverySubscription = centralManager.discovered.listen((event) {
-        _logger.info(
-          '✅ Found device advertising our service: ${event.peripheral.uuid}',
-        );
+        final discoveredUuid = event.peripheral.uuid.toString();
+        if (expectedPeripheralUuid != null &&
+            discoveredUuid.toLowerCase() !=
+                expectedPeripheralUuid.toLowerCase()) {
+          _logger.fine(
+            'Ignoring nonmatching reconnect advertiser: $discoveredUuid',
+          );
+          return;
+        }
+        _logger.info('✅ Found device advertising our service: $discoveredUuid');
         if (!completer.isCompleted) {
           completer.complete(event.peripheral);
         }
@@ -322,17 +360,43 @@ extension _BleConnectionManagerRuntimeClientLinks on BLEConnectionManager {
         }
       });
 
-      await Future.delayed(Duration(milliseconds: 500));
+      if (expectedPeripheralUuid == null) {
+        final remaining = remainingTime();
+        final delay = remaining > const Duration(milliseconds: 500)
+            ? const Duration(milliseconds: 500)
+            : remaining;
+        await Future<void>.delayed(delay);
+      }
 
-      await centralManager.startDiscovery(
-        serviceUUIDs: [BLEConstants.serviceUUID],
-      );
+      if (!completer.isCompleted) {
+        final startBudget = remainingTime();
+        if (startBudget == Duration.zero) {
+          completer.complete(null);
+        } else {
+          await centralManager
+              .startDiscovery(serviceUUIDs: [BLEConstants.serviceUUID])
+              .timeout(
+                startBudget,
+                onTimeout: () {
+                  if (!completer.isCompleted) {
+                    completer.complete(null);
+                  }
+                },
+              );
+        }
+      }
 
       return await completer.future;
     } finally {
-      await centralManager.stopDiscovery();
-      discoverySubscription?.cancel();
       timeoutTimer?.cancel();
+      await runBoundedCleanup(
+        () => centralManager.stopDiscovery(),
+        'stop-discovery',
+      );
+      final subscription = discoverySubscription;
+      if (subscription != null) {
+        await runBoundedCleanup(subscription.cancel, 'subscription');
+      }
     }
   }
 

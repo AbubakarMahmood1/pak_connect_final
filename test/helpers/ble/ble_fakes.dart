@@ -47,3 +47,25 @@ final class FakeGATTCharacteristic implements GATTCharacteristic {
   @override
   final List<GATTDescriptor> descriptors;
 }
+
+/// Minimal fake service for connection-manager GATT discovery tests.
+final class FakeGATTService implements GATTService {
+  FakeGATTService({
+    required this.uuid,
+    this.isPrimary = true,
+    this.includedServices = const <GATTService>[],
+    this.characteristics = const <GATTCharacteristic>[],
+  });
+
+  @override
+  final UUID uuid;
+
+  @override
+  final bool isPrimary;
+
+  @override
+  final List<GATTService> includedServices;
+
+  @override
+  final List<GATTCharacteristic> characteristics;
+}
