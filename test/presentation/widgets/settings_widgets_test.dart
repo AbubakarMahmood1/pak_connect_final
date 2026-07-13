@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -534,6 +535,35 @@ void main() {
       expect(controller.triggerTestNotificationCalls, 1);
       expect(errorMessage, contains('Failed to test notification'));
     });
+
+    testWidgets(
+      'Android system-notification copy does not claim killed delivery',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        try {
+          final controller = _TestSettingsController()
+            ..notificationsEnabled = true;
+
+          await _pumpWidgetHarness(
+            tester,
+            NotificationSection(controller: controller, onShowError: (_) {}),
+          );
+
+          expect(
+            find.text(
+              'Post to the Android system tray while PakConnect is running',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.text('Show notifications even when app is closed (Android)'),
+            findsNothing,
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
   });
 
   group('DataStorageSection', () {

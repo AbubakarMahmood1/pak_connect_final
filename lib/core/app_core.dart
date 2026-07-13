@@ -577,10 +577,11 @@ class AppCore {
   Future<void> _initializeCoreServices() async {
     // Initialize notification service with dependency injection
     // Platform-specific handler selection based on user preference:
-    // - Android: BackgroundNotificationHandlerImpl if enabled in settings
+    // - Android: system-tray renderer if enabled in settings; this does not
+    //   provide killed-process message receipt or native background execution
     // - iOS/Windows/Linux/macOS: ForegroundNotificationHandler (safe default)
 
-    // Check user preference for background notifications (Android only)
+    // Check the legacy-named preference for Android system notifications.
     final prefs = preferencesRepository;
     bool backgroundEnabled = PreferenceDefaults.backgroundNotifications;
 

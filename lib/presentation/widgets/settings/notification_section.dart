@@ -42,7 +42,7 @@ class NotificationSection extends StatelessWidget {
                 secondary: const Icon(Icons.phonelink),
                 title: const Text('System Notifications'),
                 subtitle: const Text(
-                  'Show notifications even when app is closed (Android)',
+                  'Post to the Android system tray while PakConnect is running',
                 ),
                 value: controller.backgroundNotifications,
                 onChanged: (value) async {

@@ -1,6 +1,6 @@
-// Background notification handler - FULL IMPLEMENTATION
-// Handles notifications when app is in background/killed
-// Uses flutter_local_notifications for cross-platform support
+// Local/system-tray notification renderer.
+// It can post after Dart receives an event while the process is alive; it does
+// not create a native killed-process message receiver or background scheduler.
 
 import 'dart:async';
 import 'dart:convert';
@@ -15,11 +15,12 @@ import 'notification_navigation_service.dart';
 
 /// Background notification handler implementation
 ///
-/// Provides full notification support for Android, iOS, Linux, macOS, and Windows
-/// using flutter_local_notifications package.
+/// Renders local notifications through `flutter_local_notifications` when
+/// invoked by the running Dart process. The production factory currently
+/// selects this implementation on Android only.
 ///
 /// KEY FEATURES:
-/// - System tray notifications when app is backgrounded/killed
+/// - System-tray notifications while the application process can invoke Dart
 /// - Notification channels for proper organization (Android 8.0+)
 /// - Handles user taps to navigate to relevant screens
 /// - Platform-specific optimizations

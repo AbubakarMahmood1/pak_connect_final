@@ -15,7 +15,8 @@ import 'background_notification_handler_factory_stub.dart'
 /// Factory for creating platform-appropriate notification handlers
 ///
 /// PLATFORM SUPPORT:
-/// - Android: BackgroundNotificationHandlerImpl (full system notifications)
+/// - Android: BackgroundNotificationHandlerImpl (system-tray rendering while
+///   the Dart process invokes it; no killed-process message receiver)
 /// - iOS: ForegroundNotificationHandler (future: UNUserNotificationCenter)
 /// - Windows: ForegroundNotificationHandler (in-app only)
 /// - Linux: ForegroundNotificationHandler (future: system notifications)
@@ -78,7 +79,8 @@ class NotificationHandlerFactory {
       );
     }
 
-    // Only Android has full background notification support
+    // Only Android selects the system-tray renderer in production. This is not
+    // an OS background-execution or killed-process delivery guarantee.
     if (defaultTargetPlatform == TargetPlatform.android) {
       _logger.info('✅ Using BackgroundNotificationHandlerImpl for Android');
       return background_handler.createPlatformBackgroundNotificationHandler(
@@ -156,7 +158,7 @@ class NotificationHandlerFactory {
       return 'Browser/in-app notifications only';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'Full background notifications with system tray, sounds, and vibration';
+      return 'Android system-tray notifications while PakConnect is running; no killed-process delivery';
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return 'In-app notifications (system notifications coming soon)';
