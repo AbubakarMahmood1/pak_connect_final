@@ -9,15 +9,8 @@ import '../providers/archive_provider.dart';
 /// Comprehensive confirmation dialog for chat restoration
 class RestoreConfirmationDialog extends ConsumerStatefulWidget {
   final ArchivedChatSummary archive;
-  final VoidCallback? onConfirm;
-  final VoidCallback? onCancel;
 
-  const RestoreConfirmationDialog({
-    super.key,
-    required this.archive,
-    this.onConfirm,
-    this.onCancel,
-  });
+  const RestoreConfirmationDialog({super.key, required this.archive});
 
   @override
   ConsumerState<RestoreConfirmationDialog> createState() =>
@@ -78,7 +71,6 @@ class _RestoreConfirmationDialogState
           : [
               TextButton(
                 onPressed: () {
-                  widget.onCancel?.call();
                   Navigator.pop(context, false);
                 },
                 child: const Text('Cancel'),
@@ -439,7 +431,6 @@ class _RestoreConfirmationDialogState
             ),
           );
 
-          widget.onConfirm?.call();
           Navigator.pop(context, true);
         } else {
           // Show error message
@@ -480,15 +471,8 @@ class _RestoreConfirmationDialogState
 /// Simple restore confirmation dialog with minimal options
 class SimpleRestoreConfirmationDialog extends StatelessWidget {
   final ArchivedChatSummary archive;
-  final VoidCallback? onConfirm;
-  final VoidCallback? onCancel;
 
-  const SimpleRestoreConfirmationDialog({
-    super.key,
-    required this.archive,
-    this.onConfirm,
-    this.onCancel,
-  });
+  const SimpleRestoreConfirmationDialog({super.key, required this.archive});
 
   @override
   Widget build(BuildContext context) {
@@ -537,14 +521,12 @@ class SimpleRestoreConfirmationDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () {
-            onCancel?.call();
             Navigator.pop(context, false);
           },
           child: const Text('Cancel'),
         ),
         FilledButton(
           onPressed: () {
-            onConfirm?.call();
             Navigator.pop(context, true);
           },
           child: const Text('Restore'),
@@ -561,26 +543,21 @@ Future<bool?> showRestoreConfirmationDialog({
   bool simple = false,
   VoidCallback? onConfirm,
   VoidCallback? onCancel,
-}) {
-  if (simple) {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => SimpleRestoreConfirmationDialog(
-        archive: archive,
-        onConfirm: onConfirm,
-        onCancel: onCancel,
-      ),
-    );
-  } else {
-    return showDialog<bool>(
-      context: context,
-      builder: (context) => RestoreConfirmationDialog(
-        archive: archive,
-        onConfirm: onConfirm,
-        onCancel: onCancel,
-      ),
-    );
+}) async {
+  final dialog = simple
+      ? SimpleRestoreConfirmationDialog(archive: archive)
+      : RestoreConfirmationDialog(archive: archive);
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (_) => dialog,
+  );
+
+  if (result == true) {
+    onConfirm?.call();
+  } else if (result == false) {
+    onCancel?.call();
   }
+  return result;
 }
 
 class CustomColors {
