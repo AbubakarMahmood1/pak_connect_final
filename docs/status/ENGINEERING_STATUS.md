@@ -16,8 +16,10 @@ not yet a signed or hardware-validated release.
 ## Authority and preservation
 
 - Canonical remote: `AbubakarMahmood/pak_connect`.
-- The compressed working copy was checkpointed before reconciliation.
-- Active reconciliation branch: `codex/reconcile-pakconnect`.
+- The compressed working copy was checkpointed and archived before retirement;
+  the verified bundle, not a second checkout, is recovery authority.
+- PR #71 merged the reconciliation through normal merge commit `f9b90c9`.
+  Canonical local `main` and `origin/main` were synchronized after merge.
 - Verified code/build-input device-test baseline:
   `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`). A
   documentation-only descendant is acceptable only when its build-input diff
@@ -27,9 +29,10 @@ not yet a signed or hardware-validated release.
   for the next device run.
 - Candidate `fcb3013` is also historical: Flutter 3.44 analysis required an
   equivalent null-aware syntax cleanup, which is included in `9cccd01`.
-- The reconciled history contains the mainline plus the preserved runtime,
+- The public mainline contains the preserved runtime,
   guidance, two-device-prep and Fable audit commits.
-- Do not use the compressed copy for new work; it is recovery evidence only.
+- The former compressed checkout is not an authorized worktree and must not be
+  recreated as a parallel working copy.
 
 ## Verification ledger
 

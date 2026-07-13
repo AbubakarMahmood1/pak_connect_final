@@ -94,9 +94,9 @@ request.
 - GitHub redirects the old
   `AbubakarMahmood1/pak_connect_final` URL to the current public
   `AbubakarMahmood/pak_connect` repository; there is one remote project.
-- The compressed checkout is clean at `79b5c80`. Its five commits are
-  patch-equivalent to the canonical replay ending at `e70c7a8`; it has no
-  unique tracked semantics.
+- The compressed checkout was clean at `79b5c80`. Its five commits are
+  patch-equivalent to the canonical replay ending at `e70c7a8`; it had no
+  unique tracked semantics. The editable duplicate repository is now retired.
 - The canonical branch is a clean descendant of `origin/main`, seven commits
   ahead and zero behind at the start of this pass.
 - Every compressed ref is preserved in a verified complete Git bundle. The
@@ -106,10 +106,10 @@ request.
   `ABF2B337E41DDDF2127A0EBEF2C92E263B53FAE9E431D7DC6A75D347BA297AD3`.
 - Three clean third-party reference clones were moved intact to
   `%USERPROFILE%\repos\_references`.
-- Public `main` has a stale Flutter CI failure. The failure is a current-stable
-  Material/ListTile assertion in the message context-menu test; the workflow
-  also uses a moving Flutter channel, non-fatal analysis, and failure-skipped
-  artifact upload.
+- Public `main` began this pass with a stale Flutter CI failure, moving Flutter
+  channel, non-fatal analysis, and failure-skipped artifact upload. Those
+  defects are fixed and PR #71 passed the pinned Flutter 3.44.4 coverage job
+  plus Android and Actions CodeQL before merge.
 - The public README, bundled privacy policy, SRS, security, architecture and
   toolchain guidance now distinguish implemented behavior from device-gated,
   deferred and historical claims.
@@ -123,10 +123,11 @@ request.
 - The first Flutter 3.44 CI run exposed four `use_null_aware_elements`
   analyzer infos that local Flutter 3.41.5 did not report. Commit `9cccd01`
   applies the equivalent null-aware collection-element fixes; the prior
-  `fcb3013` build is superseded as a candidate baseline. Fresh exact-head CI
-  remains pending.
-- CI hardening is committed separately as `b32438d`; fresh GitHub Actions on
-  the eventual PR head remain the public authority.
+  `fcb3013` build is superseded as a candidate baseline. Exact-head CI passed.
+- CI hardening is committed separately as `b32438d`; the green PR #71 checks
+  on final head `f094474` are the public CI authority.
+- PR #71 merged through a normal merge commit as `f9b90c9`; local `main` and
+  `origin/main` were synchronized afterward.
 
 ## Approach
 
@@ -173,8 +174,9 @@ request.
   `9cccd01` device-test baseline plus APK/log hashes.
 - **Complete:** final public-claim/status reconciliation and exact two-device
   execution checklist.
-- **Pending:** fresh PR checks rerun on `9cccd01`, merge, and duplicate-tree
-  deletion.
+- **Complete:** final PR-head Flutter/CodeQL checks, normal PR #71 merge, local
+  and public `main` synchronization, stale remote/branch removal, and editable
+  duplicate-repository retirement.
 
 ---
 
