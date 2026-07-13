@@ -3,14 +3,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
 import '../../domain/config/kill_switches.dart';
-import '../../domain/entities/contact.dart';
-import '../../domain/models/security_level.dart';
-import '../../domain/entities/enhanced_contact.dart';
-import '../../domain/interfaces/i_contact_repository.dart';
-import '../../domain/utils/string_extensions.dart';
 import '../providers/ble_providers.dart';
 import '../screens/chat_screen.dart';
 import '../controllers/discovery_overlay_controller.dart';
@@ -90,11 +84,20 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
   /// Trigger immediate burst scan (manual override)
   Future<void> _startScanning() async {
     try {
-      final burstOperations = ref.read(burstScanningOperationsProvider);
-      if (burstOperations != null) {
-        _logger.info('🔥 MANUAL: User requested immediate scan');
-        await burstOperations.triggerManualScan();
+      final burstStatus = ref.read(burstScanningStatusProvider).value;
+      if (burstStatus?.isBurstActive ?? false) {
+        _logger.info('🔥 MANUAL: User requested early burst stop');
+        final controller = await ref.read(
+          burstScanningControllerProvider.future,
+        );
+        await controller.endActiveBurstNow();
+        return;
       }
+
+      _logger.info('🔥 MANUAL: User requested discovery recovery');
+      await ref
+          .read(discoveryScannerRecoveryProvider)
+          .recover(forceWakeIfReady: true);
     } catch (e) {
       _logger.warning('Failed to trigger immediate scan: $e');
       _showError('Failed to start scanning');
@@ -135,9 +138,15 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       await Future.delayed(Duration(seconds: 2));
 
       // Mark as connected and verify connection state
-      if (connectionService.connectedDevice?.uuid == device.uuid) {
+      final isOutboundConnected =
+          connectionService.connectedDevice?.uuid == device.uuid;
+      final isInboundConnected =
+          connectionService.connectedCentral?.uuid == device.uuid ||
+          connectionService.serverConnections.any(
+            (connection) => connection.central.uuid == device.uuid,
+          );
+      if (isOutboundConnected || isInboundConnected) {
         controller.setAttemptState(deviceId, ConnectionAttemptState.connected);
-        await _resolveCurrentConnectionName(device);
         if (mounted) {
           Navigator.pop(context);
           widget.onDeviceSelected(device);
@@ -200,68 +209,6 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
     );
   }
 
-  Future<void> _resolveCurrentConnectionName(Peripheral device) async {
-    try {
-      final connectionService = ref.read(connectionServiceProvider);
-      final persistentKey =
-          connectionService.theirPersistentPublicKey ??
-          connectionService.theirPersistentKey ??
-          connectionService.currentSessionId;
-      if (persistentKey == null || persistentKey.isEmpty) return;
-
-      final contactRepo = _resolveContactRepository();
-      final contact = await contactRepo.getContactByAnyId(persistentKey);
-      final displayName =
-          contact?.displayName ??
-          connectionService.otherUserName ??
-          'User ${persistentKey.shortId(8)}';
-
-      final enhanced = EnhancedContact(
-        contact:
-            contact ??
-            Contact(
-              publicKey: persistentKey,
-              persistentPublicKey: persistentKey,
-              currentEphemeralId: null,
-              displayName: displayName,
-              trustStatus: TrustStatus.newContact,
-              securityLevel: SecurityLevel.low,
-              firstSeen: DateTime.now(),
-              lastSeen: DateTime.now(),
-              lastSecuritySync: null,
-              noisePublicKey: null,
-              noiseSessionState: null,
-              lastHandshakeTime: null,
-              isFavorite: false,
-            ),
-        lastSeenAgo: contact != null
-            ? DateTime.now().difference(contact.lastSeen)
-            : Duration.zero,
-        isRecentlyActive: contact != null
-            ? DateTime.now().difference(contact.lastSeen).inHours < 24
-            : true,
-        interactionCount: 0,
-        averageResponseTime: const Duration(minutes: 5),
-        groupMemberships: const [],
-      );
-
-      DeviceDeduplicationManager.updateResolvedContact(
-        device.uuid.toString(),
-        enhanced,
-      );
-    } catch (e, stackTrace) {
-      _logger.fine('Failed to resolve connection name: $e');
-      _logger.finer(stackTrace.toString());
-    }
-  }
-
-  IContactRepository _resolveContactRepository() {
-    return resolveFromAppServicesOrServiceLocator<IContactRepository>(
-      fromServices: (services) => services.contactRepository,
-      dependencyName: 'IContactRepository',
-    );
-  }
-
   // 🔧 MODE SWITCHING REMOVED: Dual mode now runs automatically
   // Previously, manual mode switching was handled via UI tabs.
   // Now BLEService runs both Central and Peripheral modes simultaneously.
@@ -308,8 +255,7 @@ class _DiscoveryOverlayState extends ConsumerState<DiscoveryOverlay>
       ...inboundConnectedIds,
       ...outboundConnectedIds,
     };
-    // Do not hide connected peers; we just track counts for the slot indicator.
-    final activeConnectedIds = <String>{};
+    final activeConnectedIds = allConnectedIds;
     final readyConnectedCount = isReady ? allConnectedIds.length : 0;
     // 📡 Watch server connections stream for real-time updates
     final serverConnectionsAsync = ref.watch(serverConnectionsStreamProvider);

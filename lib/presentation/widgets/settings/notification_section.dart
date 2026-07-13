@@ -28,7 +28,11 @@ class NotificationSection extends StatelessWidget {
             subtitle: const Text('Receive notifications for new messages'),
             value: controller.notificationsEnabled,
             onChanged: (value) async {
-              await controller.setNotificationsEnabled(value);
+              try {
+                await controller.setNotificationsEnabled(value);
+              } catch (e) {
+                onShowError('Failed to update notifications: $e');
+              }
             },
           ),
           if (controller.notificationsEnabled) ...[

@@ -20,6 +20,29 @@ Future<void> _resetSeenStore() async {
  await seenStore.clear();
 }
 
+String _relayPayload(String content) => 'ciphertext::$content';
+
+MeshRelayMessage _buildRelayMessage({
+ required String messageId,
+ required String content,
+ required String finalRecipient,
+ String currentNodeId = 'sender_node',
+ String relayNodeId = 'relay_node',
+}) {
+ final relayPayload = _relayPayload(content);
+ return MeshRelayMessage.createRelay(originalMessageId: messageId,
+ originalContent: '',
+ metadata: RelayMetadata.create(originalMessageContent: relayPayload,
+ priority: MessagePriority.normal,
+ originalSender: currentNodeId,
+ finalRecipient: finalRecipient,
+ currentNodeId: currentNodeId,
+),
+ relayNodeId: relayNodeId,
+ encryptedPayload: relayPayload,
+);
+}
+
 void main() {
  late List<LogRecord> logRecords;
  late Set<Pattern> allowedSevere;
@@ -238,15 +261,9 @@ void main() {
  // Process 10 relay messages
  int relayedOrDelivered = 0;
  for (int i = 0; i < 10; i++) {
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_$i',
- originalContent: 'Test message $i',
- metadata: RelayMetadata.create(originalMessageContent: 'Test',
- priority: MessagePriority.normal,
- originalSender: 'sender_node',
+ final relayMessage = _buildRelayMessage(messageId: 'msg_$i',
+ content: 'Test message $i',
  finalRecipient: 'other_node_$i',
- currentNodeId: 'sender_node',
-),
- relayNodeId: 'relay_node',
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -281,15 +298,9 @@ void main() {
  int probabilisticSkips = 0;
 
  for (int i = 0; i < sampleSize; i++) {
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_large_$i',
- originalContent: 'Test message $i',
- metadata: RelayMetadata.create(originalMessageContent: 'Test',
- priority: MessagePriority.normal,
- originalSender: 'sender_node',
+ final relayMessage = _buildRelayMessage(messageId: 'msg_large_$i',
+ content: 'Test message $i',
  finalRecipient: 'other_node_$i',
- currentNodeId: 'sender_node',
-),
- relayNodeId: 'relay_node',
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -334,15 +345,9 @@ void main() {
  int probabilisticSkips = 0;
 
  for (int i = 0; i < sampleSize; i++) {
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_massive_$i',
- originalContent: 'Test message $i',
- metadata: RelayMetadata.create(originalMessageContent: 'Test',
- priority: MessagePriority.normal,
- originalSender: 'sender_node',
+ final relayMessage = _buildRelayMessage(messageId: 'msg_massive_$i',
+ content: 'Test message $i',
  finalRecipient: 'other_node_$i',
- currentNodeId: 'sender_node',
-),
- relayNodeId: 'relay_node',
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -425,14 +430,10 @@ void main() {
  // Process messages until we get some probabilistic skips
  int attempts = 0;
  while (attempts < 50) {
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_stats_$attempts',
- originalContent: 'Test',
- metadata: RelayMetadata.create(originalMessageContent: 'Test',
- priority: MessagePriority.normal,
- originalSender: 'sender',
+ final relayMessage = _buildRelayMessage(messageId: 'msg_stats_$attempts',
+ content: 'Test',
  finalRecipient: 'other',
  currentNodeId: 'sender',
-),
  relayNodeId: 'relay',
 );
 
@@ -460,14 +461,10 @@ void main() {
  await _resetSeenStore();
 
  for (int i = 0; i < 20; i++) {
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'msg_clear_$i',
- originalContent: 'Test',
- metadata: RelayMetadata.create(originalMessageContent: 'Test',
- priority: MessagePriority.normal,
- originalSender: 'sender',
+ final relayMessage = _buildRelayMessage(messageId: 'msg_clear_$i',
+ content: 'Test',
  finalRecipient: 'other',
  currentNodeId: 'sender',
-),
  relayNodeId: 'relay',
 );
 
@@ -516,15 +513,9 @@ void main() {
  await _resetSeenStore();
 
  // Process a message
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'integration_msg',
- originalContent: 'Integration test',
- metadata: RelayMetadata.create(originalMessageContent: 'Integration test',
- priority: MessagePriority.normal,
- originalSender: 'sender_node',
+ final relayMessage = _buildRelayMessage(messageId: 'integration_msg',
+ content: 'Integration test',
  finalRecipient: 'other_node',
- currentNodeId: 'sender_node',
-),
- relayNodeId: 'relay_node',
 );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
@@ -575,16 +566,10 @@ void main() {
  await _resetSeenStore();
 
  // Create message FOR current node
- final relayMessage = MeshRelayMessage.createRelay(originalMessageId: 'delivery_msg',
- originalContent: 'Message for me',
- metadata: RelayMetadata.create(originalMessageContent: 'Message for me',
- priority: MessagePriority.normal,
- originalSender: 'sender_node',
- finalRecipient: currentNodeId, // This message is FOR us
- currentNodeId: 'sender_node',
-),
- relayNodeId: 'relay_node',
-);
+ final relayMessage = _buildRelayMessage(messageId: 'delivery_msg',
+ content: 'Message for me',
+ finalRecipient: currentNodeId,
+ );
 
  final result = await relayEngine.processIncomingRelay(relayMessage: relayMessage,
  fromNodeId: 'relay_node',

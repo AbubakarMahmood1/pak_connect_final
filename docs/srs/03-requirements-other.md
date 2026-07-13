@@ -8,13 +8,18 @@ This document specifies additional requirements not covered under functional or 
 
 ## 3.4.1 Legal and Regulatory Requirements
 
-### OR-1: Open Source Licensing
-**Requirement**: The application MUST be distributed under an open-source license compatible with all third-party dependencies.
+### OR-1: License Compliance
+**Requirement**: The application MUST be distributed according to the root
+`LICENSE`, and every bundled third-party dependency MUST retain its applicable
+license and notice obligations.
 
 **Details**:
-- Primary license: MIT License (as indicated by `publish_to: 'none'` in pubspec.yaml)
-- All dependencies use compatible licenses (BSD, MIT, Apache 2.0)
-- No proprietary components
+- PakConnect is currently proprietary and confidential under the root
+  `LICENSE`; a publicly visible repository does not make it open source.
+- `publish_to: 'none'` prevents accidental pub.dev publication and says
+  nothing about copyright licensing.
+- Third-party dependency licenses remain their authors' licenses. A complete
+  release/distribution audit is required before shipping binaries.
 
 **Verification**: Review LICENSE file and third-party licenses
 
@@ -26,9 +31,10 @@ This document specifies additional requirements not covered under functional or 
 **Implementation**:
 - Privacy policy stored in `assets/privacy_policy.md`
 - Accessible via in-app settings
-- Complies with GDPR principles (data minimization, user control)
+- Documents data minimization and user controls; no independent GDPR compliance
+  audit is claimed
 
-**Reference**: `pubspec.yaml:95` (privacy_policy.md asset)
+**Reference**: `pubspec.yaml` (`assets/privacy_policy.md`)
 
 ---
 
@@ -67,19 +73,26 @@ This document specifies additional requirements not covered under functional or 
 - Minimum MTU: 23 bytes (default GATT)
 - Recommended MTU: 512 bytes (for performance)
 
-**Platform Support**: Android, iOS, Windows (via `bluetooth_low_energy` plugin)
+**Platform scope**: Android, iOS, and Windows source/build targets exist through
+the `bluetooth_low_energy` plugin. Only the Android debug APK is currently
+build-verified in the readiness ledger; real BLE behavior remains unverified
+on all three platforms, and iOS/Windows must not be advertised as validated.
 
 ---
 
 ### OR-6: Minimum Android SDK
-**Requirement**: Android devices MUST run API level 21 (Android 5.0 Lollipop) or higher.
+**Requirement**: The current Android build supports API level 24 (Android 7.0)
+or higher.
 
 **Rationale**:
-- BLE GATT server support requires API 21+
-- SQLCipher native libraries require API 21+
-- Flutter framework compatibility
+- `android/app/build.gradle.kts` inherits `flutter.minSdkVersion`.
+- The reconciliation environment's Flutter 3.41.5 SDK resolves that value to
+  API 24. CI is pinned to Flutter 3.44.4, and the resolved platform values must
+  be rechecked when that pin changes.
+- Device validation should still include the oldest Android version the project
+  intends to advertise.
 
-**Reference**: `android/app/build.gradle.kts:28` (`minSdk = flutter.minSdkVersion`)
+**Reference**: `android/app/build.gradle.kts` (`minSdk = flutter.minSdkVersion`)
 
 ---
 
@@ -87,22 +100,26 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: iOS devices MUST run iOS 12.0 or higher.
 
 **Rationale**:
-- Flutter 3.9+ requires iOS 12.0+
-- Core Bluetooth framework stability
-- Background BLE support
+- The Xcode project and Flutter framework metadata set a 12.0 deployment
+  target.
+- Background BLE behavior still requires physical-device validation.
 
-**Reference**: Flutter documentation, `ios/Podfile` (minimum deployment target)
+**Reference**: `ios/Runner.xcodeproj/project.pbxproj`,
+`ios/Flutter/AppFrameworkInfo.plist`
 
 ---
 
 ### OR-8: Storage Capacity
-**Requirement**: Device MUST have at least 100 MB of available storage.
+**Requirement**: Installation/storage capacity must be derived from a verified
+artifact for the intended build mode and a documented data-retention target.
 
-**Breakdown**:
-- App binary: ~20-30 MB
-- Database: ~10-50 MB (depending on message history)
-- Cached data: ~10 MB
-- User exports: Variable
+**Current evidence**:
+- The verified debug APK for baseline `9cccd01` is 203,988,403 bytes; installed
+  size can be larger.
+- A 20-30 MB release binary is only a future optimization target until a
+  signed release artifact is measured.
+- Database, cache, and user-export storage vary with usage and have no current
+  device-derived upper bound.
 
 ---
 
@@ -111,7 +128,8 @@ This document specifies additional requirements not covered under functional or 
 
 **Rationale**:
 - Cryptographic operations (Noise sessions, key derivation)
-- Simultaneous BLE connections (up to 7)
+- BLE connection handling (current payload policy is single-link; multi-link
+  capacity is not device-verified)
 - UI rendering with Flutter
 
 ---
@@ -119,9 +137,11 @@ This document specifies additional requirements not covered under functional or 
 ## 3.4.3 Installation Requirements
 
 ### OR-10: Flutter SDK Version
-**Requirement**: Development requires Flutter SDK 3.9.0 or higher.
+**Requirement**: Development requires Flutter SDK 3.38.4 or higher; CI is
+pinned to Flutter 3.44.4.
 
-**Reference**: `pubspec.yaml:22` (`sdk: ">=3.9.0 <4.0.0"`)
+**Reference**: `pubspec.yaml` (`sdk: ">=3.10.3 <4.0.0"`,
+`flutter: ">=3.38.4"`)
 
 ---
 
@@ -129,22 +149,24 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: Building the application requires platform-specific toolchains.
 
 **Android**:
-- Android SDK 33 (compileSdk)
-- NDK r27 (27.0.12077973) for native crypto libraries
-- Java 11 (JDK)
-- Kotlin plugin
-- Gradle 8.0+
+- Android SDK 36 (`flutter.compileSdkVersion` / `flutter.targetSdkVersion` in
+  the locally verified Flutter 3.41.5 toolchain; recheck against CI 3.44.4)
+- NDK 28.2.13676358
+- Java 17 (JDK; pinned in CI)
+- Kotlin plugin 2.1.0 / Android Gradle Plugin 8.9.1
+- Gradle 8.11.1 wrapper
 
 **iOS**:
-- Xcode 14.0+
-- CocoaPods 1.11+
-- Swift 5.5+
+- macOS/Xcode toolchain capable of building the checked-in iOS project
+- Exact Xcode/CocoaPods/Swift compatibility is not pinned or verified in the
+  current Windows environment
 
 **Windows**:
 - Visual Studio 2022 (Desktop development with C++)
 - Windows 10 SDK
 
-**Reference**: `android/app/build.gradle.kts:11` (NDK version), Flutter documentation
+**Reference**: `android/app/build.gradle.kts`, `android/settings.gradle.kts`,
+`android/gradle/wrapper/gradle-wrapper.properties`
 
 ---
 
@@ -153,23 +175,25 @@ This document specifies additional requirements not covered under functional or 
 
 **Critical Dependencies**:
 - `riverpod: ^3.0.0` (state management)
-- `bluetooth_low_energy: ^6.1.0` (BLE stack)
+- `bluetooth_low_energy: ^6.2.1` (BLE stack)
 - `pinenacl: ^0.6.0` (X25519 DH)
 - `cryptography: ^2.7.0` (ChaCha20-Poly1305)
 - `sqflite_sqlcipher: ^3.2.1` (encrypted database)
 
-**Reference**: `pubspec.yaml:37-66`
+**Reference**: `pubspec.yaml`
 
 ---
 
 ### OR-13: First Launch Initialization
 **Requirement**: On first launch, the application MUST:
 1. Generate static identity keypair (X25519)
-2. Create encrypted database with random encryption key
+2. On Android/iOS, initialize the SQLCipher database path with a random key from
+   platform secure storage; desktop/test mode may use plaintext SQLite
 3. Request necessary runtime permissions
 4. Initialize BLE adapter
 
-**Time**: Initialization completes within 5 seconds on average hardware
+**Time target**: Initialization should complete within 5 seconds, but no
+current physical-device benchmark establishes that result.
 
 **Reference**: `lib/core/app_core.dart` (AppCore.initialize())
 
@@ -212,7 +236,8 @@ This document specifies additional requirements not covered under functional or 
 ---
 
 ### OR-16: Background Execution Permissions
-**Requirement**: The application requests the following permissions for background operation.
+**Requirement**: The Android manifest currently requests the following
+permissions reserved for background/lifecycle work.
 
 **Permissions**:
 ```xml
@@ -221,8 +246,15 @@ This document specifies additional requirements not covered under functional or 
 ```
 
 **Purpose**:
-- WAKE_LOCK: Process offline message queue retries
-- RECEIVE_BOOT_COMPLETED: Restart background workers after device reboot
+- `WAKE_LOCK`: available to Android/Flutter components that need to keep work
+  active while the process is running
+- `RECEIVE_BOOT_COMPLETED`: declared, but no PakConnect boot receiver or Dart
+  worker registration currently restarts queue work after reboot
+
+**Implementation status**: Permission and dependency declarations are not
+background-delivery evidence. The current app has in-process lifecycle/retry
+logic and a resume flush, but no wired native WorkManager/service execution for
+killed or dozing delivery.
 
 **Reference**: `android/app/src/main/AndroidManifest.xml:5-6`
 
@@ -231,16 +263,22 @@ This document specifies additional requirements not covered under functional or 
 ## 3.4.5 Network and Connectivity Requirements
 
 ### OR-17: No Internet Requirement
-**Requirement**: The application MUST function fully without internet connectivity.
+**Requirement**: Core PakConnect discovery, handshake, and message transport
+MUST not require a project-operated internet service while both app processes
+and BLE are available.
 
 **Rationale**: Designed as a peer-to-peer mesh network using only BLE (no cloud services)
 
-**Exception**: None (truly offline-first architecture)
+**Boundary**: Operating-system permission, notification, file/share, install,
+and background-execution behavior remains platform-controlled. No-internet
+transport does not imply killed-process delivery.
 
 ---
 
 ### OR-18: BLE Range Limitations
-**Requirement**: Users MUST be aware that BLE communication range is limited to approximately 10-30 meters line-of-sight.
+**Requirement**: Users MUST be aware that BLE range is hardware/environment
+dependent. A historical 10-30 meter line-of-sight figure is a test target, not
+current measured evidence.
 
 **Factors Affecting Range**:
 - Physical obstructions (walls, furniture)
@@ -248,7 +286,8 @@ This document specifies additional requirements not covered under functional or 
 - Device antenna quality
 - Transmission power settings
 
-**Mesh Extension**: Multi-hop relay can extend effective range beyond direct BLE limits
+**Mesh extension**: Multi-hop relay is intended to extend effective range, but
+that outcome remains gated on controlled three-device evidence.
 
 ---
 
@@ -258,12 +297,19 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: Archived messages MUST be managed to prevent unlimited storage growth.
 
 **Policy**:
-- Maximum 10,000 archived messages (configurable)
-- Oldest archives auto-deleted when limit reached
-- User notified before auto-deletion
+- Configuration exposes a 100 MiB storage cap and a 12-month maximum age
+- Repository statistics can be compared with the configured storage cap
+- Automatic cleanup, expiry removal, compression, index rebuild, and
+  pre-deletion notification are not currently implemented
 - Manual export recommended for long-term storage
 
-**Reference**: Archive system implementation in `lib/data/repositories/archive_repository.dart`
+**Status**: Partial. In-process maintenance/policy timers and configuration
+surfaces exist, but maintenance task bodies and policy application are
+placeholders that currently report no work.
+
+**Reference**: `lib/domain/services/archive_management_models.dart`,
+`archive_management_service.dart`, `archive_maintenance.dart`, and
+`archive_policy_engine.dart`
 
 ---
 
@@ -275,7 +321,10 @@ This document specifies additional requirements not covered under functional or 
 - Delete messages older than 1 year (optional, user-configurable)
 - Clean up orphaned Noise sessions (no contact, >7 days old)
 
-**Implementation**: Background job via `workmanager` package
+**Implementation status**: Maintenance methods exist, but no native/Dart
+background task dependency or registration currently schedules this policy.
+Treat it as an in-process/manual maintenance capability and an unwired
+background requirement, not implemented reboot/killed-process work.
 
 ---
 
@@ -296,10 +345,14 @@ This document specifies additional requirements not covered under functional or 
 **Requirement**: Encryption keys MUST be derived using industry-standard KDFs.
 
 **Implementations**:
-- Database encryption: PBKDF2-SHA512 (100,000 iterations)
 - Noise protocol: HKDF-SHA256 (per Noise spec)
+- Export/import passphrases: PBKDF2-HMAC-SHA256 (600,000 iterations)
+- Mobile database credential: random 256-bit value stored in platform secure
+  storage and supplied to SQLCipher; it is not derived from an application
+  passphrase
 
-**Reference**: `lib/data/database/database_encryption.dart`
+**References**: `lib/domain/services/encryption_utils.dart`,
+`lib/data/database/database_encryption.dart`
 
 ---
 
@@ -319,6 +372,9 @@ This document specifies additional requirements not covered under functional or 
 
 ### OR-24: Test Coverage Requirement
 **Requirement**: Unit and integration tests SHOULD achieve >85% code coverage.
+
+**Enforcement status**: This is a target, not a current CI gate. The workflow
+generates and uploads `coverage/lcov.info` but does not fail on a percentage.
 
 **Tested Components**:
 - Core cryptographic operations (Noise protocol)
@@ -356,8 +412,9 @@ This document specifies additional requirements not covered under functional or 
 
 **Release Build**:
 - Minimal logging (warnings and errors only)
-- ProGuard/R8 code obfuscation
-- Optimized APK size
+- Optimized Flutter release build
+- Release signing is mandatory; the Gradle build fails if signing credentials
+  are absent
 
 **Command**: `flutter build apk --release`
 
@@ -374,19 +431,28 @@ This document specifies additional requirements not covered under functional or 
 - Apple Developer Certificate
 - Provisioning profile
 
-**Reference**: `android/app/build.gradle.kts:38` (debug signing for development)
+**Reference**: `android/app/build.gradle.kts` (release signing preflight)
 
 ---
 
 ### OR-28: No Telemetry or Analytics
-**Requirement**: The application MUST NOT collect or transmit user data to third-party servers.
+**Requirement**: The application MUST NOT include project-operated telemetry,
+analytics, advertising, account, or message-server collection unless the data
+flow and privacy policy are explicitly revised.
 
 **Verification**:
 - No analytics SDKs (Firebase, Crashlytics, etc.)
-- No network requests to external servers
-- All data stored locally (encrypted SQLite)
+- No project-operated network endpoint in the default runtime
+- Local application data uses the SQLCipher path on Android/iOS; physical-device
+  at-rest proof remains gated, and desktop/test factories may use plaintext
+  SQLite
+- BLE message, identity, acknowledgement, control, and routing-metadata flows
+  are documented separately from server-side collection
 
-**Privacy Guarantee**: Zero data leaves the device except via explicit user action (exports, QR sharing)
+**Privacy Boundary**: Data necessarily leaves the device during BLE messaging,
+relay forwarding, pairing/identity exchange, acknowledgements, QR/contact
+exchange, exports, backups, sharing, and other user-invoked platform flows. The
+claim is no project-operated collection, not zero transmission.
 
 ---
 
@@ -419,9 +485,11 @@ This document specifies additional requirements not covered under functional or 
 ### OR-31: Database Backup
 **Requirement**: Users SHOULD be able to export encrypted database backups.
 
-**Format**: Encrypted SQLite database file (.db) with separate encryption key
+**Format**: Self-contained `.pakconnect` v2.1.0 bundle. The database bytes,
+metadata, preferences, and key material are encrypted with a
+passphrase-derived key and authenticated with HMAC-SHA256.
 **Trigger**: Manual export via settings
-**Restoration**: Manual import with encryption key
+**Restoration**: Manual import with the export passphrase
 
 **Limitation**: Noise session states are ephemeral and NOT included in backups (sessions re-established on next connection)
 
@@ -457,4 +525,4 @@ This document specifies additional requirements not covered under functional or 
 - Accessibility: 2 requirements
 - Backup & Recovery: 2 requirements
 
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11

@@ -1,11 +1,16 @@
 import 'dart:async';
+
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 
 export 'package:pak_connect/domain/models/bluetooth_state_models.dart'
-    show BluetoothMessageType, BluetoothStateInfo, BluetoothStatusMessage;
+    show
+        BluetoothAvailabilityPhase,
+        BluetoothMessageType,
+        BluetoothStateInfo,
+        BluetoothStatusMessage;
 
 /// Enhanced Bluetooth state monitoring and management system
 /// Provides robust handling for Bluetooth state changes with user-friendly messaging
@@ -13,26 +18,35 @@ class BluetoothStateMonitor {
   static final _logger = Logger('BluetoothStateMonitor');
   static BluetoothStateMonitor? _instance;
 
-  // State tracking
   BluetoothLowEnergyState _currentState = BluetoothLowEnergyState.unknown;
+  BluetoothLowEnergyState _centralState = BluetoothLowEnergyState.unknown;
+  BluetoothLowEnergyState _peripheralState = BluetoothLowEnergyState.unknown;
+  BluetoothAvailabilityPhase _availabilityPhase =
+      BluetoothAvailabilityPhase.warmingUp;
   bool _isInitialized = false;
+  bool _listenersAttached = false;
+  bool _hasReachedReady = false;
   Timer? _retryTimer;
-  Timer? _permissionTimer;
+  Timer? _unavailableDebounceTimer;
 
-  // Listener sets (replaces manual controllers)
+  CentralManager? _centralManager;
+  PeripheralManager? _peripheralManager;
+  StreamSubscription<dynamic>? _centralStateSubscription;
+  StreamSubscription<dynamic>? _peripheralStateSubscription;
+
   final Set<void Function(BluetoothStateInfo)> _stateListeners = {};
   final Set<void Function(BluetoothStatusMessage)> _messageListeners = {};
 
-  // Callbacks
   VoidCallback? _onBluetoothReady;
   VoidCallback? _onBluetoothUnavailable;
   VoidCallback? _onInitializationRetry;
 
-  // Configuration
   final Duration _retryInterval = const Duration(seconds: 3);
-  final Duration _permissionCheckInterval = const Duration(seconds: 1);
+  final Duration _startupUnavailableDebounce = const Duration(seconds: 2);
+  final Duration _runtimeUnavailableDebounce = const Duration(seconds: 1);
   final int _maxRetryAttempts = 10;
   int _retryAttempts = 0;
+  int _listenerAttachmentCount = 0;
 
   BluetoothStateMonitor._();
 
@@ -53,6 +67,7 @@ class BluetoothStateMonitor {
             state: _currentState,
             previousState: null,
             isReady: isBluetoothReady,
+            availabilityPhase: _availabilityPhase,
             timestamp: DateTime.now(),
           ),
         );
@@ -83,8 +98,12 @@ class BluetoothStateMonitor {
   /// Current Bluetooth state
   BluetoothLowEnergyState get currentState => _currentState;
 
+  /// Stabilized Bluetooth availability phase
+  BluetoothAvailabilityPhase get availabilityPhase => _availabilityPhase;
+
   /// Whether Bluetooth is ready for use
   bool get isBluetoothReady =>
+      _availabilityPhase == BluetoothAvailabilityPhase.ready &&
       _currentState == BluetoothLowEnergyState.poweredOn;
 
   /// Whether the system is initialized
@@ -96,25 +115,26 @@ class BluetoothStateMonitor {
     VoidCallback? onBluetoothUnavailable,
     VoidCallback? onInitializationRetry,
   }) async {
+    _onBluetoothReady = onBluetoothReady;
+    _onBluetoothUnavailable = onBluetoothUnavailable;
+    _onInitializationRetry = onInitializationRetry;
+
     if (_isInitialized) {
       _logger.info('Bluetooth state monitor already initialized');
       return;
     }
 
-    _onBluetoothReady = onBluetoothReady;
-    _onBluetoothUnavailable = onBluetoothUnavailable;
-    _onInitializationRetry = onInitializationRetry;
-
     _logger.info('🔵 Initializing Bluetooth state monitor...');
 
     try {
-      // Check initial state
-      await _checkInitialBluetoothState();
+      _ensureManagersAndListeners();
+      await _refreshCurrentBluetoothState(isInitial: true);
 
       _isInitialized = true;
       _logger.info('✅ Bluetooth state monitor initialized successfully');
     } catch (e) {
       _logger.severe('❌ Failed to initialize Bluetooth state monitor: $e');
+      _availabilityPhase = BluetoothAvailabilityPhase.error;
       _emitMessage(
         BluetoothStatusMessage.error(
           'Failed to initialize Bluetooth monitoring: $e',
@@ -124,31 +144,68 @@ class BluetoothStateMonitor {
     }
   }
 
-  /// Check initial Bluetooth state and setup monitoring
-  Future<void> _checkInitialBluetoothState() async {
-    try {
-      final centralManager = CentralManager();
-      final peripheralManager = PeripheralManager();
+  void _ensureManagersAndListeners() {
+    _centralManager ??= CentralManager();
+    _peripheralManager ??= PeripheralManager();
 
-      // Get initial states
-      final centralState = centralManager.state;
-      final peripheralState = peripheralManager.state;
+    if (_listenersAttached) {
+      return;
+    }
+
+    final centralManager = _centralManager!;
+    final peripheralManager = _peripheralManager!;
+
+    _centralStateSubscription = centralManager.stateChanged.listen((event) {
+      _logger.info('Central Bluetooth state changed: ${event.state}');
+      _handleStateChange(
+        event.state,
+        source: 'Central',
+        updateCentral: true,
+      );
+    });
+
+    _peripheralStateSubscription = peripheralManager.stateChanged.listen((
+      event,
+    ) {
+      _logger.info('Peripheral Bluetooth state changed: ${event.state}');
+      _handleStateChange(
+        event.state,
+        source: 'Peripheral',
+        updatePeripheral: true,
+      );
+    });
+
+    _listenersAttached = true;
+    _listenerAttachmentCount++;
+  }
+
+  Future<void> _refreshCurrentBluetoothState({bool isInitial = false}) async {
+    try {
+      _ensureManagersAndListeners();
+
+      _centralState = _centralManager!.state;
+      _peripheralState = _peripheralManager!.state;
 
       _logger.info(
-        'Initial Bluetooth states - Central: $centralState, Peripheral: $peripheralState',
+        'Bluetooth states - Central: $_centralState, Peripheral: $_peripheralState',
       );
 
-      // Use the more restrictive state
-      _currentState = _getMostRestrictiveState(centralState, peripheralState);
+      final previousState = _currentState;
+      _currentState = _combineObservedStates(
+        previousState: previousState,
+        isInitial: isInitial,
+      );
 
-      // Setup state change listeners
-      _setupStateChangeListeners(centralManager, peripheralManager);
-
-      // Process initial state
-      await _processBluetoothState(_currentState, isInitial: true);
+      await _processBluetoothState(
+        _currentState,
+        previousState: previousState,
+        isInitial: isInitial,
+      );
     } catch (e) {
-      _logger.severe('Failed to check initial Bluetooth state: $e');
+      _logger.severe('Failed to refresh Bluetooth state: $e');
       _currentState = BluetoothLowEnergyState.unknown;
+      _availabilityPhase = BluetoothAvailabilityPhase.error;
+      _emitStateSnapshot(previousState: BluetoothLowEnergyState.unknown);
       _emitMessage(
         BluetoothStatusMessage.error('Unable to access Bluetooth system'),
       );
@@ -156,36 +213,36 @@ class BluetoothStateMonitor {
     }
   }
 
-  /// Setup listeners for Bluetooth state changes
-  void _setupStateChangeListeners(
-    CentralManager centralManager,
-    PeripheralManager peripheralManager,
-  ) {
-    // Central manager state changes
-    centralManager.stateChanged.listen((event) {
-      _logger.info('Central Bluetooth state changed: ${event.state}');
-      _handleStateChange(event.state, 'Central');
-    });
-
-    // Peripheral manager state changes
-    peripheralManager.stateChanged.listen((event) {
-      _logger.info('Peripheral Bluetooth state changed: ${event.state}');
-      _handleStateChange(event.state, 'Peripheral');
-    });
-  }
-
   /// Handle Bluetooth state changes
-  void _handleStateChange(BluetoothLowEnergyState newState, String source) {
+  void _handleStateChange(
+    BluetoothLowEnergyState newState, {
+    required String source,
+    bool updateCentral = false,
+    bool updatePeripheral = false,
+  }) {
     final previousState = _currentState;
-    _currentState = newState;
+    if (updateCentral) {
+      _centralState = newState;
+    }
+    if (updatePeripheral) {
+      _peripheralState = newState;
+    }
+
+    _currentState = _combineObservedStates(previousState: previousState);
 
     _logger.info('🔵 Bluetooth state change detected:');
     _logger.info('  - Source: $source');
     _logger.info('  - Previous: $previousState');
-    _logger.info('  - Current: $newState');
+    _logger.info('  - Central: $_centralState');
+    _logger.info('  - Peripheral: $_peripheralState');
+    _logger.info('  - Combined: $_currentState');
 
-    // Process the state change
-    _processBluetoothState(newState, previousState: previousState);
+    unawaited(
+      _processBluetoothState(
+        _currentState,
+        previousState: previousState,
+      ),
+    );
   }
 
   /// Process Bluetooth state and take appropriate actions
@@ -194,82 +251,95 @@ class BluetoothStateMonitor {
     BluetoothLowEnergyState? previousState,
     bool isInitial = false,
   }) async {
-    // Clear any existing timers
-    _cancelTimers();
-
     switch (state) {
       case BluetoothLowEnergyState.poweredOn:
+        _cancelUnavailableDebounce();
+        _cancelInitializationRetry();
         await _handleBluetoothReady(isInitial: isInitial);
         break;
 
       case BluetoothLowEnergyState.poweredOff:
-        await _handleBluetoothOff();
+        _cancelInitializationRetry();
+        await _handleBluetoothOff(isInitial: isInitial);
         break;
 
       case BluetoothLowEnergyState.unauthorized:
+        _cancelUnavailableDebounce();
+        _cancelInitializationRetry();
         await _handleBluetoothUnauthorized();
         break;
 
       case BluetoothLowEnergyState.unsupported:
+        _cancelUnavailableDebounce();
+        _cancelInitializationRetry();
         await _handleBluetoothUnsupported();
         break;
 
       case BluetoothLowEnergyState.unknown:
+        _cancelUnavailableDebounce();
         await _handleBluetoothUnknown(isInitial: isInitial);
         break;
-
-      // Note: BluetoothLowEnergyState.resetting doesn't exist in this version
-      // case BluetoothLowEnergyState.resetting:
-      //   await _handleBluetoothResetting();
-      //   break;
     }
 
-    // Emit state information
-    _emitStateInfo(
-      BluetoothStateInfo(
-        state: state,
-        previousState: previousState,
-        isReady: state == BluetoothLowEnergyState.poweredOn,
-        timestamp: DateTime.now(),
-      ),
-    );
+    _emitStateSnapshot(previousState: previousState);
   }
 
   /// Handle Bluetooth ready state
   Future<void> _handleBluetoothReady({bool isInitial = false}) async {
     _logger.info('✅ Bluetooth is ready');
-    _retryAttempts = 0; // Reset retry counter
+    _retryAttempts = 0;
+    _hasReachedReady = true;
+    _availabilityPhase = BluetoothAvailabilityPhase.ready;
 
     final message = isInitial
         ? 'Bluetooth ready for mesh networking'
         : 'Bluetooth enabled - mesh networking available';
 
     _emitMessage(BluetoothStatusMessage.ready(message));
-
-    // Notify callback
     _onBluetoothReady?.call();
   }
 
   /// Handle Bluetooth disabled state
-  Future<void> _handleBluetoothOff() async {
-    _logger.warning('⚠️ Bluetooth is disabled');
+  Future<void> _handleBluetoothOff({bool isInitial = false}) async {
+    final debounce = _hasReachedReady
+        ? _runtimeUnavailableDebounce
+        : _startupUnavailableDebounce;
 
+    _logger.warning(
+      '⚠️ Bluetooth reported poweredOff - waiting ${debounce.inMilliseconds}ms before marking unavailable',
+    );
+
+    _availabilityPhase = BluetoothAvailabilityPhase.warmingUp;
     _emitMessage(
-      BluetoothStatusMessage.disabled(
-        'Bluetooth is disabled. Please enable Bluetooth to use mesh networking.',
+      BluetoothStatusMessage.initializing(
+        isInitial || !_hasReachedReady
+            ? 'Preparing Bluetooth status...'
+            : 'Bluetooth changed. Re-checking mesh availability...',
       ),
     );
 
-    // Start retry monitoring
-    _startBluetoothRetryMonitoring();
+    _cancelUnavailableDebounce();
+    _unavailableDebounceTimer = Timer(debounce, () {
+      if (_currentState != BluetoothLowEnergyState.poweredOff) {
+        return;
+      }
 
-    // Notify callback
-    _onBluetoothUnavailable?.call();
+      _logger.warning('⚠️ Bluetooth is disabled');
+      _availabilityPhase = BluetoothAvailabilityPhase.disabled;
+      _emitStateSnapshot(previousState: BluetoothLowEnergyState.poweredOff);
+      _emitMessage(
+        BluetoothStatusMessage.disabled(
+          'Bluetooth is disabled. Please enable Bluetooth to use mesh networking.',
+        ),
+      );
+      _onBluetoothUnavailable?.call();
+    });
   }
 
   /// Handle unauthorized Bluetooth state
   Future<void> _handleBluetoothUnauthorized() async {
     _logger.warning('⚠️ Bluetooth permissions not granted');
+    _availabilityPhase = BluetoothAvailabilityPhase.permissionsRequired;
 
     _emitMessage(
       BluetoothStatusMessage.unauthorized(
@@ -277,15 +347,13 @@ class BluetoothStateMonitor {
       ),
     );
 
-    // Start permission monitoring
-    _startPermissionMonitoring();
-
     _onBluetoothUnavailable?.call();
   }
 
   /// Handle unsupported Bluetooth state
   Future<void> _handleBluetoothUnsupported() async {
     _logger.severe('❌ Bluetooth not supported on this device');
+    _availabilityPhase = BluetoothAvailabilityPhase.unsupported;
 
     _emitMessage(
       BluetoothStatusMessage.unsupported(
@@ -299,95 +367,51 @@ class BluetoothStateMonitor {
   /// Handle unknown Bluetooth state
   Future<void> _handleBluetoothUnknown({bool isInitial = false}) async {
     _logger.warning('⚠️ Bluetooth state unknown');
+    _availabilityPhase = BluetoothAvailabilityPhase.warmingUp;
 
-    if (isInitial) {
-      _emitMessage(
-        BluetoothStatusMessage.initializing('Checking Bluetooth status...'),
-      );
+    _emitMessage(
+      BluetoothStatusMessage.initializing(
+        isInitial
+            ? 'Checking Bluetooth status...'
+            : 'Bluetooth status is settling. Preparing mesh...',
+      ),
+    );
 
-      // Start initialization retry
-      _startInitializationRetry();
-    } else {
-      _emitMessage(
-        BluetoothStatusMessage.unknown('Bluetooth status unknown. Checking...'),
-      );
-    }
+    _startInitializationRetry();
   }
 
-  // Note: Bluetooth resetting state is not available in this version
-
-  /// Start monitoring for Bluetooth to be enabled
-  void _startBluetoothRetryMonitoring() {
-    if (_retryAttempts >= _maxRetryAttempts) {
-      _logger.warning('Max retry attempts reached for Bluetooth monitoring');
-      _emitMessage(
-        BluetoothStatusMessage.error(
-          'Bluetooth has been disabled for an extended period. Please enable it manually.',
-        ),
-      );
+  void _startInitializationRetry() {
+    if (_retryTimer != null || _retryAttempts >= _maxRetryAttempts) {
       return;
     }
 
     _retryTimer = Timer(_retryInterval, () async {
+      _retryTimer = null;
       _retryAttempts++;
-      _logger.info(
-        'Retry attempt $_retryAttempts/$_maxRetryAttempts - checking Bluetooth state',
-      );
-
-      try {
-        final centralManager = CentralManager();
-        final newState = centralManager.state;
-
-        if (newState != _currentState) {
-          _handleStateChange(newState, 'RetryCheck');
-        } else if (newState == BluetoothLowEnergyState.poweredOff) {
-          // Continue monitoring
-          _startBluetoothRetryMonitoring();
-        }
-      } catch (e) {
-        _logger.warning('Error during Bluetooth retry check: $e');
-        _startBluetoothRetryMonitoring(); // Continue monitoring
-      }
-    });
-  }
-
-  /// Start monitoring for permission changes
-  void _startPermissionMonitoring() {
-    _permissionTimer = Timer(_permissionCheckInterval, () async {
-      try {
-        final centralManager = CentralManager();
-        final newState = centralManager.state;
-
-        if (newState != BluetoothLowEnergyState.unauthorized) {
-          _handleStateChange(newState, 'PermissionCheck');
-        } else {
-          // Continue monitoring
-          _startPermissionMonitoring();
-        }
-      } catch (e) {
-        _logger.warning('Error during permission check: $e');
-        _startPermissionMonitoring(); // Continue monitoring
-      }
-    });
-  }
-
-  /// Start initialization retry for unknown state
-  void _startInitializationRetry() {
-    _retryTimer = Timer(_retryInterval, () async {
       _logger.info('Retrying Bluetooth initialization...');
-
       _onInitializationRetry?.call();
 
       try {
-        await _checkInitialBluetoothState();
+        await _refreshCurrentBluetoothState();
       } catch (e) {
         _logger.warning('Initialization retry failed: $e');
-        // Continue retrying
-        if (_retryAttempts < _maxRetryAttempts) {
-          _startInitializationRetry();
-        }
+      }
+
+      if (_availabilityPhase == BluetoothAvailabilityPhase.warmingUp &&
+          _currentState != BluetoothLowEnergyState.poweredOn) {
+        _startInitializationRetry();
       }
     });
+  }
+
+  void _cancelInitializationRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _cancelUnavailableDebounce() {
+    _unavailableDebounceTimer?.cancel();
+    _unavailableDebounceTimer = null;
   }
 
   /// Get the most restrictive state between central and peripheral
@@ -395,7 +419,15 @@ class BluetoothStateMonitor {
     BluetoothLowEnergyState central,
     BluetoothLowEnergyState peripheral,
   ) {
-    // Priority order (most restrictive first)
+    if (central == BluetoothLowEnergyState.unsupported &&
+        peripheral != BluetoothLowEnergyState.unsupported) {
+      return peripheral;
+    }
+    if (peripheral == BluetoothLowEnergyState.unsupported &&
+        central != BluetoothLowEnergyState.unsupported) {
+      return central;
+    }
+
     final restrictiveness = {
       BluetoothLowEnergyState.unsupported: 0,
       BluetoothLowEnergyState.unauthorized: 1,
@@ -409,6 +441,81 @@ class BluetoothStateMonitor {
 
     return centralLevel <= peripheralLevel ? central : peripheral;
   }
+
+  BluetoothLowEnergyState _combineObservedStates({
+    required BluetoothLowEnergyState previousState,
+    bool isInitial = false,
+  }) {
+    final combined = _getMostRestrictiveState(_centralState, _peripheralState);
+
+    if (!isInitial &&
+        combined == BluetoothLowEnergyState.unsupported &&
+        (previousState == BluetoothLowEnergyState.poweredOff ||
+            previousState == BluetoothLowEnergyState.unauthorized)) {
+      return previousState;
+    }
+
+    return combined;
+  }
+
+  void _emitStateSnapshot({BluetoothLowEnergyState? previousState}) {
+    _emitStateInfo(
+      BluetoothStateInfo(
+        state: _currentState,
+        previousState: previousState,
+        isReady: isBluetoothReady,
+        availabilityPhase: _availabilityPhase,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  @visibleForTesting
+  BluetoothLowEnergyState combineStatesForTesting(
+    BluetoothLowEnergyState central,
+    BluetoothLowEnergyState peripheral,
+  ) {
+    return _getMostRestrictiveState(central, peripheral);
+  }
+
+  @visibleForTesting
+  BluetoothLowEnergyState combineObservedStatesForTesting({
+    required BluetoothLowEnergyState previousState,
+    required BluetoothLowEnergyState central,
+    required BluetoothLowEnergyState peripheral,
+    bool isInitial = false,
+  }) {
+    _centralState = central;
+    _peripheralState = peripheral;
+    return _combineObservedStates(
+      previousState: previousState,
+      isInitial: isInitial,
+    );
+  }
+
+  @visibleForTesting
+  Future<void> simulateObservedStatesForTesting({
+    required BluetoothLowEnergyState central,
+    required BluetoothLowEnergyState peripheral,
+    BluetoothLowEnergyState? previousState,
+    bool isInitial = false,
+  }) async {
+    _centralState = central;
+    _peripheralState = peripheral;
+    final oldState = previousState ?? _currentState;
+    _currentState = _combineObservedStates(
+      previousState: oldState,
+      isInitial: isInitial,
+    );
+    await _processBluetoothState(
+      _currentState,
+      previousState: oldState,
+      isInitial: isInitial,
+    );
+  }
+
+  @visibleForTesting
+  int get debugListenerAttachmentCount => _listenerAttachmentCount;
 
   /// Emit state information
   void _emitStateInfo(BluetoothStateInfo info) {
@@ -441,22 +548,16 @@ class BluetoothStateMonitor {
     }
   }
 
-  /// Cancel all active timers
-  void _cancelTimers() {
-    _retryTimer?.cancel();
-    _retryTimer = null;
-    _permissionTimer?.cancel();
-    _permissionTimer = null;
-  }
-
   /// Force refresh of Bluetooth state
   Future<void> refreshState() async {
     _logger.info('🔄 Forcing Bluetooth state refresh...');
 
     try {
-      await _checkInitialBluetoothState();
+      await _refreshCurrentBluetoothState();
     } catch (e) {
       _logger.warning('Failed to refresh Bluetooth state: $e');
+      _availabilityPhase = BluetoothAvailabilityPhase.error;
+      _emitStateSnapshot(previousState: _currentState);
       _emitMessage(
         BluetoothStatusMessage.error('Failed to refresh Bluetooth status'),
       );
@@ -467,16 +568,54 @@ class BluetoothStateMonitor {
   void dispose() {
     _logger.info('Disposing Bluetooth state monitor...');
 
-    _cancelTimers();
+    _cancelInitializationRetry();
+    _cancelUnavailableDebounce();
+    _centralStateSubscription?.cancel();
+    _peripheralStateSubscription?.cancel();
+    _centralStateSubscription = null;
+    _peripheralStateSubscription = null;
     _stateListeners.clear();
     _messageListeners.clear();
+    _centralManager = null;
+    _peripheralManager = null;
+    _listenersAttached = false;
+    _centralState = BluetoothLowEnergyState.unknown;
+    _peripheralState = BluetoothLowEnergyState.unknown;
+    _currentState = BluetoothLowEnergyState.unknown;
+    _availabilityPhase = BluetoothAvailabilityPhase.warmingUp;
+    _hasReachedReady = false;
+    _retryAttempts = 0;
+    _listenerAttachmentCount = 0;
     _isInitialized = false;
   }
 
   /// Override the current Bluetooth state for unit testing.
   @visibleForTesting
-  static void overrideCurrentState(BluetoothLowEnergyState state) {
+  static void overrideCurrentState(
+    BluetoothLowEnergyState state, {
+    BluetoothAvailabilityPhase? availabilityPhase,
+  }) {
     instance._currentState = state;
+    instance._availabilityPhase =
+        availabilityPhase ?? _phaseForState(state);
+    instance._hasReachedReady = state == BluetoothLowEnergyState.poweredOn;
+  }
+
+  static BluetoothAvailabilityPhase _phaseForState(
+    BluetoothLowEnergyState state,
+  ) {
+    switch (state) {
+      case BluetoothLowEnergyState.poweredOn:
+        return BluetoothAvailabilityPhase.ready;
+      case BluetoothLowEnergyState.poweredOff:
+        return BluetoothAvailabilityPhase.disabled;
+      case BluetoothLowEnergyState.unauthorized:
+        return BluetoothAvailabilityPhase.permissionsRequired;
+      case BluetoothLowEnergyState.unsupported:
+        return BluetoothAvailabilityPhase.unsupported;
+      case BluetoothLowEnergyState.unknown:
+        return BluetoothAvailabilityPhase.warmingUp;
+    }
   }
 }
 

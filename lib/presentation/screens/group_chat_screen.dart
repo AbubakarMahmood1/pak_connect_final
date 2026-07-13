@@ -1,11 +1,9 @@
-// Screen for group chat with delivery status tracking
+// Sender-side broadcast history with per-recipient queue status.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pak_connect/presentation/providers/di_providers.dart';
 import '../providers/group_providers.dart';
 import '../../domain/models/contact_group.dart';
-import '../../domain/interfaces/i_user_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
@@ -39,8 +37,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
 
     try {
       // Get sender key
-      final prefs = _resolveUserPreferences();
-      final senderKey = await prefs.getPublicKey();
+      final senderKey = await ref.read(
+        currentGroupUserPublicKeyProvider.future,
+      );
 
       // Send message
       final sendMessage = ref.read(sendGroupMessageProvider);
@@ -71,13 +70,6 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     }
   }
 
-  IUserPreferences _resolveUserPreferences() {
-    return resolveFromAppServicesOrServiceLocator<IUserPreferences>(
-      fromServices: (services) => services.userPreferences,
-      dependencyName: 'IUserPreferences',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final groupAsync = ref.watch(groupByIdProvider(widget.groupId));
@@ -92,12 +84,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   children: [
                     Text(group.name),
                     Text(
-                      '${group.memberCount} members',
+                      '${group.memberCount} recipients',
                       style: const TextStyle(fontSize: 12),
                     ),
                   ],
                 )
-              : const Text('Group Chat'),
+              : const Text('Broadcast List'),
           loading: () => const Text('Loading...'),
           error: (_, _) => const Text('Error'),
         ),
@@ -108,7 +100,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               // Show group info dialog
               _showGroupInfo(groupAsync.value);
             },
-            tooltip: 'Group Info',
+            tooltip: 'Broadcast List Info',
           ),
         ],
       ),
@@ -121,7 +113,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 if (messages.isEmpty) {
                   return const Center(
                     child: Text(
-                      'No messages yet\nSend a message to get started!',
+                      'No broadcasts yet\nSend a message to every recipient separately.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey),
                     ),
@@ -182,7 +174,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   child: TextField(
                     controller: _messageController,
                     decoration: const InputDecoration(
-                      hintText: 'Type a message...',
+                      hintText: 'Message all recipients...',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 16,
@@ -229,7 +221,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
               Text(group.description!),
               const SizedBox(height: 16),
             ],
-            Text('Members: ${group.memberCount}'),
+            Text('Recipients: ${group.memberCount}'),
             const SizedBox(height: 8),
             Text('Created: ${DateFormat.yMMMd().format(group.created)}'),
           ],
@@ -252,36 +244,46 @@ class _MessageBubble extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final deliverySummary = ref.watch(
-      messageDeliverySummaryProvider(message.id),
-    );
+    final currentUserKey = ref.watch(currentGroupUserPublicKeyProvider).value;
+    final isFromCurrentUser =
+        currentUserKey != null &&
+        currentUserKey.isNotEmpty &&
+        message.senderKey == currentUserKey;
+    final deliverySummary = isFromCurrentUser
+        ? ref.watch(messageDeliverySummaryProvider(message.id))
+        : null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        key: ValueKey('group-message-${message.id}'),
+        crossAxisAlignment: isFromCurrentUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           // Message content
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
+              color: isFromCurrentUser
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : Theme.of(context).colorScheme.secondaryContainer,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Sender (if not me)
-                // TODO: Add logic to determine if message is from current user
-                Text(
-                  message.senderKey.shortId(8),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
+                if (!isFromCurrentUser) ...[
+                  Text(
+                    message.senderKey.shortId(8),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
+                  const SizedBox(height: 4),
+                ],
 
                 // Message content
                 Text(message.content),
@@ -296,70 +298,72 @@ class _MessageBubble extends ConsumerWidget {
                       DateFormat.jm().format(message.timestamp),
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
-                    const SizedBox(width: 8),
+                    if (isFromCurrentUser) ...[
+                      const SizedBox(width: 8),
+                      deliverySummary!.when(
+                        data: (summary) {
+                          final total = summary.values.fold<int>(
+                            0,
+                            (sum, count) => sum + count,
+                          );
+                          final delivered =
+                              summary[MessageDeliveryStatus.delivered] ?? 0;
+                          final queued =
+                              summary[MessageDeliveryStatus.sent] ?? 0;
+                          final failed =
+                              summary[MessageDeliveryStatus.failed] ?? 0;
 
-                    // Delivery indicator
-                    deliverySummary.when(
-                      data: (summary) {
-                        final total = summary.values.fold<int>(
-                          0,
-                          (sum, count) => sum + count,
-                        );
-                        final delivered =
-                            summary[MessageDeliveryStatus.delivered] ?? 0;
-                        final sent = summary[MessageDeliveryStatus.sent] ?? 0;
-                        final failed =
-                            summary[MessageDeliveryStatus.failed] ?? 0;
+                          IconData icon;
+                          Color color;
 
-                        IconData icon;
-                        Color color;
+                          if (delivered == total) {
+                            icon = Icons.done_all;
+                            color = Colors.blue;
+                          } else if (queued + delivered > 0) {
+                            icon = Icons.done;
+                            color = Colors.grey;
+                          } else if (failed > 0) {
+                            icon = Icons.error_outline;
+                            color = Colors.red;
+                          } else {
+                            icon = Icons.schedule;
+                            color = Colors.grey;
+                          }
 
-                        if (delivered == total) {
-                          icon = Icons.done_all;
-                          color = Colors.blue;
-                        } else if (sent + delivered > 0) {
-                          icon = Icons.done;
-                          color = Colors.grey;
-                        } else if (failed > 0) {
-                          icon = Icons.error_outline;
-                          color = Colors.red;
-                        } else {
-                          icon = Icons.schedule;
-                          color = Colors.grey;
-                        }
-
-                        return Tooltip(
-                          message:
-                              'Delivered: $delivered/$total\nSent: $sent\nFailed: $failed',
-                          child: Icon(icon, size: 16, color: color),
-                        );
-                      },
-                      loading: () => const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 1.5),
+                          return Tooltip(
+                            message:
+                                'Delivered: $delivered/$total\nQueued: $queued\nFailed: $failed',
+                            child: Icon(icon, size: 16, color: color),
+                          );
+                        },
+                        loading: () => const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        ),
+                        error: (_, _) => const Icon(
+                          Icons.help_outline,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                       ),
-                      error: (_, _) => const Icon(
-                        Icons.help_outline,
-                        size: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
+                    ],
                   ],
                 ),
               ],
             ),
           ),
 
-          // Delivery details (expandable)
-          if (message.hasFailures || !message.isFullyDelivered)
+          // Per-recipient queue details (expandable)
+          if (isFromCurrentUser &&
+              (message.hasFailures || !message.isFullyDelivered))
             TextButton.icon(
               onPressed: () {
                 _showDeliveryDetails(context, ref);
               },
               icon: const Icon(Icons.info_outline, size: 16),
               label: Text(
-                '${message.deliveredCount}/${message.deliveryStatus.length} delivered',
+                'Recipient status',
                 style: const TextStyle(fontSize: 12),
               ),
             ),
@@ -372,7 +376,7 @@ class _MessageBubble extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delivery Status'),
+        title: const Text('Recipient Status'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -393,7 +397,7 @@ class _MessageBubble extends ConsumerWidget {
                 case MessageDeliveryStatus.sent:
                   icon = Icons.done;
                   color = Colors.blue;
-                  statusText = 'Sent';
+                  statusText = 'Queued';
                   break;
                 case MessageDeliveryStatus.pending:
                   icon = Icons.schedule;

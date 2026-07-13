@@ -83,7 +83,7 @@ void main() {
 
         expect(initiator.getMessageIndex(), 0);
         final messageA = await initiator.writeMessageA();
-        expect(messageA.length, greaterThanOrEqualTo(32));
+        expect(messageA.length, equals(48));
         expect(initiator.getMessageIndex(), 1);
 
         expect(() => initiator.writeMessageA(), throwsStateError);

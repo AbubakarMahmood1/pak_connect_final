@@ -62,6 +62,9 @@ class _BleServiceFacadeRuntimeHelper {
     _owner._invalidateLifecycleEpoch();
 
     try {
+      if (_owner._strictTdmEnabled && _owner._bleRoleScheduler != null) {
+        await _owner._bleRoleScheduler!.stop().catchError((_) {});
+      }
       if (_owner._discoveryService != null) {
         await _owner._discoveryService!.dispose().catchError((_) {});
       }
@@ -88,6 +91,7 @@ class _BleServiceFacadeRuntimeHelper {
       }
       await _owner._lifecycleCoordinator.dispose();
       DeviceDeduplicationManager.clearIntroHintRepository();
+      _owner._experimentMetricsRecorder.logSummary(reason: 'facade-dispose');
       _owner._recordInstanceDisposed();
     }
   }
@@ -281,6 +285,26 @@ class _BleServiceFacadeRuntimeHelper {
   Future<void> onBluetoothBecameReady() async {
     _owner._logger.info('🔵 Bluetooth ready - facade notified');
     final advertisingService = _owner._getAdvertisingService();
+    if (_owner._strictTdmEnabled) {
+      try {
+        await _owner._getBleRoleScheduler().start();
+        updateConnectionInfo(
+          statusMessage: 'Bluetooth ready for strict TDM mesh',
+          isAdvertising: advertisingService.isAdvertising,
+        );
+      } catch (e, stack) {
+        _owner._logger.warning(
+          '⚠️ Failed to start strict TDM scheduler after Bluetooth ready: $e',
+          e,
+          stack,
+        );
+        updateConnectionInfo(
+          statusMessage: 'Bluetooth ready (strict TDM scheduler unavailable)',
+          isAdvertising: advertisingService.isAdvertising,
+        );
+      }
+      return;
+    }
     try {
       await _owner._connectionManager.startMeshNetworking(
         onStartAdvertising: () => advertisingService.startAsPeripheral(),
@@ -357,6 +381,33 @@ class _BleServiceFacadeRuntimeHelper {
     final normalizedNoiseKey = noiseKey?.trim();
     _owner._stateManager.setOtherUserName(displayName);
     _owner._stateManager.setTheirEphemeralId(ephemeralId, displayName);
+    // Strict TDM owns the current bring-up attempt. Prefer its peer binding;
+    // otherwise an inbound central is the responder-side handshake source.
+    // Falling back to the first client before the inbound central attributes
+    // B's completed handshake to unrelated client A on multi-link nodes.
+    final scheduler = _owner._strictTdmEnabled
+        ? _owner._getBleRoleScheduler()
+        : _owner._bleRoleScheduler;
+    final schedulerSnapshot = scheduler?.snapshot;
+    final activePeerId =
+        _owner._activeHandshakePeerId ??
+        schedulerSnapshot?.activePeerId ??
+        _owner.connectedCentral?.uuid.toString() ??
+        _owner.connectedDevice?.uuid.toString() ??
+        ephemeralId;
+    final activeAttemptId = _owner._activeHandshakePeerId == activePeerId
+        ? _owner._activeHandshakeAttemptId
+        : schedulerSnapshot?.activePeerId == activePeerId
+        ? schedulerSnapshot?.activeAttemptId
+        : null;
+    _owner._experimentMetricsRecorder.recordHandshakeReady(activePeerId);
+    if (activeAttemptId != null) {
+      scheduler?.reportHandshakeReady(activePeerId, activeAttemptId);
+    }
+    if (_owner._activeHandshakePeerId == activePeerId) {
+      _owner._activeHandshakePeerId = null;
+      _owner._activeHandshakeAttemptId = null;
+    }
     // Persist or create contact record using the session ephemeral as the
     // immutable key for LOW security contacts. This prevents later sends from
     // resolving to an empty/“NOT SPECIFIED” recipient.

@@ -5,6 +5,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import '../models/binary_payload.dart';
 import '../models/connection_info.dart';
 import '../models/mesh_relay_models.dart';
+import '../models/protocol_message.dart';
 import 'i_ble_discovery_service.dart';
 
 /// Minimal BLE interface required by the mesh networking domain service.
@@ -53,7 +54,8 @@ abstract interface class IMeshBleService {
   });
 
   void registerQueueSyncHandler(
-    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+    Future<bool> Function(QueueSyncMessage message, String fromDeviceAddress)
+    handler,
   );
 
   Future<bool> sendPeripheralMessage(String message, {String? messageId});
@@ -64,7 +66,9 @@ abstract interface class IMeshBleService {
     String? originalIntendedRecipient,
   });
 
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message);
+  Future<bool> sendProtocolMessage(ProtocolMessage message);
+
+  Future<bool> sendQueueSyncMessage(QueueSyncMessage message, {String? peerId});
   Future<void> startScanning({ScanningSource source = ScanningSource.system});
   Future<void> stopScanning();
 }

@@ -20,7 +20,7 @@ This document provides structured context for generating sequence diagrams of ke
 3. MeshNetworkingService → Check if recipient directly connected
 4. IF connected:
    5. MeshNetworkingService → OfflineMessageQueue.queueMessage(chatId, content, recipientKey)
-   6. OfflineMessageQueue → Generate messageId (timestamp-based)
+   6. OfflineMessageQueue → Generate opaque UUID messageId
    7. OfflineMessageQueue → Save to queue (status: PENDING)
    8. OfflineMessageQueue → Trigger delivery
    9. OfflineMessageQueue → MeshNetworkingService._handleSendMessage(messageId)
@@ -87,22 +87,20 @@ sequenceDiagram
    6. MessageFragmenter → Check if complete
    7. IF incomplete: Return (wait for more)
    8. IF complete: MessageFragmenter → Reassemble fragments
-9. BLEMessageHandler → NoiseSessionManager.decrypt(ciphertext, senderKey)
-10. NoiseSessionManager → NoiseSession.decryptMessage(ciphertext)
-11. NoiseSession → CipherState.decryptWithAd(ciphertext, nonce)
-12. NoiseSession → Verify MAC tag
-13. NoiseSession → Return plaintext
-14. BLEMessageHandler → MeshRelayEngine.processIncomingMessage(plaintext, senderKey)
-15. MeshRelayEngine → Check if for current node
-16. IF for self:
-   17. MeshRelayEngine → MessageRepository.saveMessage(Message)
-   18. MessageRepository → SQLite INSERT
-   19. ChatScreen ← Notification (new message)
-   20. ChatScreen ← Update UI
-17. ELSE (relay):
-   18. MeshRelayEngine → Check duplicate
-   19. MeshRelayEngine → SmartMeshRouter.determineOptimalRoute()
-   20. MeshRelayEngine → Queue for relay to next hop
+9. BLEMessageHandler → Parse the ProtocolMessage envelope
+10. IF relay envelope: preserve the encrypted inner protocol payload unchanged
+11. BLEMessageHandler → MeshRelayEngine.processIncomingMessage(envelope, senderKey)
+12. MeshRelayEngine → Check visible/stealth routing metadata for current node
+13A. IF for self:
+   14. Final recipient → Decrypt/authenticate the encrypted inner payload
+   15. MeshRelayEngine → MessageRepository.saveMessage(Message)
+   16. MessageRepository → SQLite INSERT
+   17. ChatScreen ← Notification and UI update
+13B. ELSE (relay):
+   14. MeshRelayEngine → Check duplicate
+   15. MeshRelayEngine → SmartMeshRouter.determineOptimalRoute()
+   16. MeshRelayEngine → Queue the unchanged encrypted inner payload for the
+       next hop with updated relay metadata
 ```
 
 ### Mermaid Syntax
@@ -122,17 +120,17 @@ sequenceDiagram
     MH->>MF: addFragment(fragment)
     MF->>MF: Check complete
     MF-->>MH: Complete message
-    MH->>NSM: decrypt(ciphertext, senderKey)
-    NSM->>NSM: NoiseSession.decryptMessage()
-    NSM-->>MH: plaintext
-    MH->>MRE: processIncomingMessage(plaintext)
+    MH->>MH: Parse ProtocolMessage envelope
+    MH->>MRE: processIncomingMessage(envelope)
     MRE->>MRE: Check if for self
     alt Message for current node
-        MRE->>MR: saveMessage(Message)
+        MRE-->>MH: Encrypted inner payload
+        MH->>NSM: Decrypt/authenticate inner payload
+        MH->>MR: saveMessage(Message)
         MR->>MR: SQLite INSERT
         CS->>CS: Update UI
     else Relay required
-        MRE->>MRE: Route to next hop
+        MRE->>MRE: Route opaque inner payload to next hop
     end
 ```
 
@@ -220,28 +218,31 @@ sequenceDiagram
 1. Node A → Create message for Node C
 2. Node A → Send to Node B (nearest hop)
 3. Node B (BLEService) → Receive message
-4. Node B → Decrypt with Noise session (A→B)
-5. Node B → MeshRelayEngine.processIncomingMessage(message)
-6. MeshRelayEngine → Extract relay metadata
+4. Node B → Parse the `ProtocolMessage.meshRelay` envelope
+5. Node B → MeshRelayEngine.processIncomingMessage(relay envelope)
+6. MeshRelayEngine → Extract visible relay metadata; keep the encrypted inner
+   payload opaque
 7. MeshRelayEngine → Check finalRecipient != current node
 8. MeshRelayEngine → SeenMessageStore.hasSeen(messageId)
 9. IF seen: Drop (duplicate)
 10. IF not seen:
    11. SeenMessageStore → markSeen(messageId, timestamp)
-   12. MeshRelayEngine → Check hopCount < maxHops (5)
+   12. MeshRelayEngine → Check hopCount < configured maxHops (default 3, cap 5)
    13. MeshRelayEngine → SmartMeshRouter.determineOptimalRoute(C, availableHops)
    14. SmartMeshRouter → NetworkTopologyAnalyzer.estimateNetworkSize()
    15. SmartMeshRouter → ConnectionQualityMonitor.getQuality(C)
    16. SmartMeshRouter → RouteCalculator.calculateRoute()
    17. SmartMeshRouter → Return optimal next hop (Node C or intermediary)
    18. MeshRelayEngine → Increment hopCount
-   19. MeshRelayEngine → Encrypt with Noise session (B→C or B→intermediary)
-   20. MeshRelayEngine → BLEService.sendMessage(nextHop, ciphertext)
+   19. MeshRelayEngine → Reuse the unchanged encrypted inner payload in the
+       updated relay envelope
+   20. BLEService → Serialize/fragment the updated envelope and send over BLE
 21. Node C → Receive message
-22. Node C → Decrypt
+22. Node C → Parse the relay envelope
 23. Node C → MeshRelayEngine.processIncomingMessage()
-24. MeshRelayEngine → Check finalRecipient == current node
-25. MeshRelayEngine → Deliver to self (save to MessageRepository)
+24. MeshRelayEngine → Check finalRecipient == current node and return the
+    encrypted inner payload
+25. Node C → Decrypt/authenticate the inner payload and save it
 ```
 
 ### Mermaid Syntax
@@ -253,11 +254,12 @@ sequenceDiagram
     participant SMS as SeenMessageStore B
     participant SMR as SmartMeshRouter B
     participant C as Node C (Recipient)
+    participant MRE_C as MeshRelayEngine C
 
     A->>B: Send message (to C)
-    B->>B: Decrypt (A→B session)
+    B->>B: Parse relay envelope
     B->>MRE: processIncomingMessage()
-    MRE->>MRE: Extract relay metadata
+    MRE->>MRE: Extract metadata; preserve opaque inner payload
     MRE->>SMS: hasSeen(messageId)?
     alt Not seen
         SMS->>SMS: markSeen(messageId)
@@ -266,9 +268,12 @@ sequenceDiagram
         SMR->>SMR: Analyze topology
         SMR-->>MRE: Next hop: C
         MRE->>MRE: Increment hopCount
-        MRE->>B: Encrypt (B→C session)
-        B->>C: Forward message
-        C->>C: Decrypt
+        MRE->>B: Reuse inner payload in updated envelope
+        B->>C: Serialize, fragment, and forward over BLE
+        C->>MRE_C: processIncomingMessage()
+        MRE_C->>MRE_C: Check final recipient
+        MRE_C-->>C: Encrypted inner payload
+        C->>C: Decrypt/authenticate inner payload
         C->>C: Deliver to self
     else Already seen
         MRE->>MRE: Drop (duplicate)
@@ -358,72 +363,59 @@ sequenceDiagram
 ### Participants
 - App Startup
 - DatabaseHelper
-- SharedPreferences
+- Platform secure storage (Android/iOS)
 - SQLite Database
-- MigrationService
 
 ### Flow
 ```
 1. App Startup → DatabaseHelper.database (first access)
-2. DatabaseHelper → Check if database exists
-3. IF exists:
-   4. DatabaseHelper → Open database
-   5. DatabaseHelper → Check current version
-   6. IF version < latest (9):
-      7. DatabaseHelper → _onUpgrade(db, oldVersion, newVersion)
-      8. FOR EACH version upgrade (e.g., v7 → v8 → v9):
-         9. Apply migration SQL (ALTER TABLE, CREATE INDEX, etc.)
-         10. Log migration completion
-   11. DatabaseHelper → Set new version
-12. IF not exists:
-   13. DatabaseHelper → _onCreate(db, version=9)
-   14. Create all 17 tables + indexes + FTS5
-15. DatabaseHelper → Enable foreign keys (PRAGMA)
-16. DatabaseHelper → Enable WAL mode (PRAGMA)
-17. [OPTIONAL: SharedPreferences → SQLite migration]
-18. IF migration needed:
-   19. MigrationService → Check migration_metadata table
-   20. IF not migrated:
-      21. MigrationService → Read SharedPreferences data
-      22. MigrationService → Convert to SQLite format
-      23. MigrationService → Insert into tables
-      24. MigrationService → Verify checksums
-      25. MigrationService → Mark migration complete
-26. DatabaseHelper → Return database instance
+2. DatabaseHelper selects the platform factory:
+   - Android/iOS: SQLCipher
+   - desktop/test: plaintext `sqflite_common`
+3. On Android/iOS, load or create the random 256-bit credential in platform
+   secure storage; abort if it cannot be obtained.
+4. If an existing mobile database is plaintext, run the one-time encrypted
+   database copy before the normal open.
+5. Open database at version 12.
+6. `_onConfigure` enables foreign keys, requests WAL mode, and sets cache size.
+7. IF the database is new:
+   - `_onCreate(db, version=12)` creates 18 ordinary tables, 35 explicit
+     indexes, and one FTS5 virtual table.
+8. ELSE IF the existing version is below 12:
+   - `_onUpgrade` runs sequential migrations through v12.
+9. Return the database instance.
 ```
+
+`MigrationService` is a retired, explicitly invoked cleanup shim. It is not
+part of `DatabaseHelper` startup and does not import SharedPreferences data into
+SQLite.
 
 ### Mermaid Syntax
 ```mermaid
 sequenceDiagram
     participant App as App Startup
     participant DH as DatabaseHelper
-    participant SP as SharedPreferences
+    participant SS as Platform Secure Storage
     participant DB as SQLite Database
-    participant MS as MigrationService
 
     App->>DH: Get database instance
-    DH->>DH: Check if exists
-    alt Database Exists
-        DH->>DB: Open database
-        DH->>DB: Check version
-        alt Version < 9
-            DH->>DH: _onUpgrade(old, new)
-            loop For each version
-                DH->>DB: Apply migration SQL
-            end
-            DH->>DB: Set version = 9
-        end
-    else New Database
-        DH->>DB: _onCreate(version=9)
-        DH->>DB: Create 17 tables + FTS5
+    alt Android or iOS
+        DH->>SS: Load/create random SQLCipher credential
+        SS-->>DH: Credential or error
+        Note over DH: Fail closed on credential error
+    else Desktop or test
+        Note over DH: Use plaintext sqflite_common fallback
     end
-    DH->>DB: PRAGMA foreign_keys=ON
-    DH->>DB: PRAGMA journal_mode=WAL
-    opt SharedPreferences Migration
-        DH->>MS: Check if migration needed
-        MS->>SP: Read old data
-        MS->>DB: Insert into SQLite
-        MS->>MS: Verify checksums
+    DH->>DB: Open at version 12
+    DH->>DB: Configure foreign keys, WAL, cache
+    alt New database
+        DH->>DB: _onCreate(version=12)
+        DH->>DB: Create 18 ordinary tables + FTS5 virtual table
+    else Existing version below 12
+        DH->>DH: _onUpgrade(old, 12)
+        loop Sequential migrations
+            DH->>DB: Apply migration SQL
+        end
     end
     DH-->>App: Database ready
 ```
@@ -431,4 +423,4 @@ sequenceDiagram
 ---
 
 **Total Sequence Diagrams**: 6 key flows
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11

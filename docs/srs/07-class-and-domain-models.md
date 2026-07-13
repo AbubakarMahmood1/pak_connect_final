@@ -12,7 +12,7 @@ This document provides structured context for generating class diagrams and doma
 
 **2. Contact**
 - Attributes: publicKey (immutable), persistentPublicKey (nullable), currentEphemeralId (nullable), displayName, securityLevel, trustStatus, isFavorite
-- Relationships: Belongs to User, Has one Chat, Member of many Groups
+- Relationships: Belongs to User, Has one Chat, May appear in many sender-local broadcast lists
 
 **3. Chat**
 - Attributes: chatId, contactPublicKey, lastMessage, lastMessageTime, unreadCount, isArchived, isPinned
@@ -24,11 +24,11 @@ This document provides structured context for generating class diagrams and doma
 
 **5. ContactGroup**
 - Attributes: id, name, description, createdAt
-- Relationships: Has many Contacts (many-to-many)
+- Relationships: Legacy model name for a sender-local broadcast list; has many Contacts (many-to-many)
 
 **6. GroupMessage**
 - Attributes: id, groupId, senderKey, content, timestamp, deliveryStatus (map)
-- Relationships: Belongs to Group, Has many DeliveryRecords
+- Relationships: Legacy model name for a sender-local dispatch; belongs to a local list and has per-recipient queue-status records
 
 **7. NoiseSession**
 - Attributes: peerID, pattern (XX/KK), state (handshaking/established), sendCipherState, receiveCipherState
@@ -218,6 +218,10 @@ This document provides structured context for generating class diagrams and doma
 ```
 
 **Class: GroupRepository**
+
+Legacy Group* method names map to sender-local broadcast-list persistence; they
+do not imply synchronized membership or a recipient-side group transcript.
+
 ```
 + createGroup(group): Future<String>
 + getGroup(groupId): Future<ContactGroup?>

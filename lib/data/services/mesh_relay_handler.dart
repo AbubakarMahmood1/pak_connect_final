@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/messaging/mesh_relay_engine.dart'
@@ -8,7 +10,6 @@ import '../../domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
-import 'package:pak_connect/domain/models/sealed_sender_payload.dart';
 
 /// Encapsulates mesh relay handling (ACKs, forwarding, delivery) so
 /// BLEMessageHandler can stay as a thin orchestrator.
@@ -44,6 +45,12 @@ class MeshRelayHandler {
   onRelayMessageReceived;
   Function(MessageId originalMessageId, String content, String originalSender)?
   onRelayMessageReceivedIds;
+  FutureOr<void> Function(
+    String originalMessageId,
+    String content,
+    String originalSender,
+  )?
+  onProcessRelayDelivery;
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
   Function(ProtocolMessage message)? onSendAckMessage;
@@ -61,6 +68,12 @@ class MeshRelayHandler {
       String originalSender,
     )?
     onRelayMessageReceivedIds,
+    FutureOr<void> Function(
+      String originalMessageId,
+      String content,
+      String originalSender,
+    )?
+    onProcessRelayDelivery,
     Function(RelayDecision decision)? onRelayDecisionMade,
     Function(RelayStatistics stats)? onRelayStatsUpdated,
   }) async {
@@ -74,6 +87,7 @@ class MeshRelayHandler {
     if (onRelayMessageReceivedIds != null) {
       this.onRelayMessageReceivedIds = onRelayMessageReceivedIds;
     }
+    this.onProcessRelayDelivery = onProcessRelayDelivery;
     if (onRelayDecisionMade != null) {
       this.onRelayDecisionMade = onRelayDecisionMade;
     }
@@ -167,16 +181,22 @@ class MeshRelayHandler {
       }
 
       final metadata = RelayMetadata.fromJson(relayMetadata);
-      final originalContent = originalPayload['content'] as String? ?? '';
-      final encryptedPayload = originalPayload['encrypted'] as String?;
+      final innerProtocolMessage =
+          originalPayload['innerProtocolMessage'] as String?;
+      if (innerProtocolMessage == null || innerProtocolMessage.isEmpty) {
+        _logger.warning(
+          '🔀 MESH RELAY: Unsupported legacy plaintext relay payload dropped',
+        );
+        return null;
+      }
 
       final relayMessage = MeshRelayMessage(
         originalMessageId: originalMessageId,
-        originalContent: originalContent,
+        originalContent: '',
         relayMetadata: metadata,
         relayNodeId: senderPublicKey,
         relayedAt: DateTime.now(),
-        encryptedPayload: encryptedPayload,
+        encryptedPayload: innerProtocolMessage,
         originalMessageType: originalMessageType,
       );
 
@@ -189,32 +209,35 @@ class MeshRelayHandler {
 
       switch (result.type) {
         case RelayProcessingType.deliveredToSelf:
-          // Phase 5: If sealed sender, extract real sender from payload
-          var deliveredContent = result.content;
-          if (metadata.sealedSender) {
-            final sealedData = SealedSenderPayload.unpack(
-              deliveredContent ?? originalContent,
-            );
-            if (sealedData != null) {
-              _logger.info(
-                '🔀 MESH RELAY: Unsealed sender: ${_preview(sealedData.senderPublicKey, 8)}',
-              );
-              deliveredContent = sealedData.content;
-            }
-          }
           _logger.info('🔀 MESH RELAY: Message delivered to self');
           await _sendRelayAck(
             originalMessageId: relayMessage.originalMessageId,
             relayMetadata: relayMessage.relayMetadata,
             delivered: true,
           );
-          return deliveredContent;
+          return result.content;
         case RelayProcessingType.relayed:
           _logger.info(
             '🔀 MESH RELAY: Message relayed to ${_preview(result.nextHopNodeId ?? 'unknown', 8)}',
           );
           return null;
         case RelayProcessingType.dropped:
+          if (result.isDuplicate &&
+              relayMessage.relayMetadata.finalRecipient == _currentNodeId) {
+            _logger.info(
+              '🔀 MESH RELAY: Re-sending relayAck for duplicate final delivery',
+            );
+            await _sendRelayAck(
+              originalMessageId: relayMessage.originalMessageId,
+              relayMetadata: relayMessage.relayMetadata,
+              delivered: true,
+            );
+            return null;
+          }
+          _logger.warning(
+            '🔀 MESH RELAY: Message ${result.type.name}: ${result.reason}',
+          );
+          return null;
         case RelayProcessingType.blocked:
           _logger.warning(
             '🔀 MESH RELAY: Message ${result.type.name}: ${result.reason}',
@@ -317,6 +340,7 @@ class MeshRelayHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) async {
     try {
       if (_relayEngine == null) {
@@ -329,6 +353,7 @@ class MeshRelayHandler {
         originalContent: originalContent,
         finalRecipientPublicKey: finalRecipientPublicKey,
         priority: priority,
+        encryptedPayload: relayPayload,
       );
     } catch (e) {
       _logger.severe('Failed to create outgoing relay: $e');
@@ -341,11 +366,13 @@ class MeshRelayHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) => createOutgoingRelay(
     originalMessageId: originalMessageId.value,
     originalContent: originalContent,
     finalRecipientPublicKey: finalRecipientPublicKey,
     priority: priority,
+    relayPayload: relayPayload,
   );
 
   Future<bool> shouldAttemptDecryption({
@@ -406,13 +433,15 @@ class MeshRelayHandler {
 
       ackMessage.payload['ackRoutingPath'] = relayMetadata.ackRoutingPath;
 
-      if (onSendAckMessage != null) {
-        onSendAckMessage!(ackMessage);
+      final callback = onSendAckMessage;
+      if (callback != null) {
+        await callback(ackMessage);
       } else {
         _logger.warning('⚠️ Cannot send ACK - callback not set');
       }
-    } catch (e) {
+    } catch (e, stack) {
       _logger.severe('Failed to send relay ACK: $e');
+      Error.throwWithStackTrace(e, stack);
     }
   }
 
@@ -431,12 +460,8 @@ class MeshRelayHandler {
         finalRecipient: message.relayMetadata.finalRecipient,
         relayMetadata: message.relayMetadata.toJson(),
         originalPayload: {
-          // Only carry plaintext when no encrypted payload exists.
-          // Prevents leaking cleartext to intermediate relay hops.
-          if (message.encryptedPayload == null)
-            'content': message.originalContent,
-          if (message.encryptedPayload != null)
-            'encrypted': message.encryptedPayload,
+          if (message.relayPayload != null)
+            'innerProtocolMessage': message.relayPayload,
         },
         useEphemeralAddressing: false,
         originalMessageType: message.originalMessageType,
@@ -457,21 +482,47 @@ class MeshRelayHandler {
     }
   }
 
-  void _handleRelayDeliveryToSelf(
+  Future<void> _handleRelayDeliveryToSelf(
     String originalMessageId,
     String content,
     String originalSender,
-  ) {
+  ) async {
     try {
       _logger.info(
         '🔀 RELAY DELIVERY: Message delivered to self from ${_preview(originalSender, 8)}',
       );
 
+      final processor = onProcessRelayDelivery;
+      if (processor != null) {
+        await processor(originalMessageId, content, originalSender);
+      }
+
       final id = MessageId(originalMessageId);
-      onRelayMessageReceived?.call(originalMessageId, content, originalSender);
-      onRelayMessageReceivedIds?.call(id, content, originalSender);
+      try {
+        onRelayMessageReceived?.call(
+          originalMessageId,
+          content,
+          originalSender,
+        );
+      } catch (e, stack) {
+        _logger.warning(
+          'Relay delivery observer failed after successful processing: $e',
+          e,
+          stack,
+        );
+      }
+      try {
+        onRelayMessageReceivedIds?.call(id, content, originalSender);
+      } catch (e, stack) {
+        _logger.warning(
+          'Typed relay delivery observer failed after successful processing: $e',
+          e,
+          stack,
+        );
+      }
     } catch (e) {
       _logger.severe('Failed to handle relay delivery to self: $e');
+      rethrow;
     }
   }
 

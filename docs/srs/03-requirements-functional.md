@@ -16,17 +16,21 @@ This document details system capabilities extracted from actual implemented code
 | FR-1.1.4 | Store message history persistently | `MessageRepository.saveMessage()` with SQLite |
 | FR-1.1.5 | Display sent/received timestamps | `Message.timestamp` field |
 
-### FR-1.2: Group Messaging
+### FR-1.2: Sender-Local Broadcast Lists
 **Priority**: High
-**Status**: Implemented
+**Status**: Implemented within the boundary stated below
+
+Each recipient receives an ordinary encrypted direct message and can reply
+only in that direct chat. The current wire payload contains no list/group ID or
+membership state, so this is not a synchronized group conversation.
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-1.2.1 | Send messages to multiple recipients (multi-unicast) | `GroupMessagingService.sendGroupMessage()` |
-| FR-1.2.2 | Track per-member delivery status | `GroupMessage.deliveryStatus` map |
-| FR-1.2.3 | Create and manage contact groups | `GroupRepository` with `contact_groups` table |
-| FR-1.2.4 | Add/remove members from groups | `GroupRepository.addMember()`, `removeMember()` |
-| FR-1.2.5 | Retrieve group message history | `GroupMessagingService.getGroupMessages()` |
+| FR-1.2.1 | Queue the same content as one direct message per selected recipient | `GroupMessagingService.sendGroupMessage()` |
+| FR-1.2.2 | Track sender-local queue submission as pending, queued (persisted enum `sent`), or failed | `GroupMessage.deliveryStatus` map |
+| FR-1.2.3 | Create and manage local recipient lists | `GroupRepository` with legacy `contact_groups` table names |
+| FR-1.2.4 | Add/remove recipients from local lists | `GroupRepository.addMember()`, `removeMember()` |
+| FR-1.2.5 | Retrieve sender-local broadcast history | `GroupMessagingService.getGroupMessages()` |
 
 ### FR-1.3: Offline Message Queue
 **Priority**: Critical
@@ -61,7 +65,7 @@ This document details system capabilities extracted from actual implemented code
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-2.1.1 | Relay messages through intermediate nodes | `MeshRelayEngine.processIncomingMessage()` |
-| FR-2.1.2 | Detect and prevent duplicate relays | `SeenMessageStore` with 5-minute window |
+| FR-2.1.2 | Detect and prevent duplicate completed delivery | Persistent `SeenMessageStore`, capped at 10,000 IDs per seen type with oldest-first eviction |
 | FR-2.1.3 | Limit relay hops (max 5) | `MeshRelayMetadata.hopCount`, `maxHops` check |
 | FR-2.1.4 | Route optimization via topology analysis | `SmartMeshRouter.determineOptimalRoute()` |
 | FR-2.1.5 | Flood prevention | `SpamPreventionManager.shouldRelay()` |
@@ -88,7 +92,7 @@ This document details system capabilities extracted from actual implemented code
 | FR-2.3.2 | Compare queue hashes | `OfflineMessageQueue.calculateQueueHash()` |
 | FR-2.3.3 | Exchange missing messages | `QueueSyncManager.exchangeMessages()` |
 | FR-2.3.4 | Track deleted message IDs | `deleted_message_ids` SQL table |
-| FR-2.3.5 | Prevent duplicate delivery after sync | Hash-based deduplication |
+| FR-2.3.5 | Prevent duplicate delivery after sync | Stable protocol-ID tracking and queue merge guards; queue hashes compare inventory state |
 
 ## FR-3: Security & Cryptography
 
@@ -199,27 +203,27 @@ This document details system capabilities extracted from actual implemented code
 
 ### FR-6.1: Archive Operations
 **Priority**: Medium
-**Status**: Implemented
+**Status**: Partial
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-6.1.1 | Archive chat with messages | `ArchiveManagementService.archiveChat()` |
 | FR-6.1.2 | Restore archived chat | `ArchiveManagementService.restoreChat()` |
 | FR-6.1.3 | Full-text search archived messages | `ArchiveSearchService` with FTS5 |
-| FR-6.1.4 | Auto-archive by policy | `ArchivePolicy` (age-based, size-based) |
-| FR-6.1.5 | Archive compression | `archived_chats.is_compressed` flag |
+| FR-6.1.4 | Auto-archive by policy | Policy/configuration and in-process scheduling exist; policy application is still a no-op placeholder |
+| FR-6.1.5 | Archive compression | Schema flag only; compression work is not implemented |
 
 ### FR-6.2: Archive Maintenance
 **Priority**: Low
-**Status**: Implemented
+**Status**: Partial
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-6.2.1 | Scheduled maintenance tasks | `AutoArchiveScheduler.start()` |
-| FR-6.2.2 | Archive integrity checks | `ArchiveManagementService.performMaintenance()` |
-| FR-6.2.3 | Storage capacity monitoring | Archive analytics |
-| FR-6.2.4 | Archive policies configuration | `ArchivePolicy` management |
-| FR-6.2.5 | Archive analytics | `ArchiveManagementService.getArchiveAnalytics()` |
+| FR-6.2.1 | Scheduled maintenance tasks | In-process timers invoke maintenance, but task bodies currently report zero work |
+| FR-6.2.2 | Archive integrity checks | Maintenance surface exists; cleanup/rebuild/compress/expiry task bodies are placeholders |
+| FR-6.2.3 | Storage capacity monitoring | Repository statistics are compared with the configured byte cap |
+| FR-6.2.4 | Archive policies configuration | Configuration persists; policy evaluation/application is not implemented |
+| FR-6.2.5 | Archive analytics | `ArchiveManagementService.getArchiveAnalytics()` is implemented; policy metrics remain empty |
 
 ## FR-7: BLE Communication
 
@@ -233,7 +237,7 @@ This document details system capabilities extracted from actual implemented code
 | FR-7.1.2 | Peripheral mode advertising | `PeripheralInitializer.startAdvertising()` |
 | FR-7.1.3 | Simultaneous central/peripheral | Dual-mode architecture |
 | FR-7.1.4 | MTU negotiation | `BLEConnectionManager.negotiateMTU()` |
-| FR-7.1.5 | Connection management | `BLEConnectionManager` (up to 7 connections) |
+| FR-7.1.5 | Connection management | Configurable limits exist, but the current payload policy is single-link; multi-link capacity remains device-unverified |
 
 ### FR-7.2: Handshake Protocol
 **Priority**: Critical
@@ -293,10 +297,10 @@ This document details system capabilities extracted from actual implemented code
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
-| FR-9.1.1 | SQLite storage with SQLCipher encryption | `DatabaseHelper` with encryption |
+| FR-9.1.1 | SQLCipher-backed SQLite on Android/iOS | Implemented mobile path; desktop/test may use plaintext SQLite; device at-rest proof pending |
 | FR-9.1.2 | WAL mode for concurrency | `PRAGMA journal_mode = WAL` |
 | FR-9.1.3 | Foreign key constraints | `PRAGMA foreign_keys = ON` |
-| FR-9.1.4 | Database migrations | `DatabaseHelper._onUpgrade()` (v1-v9) |
+| FR-9.1.4 | Database migrations | `DatabaseMigrationRunner` (v1-v12) |
 | FR-9.1.5 | Database vacuum | `DatabaseHelper.vacuum()` (monthly) |
 
 ### FR-9.2: Data Export/Import
@@ -367,5 +371,5 @@ This document details system capabilities extracted from actual implemented code
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11
 **Total Functional Requirements**: 137

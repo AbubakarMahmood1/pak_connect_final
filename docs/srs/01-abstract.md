@@ -5,30 +5,38 @@
 ## Core Capabilities
 
 - **Peer-to-Peer Messaging**: Direct encrypted messaging between devices via BLE
-- **Mesh Networking**: Message relay through intermediate nodes for extended range
-- **End-to-End Encryption**: Noise Protocol Framework (XX/KK patterns) with ChaCha20-Poly1305 AEAD
-- **Dual-Role BLE**: Simultaneous central and peripheral operation
+- **Mesh Networking**: Intermediate-node relay implementation; extended-range
+  three-device evidence remains pending
+- **Payload Encryption**: Direct sessions use Noise XX/KK with
+  ChaCha20-Poly1305; offline relay uses a signed recipient-key encrypted
+  `sealed_v1` inner payload
+- **Dual-Role BLE**: Central/peripheral architecture; simultaneous hardware
+  behavior remains device-gated
 - **Offline Message Queue**: Persistent storage for unreachable recipients with retry logic
 - **Contact Management**: Three-tier security model (LOW/MEDIUM/HIGH) with identity verification
-- **Group Messaging**: Secure multi-unicast messaging to contact groups
+- **Broadcast Lists**: Sender-local lists that queue one encrypted direct
+  message per recipient; no shared recipient-side group conversation
 - **Archive System**: Full-text search (FTS5) for archived conversations
 - **Adaptive Power Management**: Battery-aware scanning and advertising strategies
 
 ## Technology Stack
 
-- **Platform**: Flutter 3.9+, Dart 3.9+
+- **Platform**: Flutter 3.38.4+, Dart 3.10.3+
 - **State Management**: Riverpod 3.0
 - **Cryptography**:
   - X25519 (Elliptic Curve Diffie-Hellman)
   - ChaCha20-Poly1305 (Authenticated Encryption)
   - SHA-256 (Hashing)
-- **Storage**: SQLite with SQLCipher encryption
+- **Storage**: SQLCipher-backed SQLite on Android/iOS; desktop/test SQLite may
+  be plaintext, and mobile at-rest proof remains device-gated
 - **Networking**: BLE GATT (Generic Attribute Profile)
-- **Protocol**: Noise Protocol Framework
+- **Protocol**: Noise direct/session transport plus PakConnect's signed
+  `sealed_v1` offline-relay envelope
 
 ## Key Design Principles
 
-1. **Privacy-First**: No cloud storage, no telemetry, all data local
+1. **Privacy-First**: No project-operated account, analytics, or message server;
+   BLE and user-invoked platform flows still transmit documented data
 2. **Censorship-Resistant**: No central authority or infrastructure dependency
 3. **Forward Secrecy**: Ephemeral key rotation and session rekeying
 4. **Mesh Resilience**: Duplicate detection, flood prevention, adaptive routing
@@ -45,5 +53,5 @@
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
-**Based on**: PakConnect Database Schema v9
+**Last Updated**: 2026-07-11
+**Based on**: PakConnect Database Schema v12

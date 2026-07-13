@@ -125,7 +125,35 @@ void main() {
  fromNodeId: 'sender_1',
 );
  expect(result.type, RelayProcessingType.deliveredToSelf);
- expect(deliveredContent, 'Hello mesh');
+ expect(deliveredContent, _relayPayload());
+ });
+
+ test('awaits delivery before marking seen and allows retry after failure', () async {
+ var attempts = 0;
+ await engine.initialize(currentNodeId: 'my_node_id',
+ onDeliverToSelf: (id, content, sender) async {
+ attempts++;
+ if (attempts == 1) {
+ throw StateError('persistence failed');
+ }
+ },
+ );
+
+ final msg = _buildRelay(recipient: 'my_node_id', msgId: 'msg_retry');
+ final first = await engine.processIncomingRelay(relayMessage: msg,
+ fromNodeId: 'sender_1',
+ );
+
+ expect(first.type, RelayProcessingType.error);
+ expect(seenStore.hasDelivered(msg.originalMessageId), isFalse);
+
+ final second = await engine.processIncomingRelay(relayMessage: msg,
+ fromNodeId: 'sender_1',
+ );
+
+ expect(second.type, RelayProcessingType.deliveredToSelf);
+ expect(seenStore.hasDelivered(msg.originalMessageId), isTrue);
+ expect(attempts, 2);
  });
 
  test('drops TTL exhausted messages (not for us)', () async {
@@ -139,10 +167,11 @@ void main() {
  finalRecipient: 'other_node',
 );
  final msg = MeshRelayMessage(originalMessageId: 'msg_ttl',
- originalContent: 'content',
+ originalContent: '',
  relayMetadata: metadata,
  relayNodeId: 'b',
  relayedAt: DateTime.now(),
+ encryptedPayload: _relayPayload('content'),
 );
 
  final result = await engine.processIncomingRelay(relayMessage: msg,
@@ -253,10 +282,12 @@ void main() {
  final relay = await engine.createOutgoingRelay(originalMessageId: 'msg_001',
  originalContent: 'Hello world',
  finalRecipientPublicKey: 'recipient_pk',
+ encryptedPayload: _relayPayload('Hello world'),
 );
  expect(relay, isNotNull);
  expect(relay!.originalMessageId, 'msg_001');
- expect(relay.originalContent, 'Hello world');
+ expect(relay.originalContent, isEmpty);
+ expect(relay.relayPayload, _relayPayload('Hello world'));
  expect(relay.relayMetadata.originalSender, 'my_node_id');
  });
 
@@ -264,6 +295,7 @@ void main() {
  final relay = await engine.createOutgoingRelay(originalMessageId: '',
  originalContent: 'content',
  finalRecipientPublicKey: 'pk',
+ encryptedPayload: _relayPayload('content'),
 );
  expect(relay, isNull);
  });
@@ -272,6 +304,7 @@ void main() {
  final relay = await engine.createOutgoingRelay(originalMessageId: 'msg_1',
  originalContent: 'content',
  finalRecipientPublicKey: '',
+ encryptedPayload: _relayPayload('content'),
 );
  expect(relay, isNull);
  });
@@ -281,6 +314,7 @@ void main() {
  originalContent: 'content',
  finalRecipientPublicKey: 'pk',
  originalMessageType: ProtocolMessageType.noiseHandshake1,
+ encryptedPayload: _relayPayload('content'),
 );
  expect(relay, isNull);
  });
@@ -290,6 +324,7 @@ void main() {
  originalContent: 'Urgent!',
  finalRecipientPublicKey: 'pk',
  priority: MessagePriority.urgent,
+ encryptedPayload: _relayPayload('Urgent!'),
 );
  expect(relay, isNotNull);
  expect(relay!.relayMetadata.priority, MessagePriority.urgent);
@@ -460,12 +495,15 @@ MeshRelayMessage _buildRelay({
  finalRecipient: recipient,
 );
  return MeshRelayMessage(originalMessageId: msgId,
- originalContent: 'Hello mesh',
+ originalContent: '',
  relayMetadata: metadata,
  relayNodeId: 'origin_node',
  relayedAt: DateTime.now(),
+ encryptedPayload: _relayPayload(),
 );
 }
+
+String _relayPayload([String label = 'Hello mesh']) => 'ciphertext::$label';
 
 // ─── Fakes ──────────────────────────────────────────────────────────────────
 

@@ -65,7 +65,7 @@ void main() {
     }
   });
 
-  void createService() {
+  void createService({bool strictTdmManagedConnects = false}) {
     // Create service with callback
     service = BLEConnectionService(
       stateManager: mockStateManager,
@@ -84,6 +84,7 @@ void main() {
           }) {
             // Do nothing
           },
+      isRadioSchedulerManagingConnects: () => strictTdmManagedConnects,
     );
   }
 
@@ -262,6 +263,34 @@ void main() {
 
       expect(service.canSendMessages, false);
     });
+
+    test(
+      'connectToDevice skips direct discovery stop when strict TDM owns the radio',
+      () async {
+        mockStateManager = MockIBLEStateManagerFacade();
+        mockConnectionManager = _MockConnectionManagerWithAddresses();
+        mockCentralManager = MockCentralManager();
+        mockBluetoothMonitor = MockBluetoothStateMonitor();
+
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000f0f0',
+        );
+
+        when(
+          mockConnectionManager.connectToDevice(peripheral),
+        ).thenAnswer((_) async {});
+        when(mockConnectionManager.hasBleConnection).thenReturn(false);
+        when(mockConnectionManager.serverConnectionCount).thenReturn(0);
+        when(mockConnectionManager.isReconnection).thenReturn(false);
+
+        createService(strictTdmManagedConnects: true);
+
+        await service.connectToDevice(peripheral);
+
+        verifyNever(mockCentralManager.stopDiscovery());
+        verify(mockConnectionManager.connectToDevice(peripheral)).called(1);
+      },
+    );
 
     test('auto-connect backs off when slots are unavailable', () async {
       mockStateManager = MockIBLEStateManagerFacade();

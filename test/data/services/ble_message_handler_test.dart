@@ -16,6 +16,8 @@ import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/models/security_level.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
+import 'package:pak_connect/domain/models/crypto_header.dart';
+import 'package:pak_connect/domain/services/ephemeral_key_manager.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
 import 'package:pak_connect/domain/services/simple_crypto.dart';
 import 'package:pak_connect/domain/services/signing_manager.dart';
@@ -47,11 +49,25 @@ Uint8List _rawProtocolFrame(ProtocolMessage message) {
 }
 
 class _FakeSecurityService extends Fake implements ISecurityService {
+  int decryptSealedCalls = 0;
+
   @override
   void registerIdentityMapping({
     required String persistentPublicKey,
     required String ephemeralID,
   }) {}
+
+  @override
+  Future<String> decryptSealedMessage({
+    required String encryptedMessage,
+    required CryptoHeader cryptoHeader,
+    required String messageId,
+    required String senderId,
+    required String recipientId,
+  }) async {
+    decryptSealedCalls++;
+    return 'sealed:$encryptedMessage';
+  }
 }
 
 void main() {
@@ -60,13 +76,15 @@ void main() {
   group('BLEMessageHandler', () {
     late BLEMessageHandler handler;
     late ContactRepository sharedRepo;
+    late _FakeSecurityService fakeSecurityService;
 
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       SimpleCrypto.initialize();
       _initializeSigningForTests();
+      fakeSecurityService = _FakeSecurityService();
       SecurityServiceLocator.configureServiceResolver(
-        () => _FakeSecurityService(),
+        () => fakeSecurityService,
       );
       sharedRepo = ContactRepository();
       handler = BLEMessageHandler(
@@ -191,17 +209,121 @@ void main() {
       },
     );
 
+    test(
+      'final relay authenticates and dispatches inner text without a direct ACK',
+      () async {
+        const messageId = 'relay-final-message';
+        await EphemeralKeyManager.initialize('relay-final-recipient-key');
+        final currentNodeId = EphemeralKeyManager.generateMyEphemeralKey();
+        final originalSender = _persistentPublicKeyForTests();
+        final timestamp = DateTime.fromMillisecondsSinceEpoch(1739325600000);
+        final unsignedInner = ProtocolMessage(
+          type: ProtocolMessageType.textMessage,
+          version: 2,
+          payload: {
+            'messageId': messageId,
+            'content': 'sealed-ciphertext',
+            'encrypted': true,
+            'senderId': originalSender,
+            'recipientId': currentNodeId,
+            'intendedRecipient': currentNodeId,
+            'crypto': {
+              'mode': 'sealed_v1',
+              'modeVersion': 1,
+              'kid': 'relay-test-key',
+              'epk': 'ZWJjZGVmZw==',
+              'nonce': 'bm9uY2UxMjM=',
+            },
+          },
+          timestamp: timestamp,
+        );
+        final signature = SimpleCrypto.signMessage(
+          SigningManager.signaturePayloadForMessage(unsignedInner),
+        );
+        expect(signature, isNotNull);
+        final inner = ProtocolMessage(
+          type: unsignedInner.type,
+          version: unsignedInner.version,
+          payload: unsignedInner.payload,
+          timestamp: unsignedInner.timestamp,
+          signature: signature,
+        );
+        final relayMetadata = relay_models.RelayMetadata(
+          ttl: 4,
+          hopCount: 2,
+          routingPath: const ['origin-route', 'relay-route'],
+          messageHash: 'relay-final-hash',
+          priority: MessagePriority.normal,
+          relayTimestamp: timestamp,
+          originalSender: originalSender,
+          finalRecipient: currentNodeId,
+        );
+        final unsignedEnvelope = ProtocolMessage.meshRelay(
+          originalMessageId: messageId,
+          originalSender: originalSender,
+          finalRecipient: currentNodeId,
+          relayMetadata: relayMetadata.toJson(),
+          originalPayload: {
+            'innerProtocolMessage': base64.encode(unsignedInner.toBytes()),
+          },
+          originalMessageType: ProtocolMessageType.textMessage,
+        );
+        final envelope = ProtocolMessage.meshRelay(
+          originalMessageId: messageId,
+          originalSender: originalSender,
+          finalRecipient: currentNodeId,
+          relayMetadata: relayMetadata.toJson(),
+          originalPayload: {
+            'innerProtocolMessage': base64.encode(inner.toBytes()),
+          },
+          originalMessageType: ProtocolMessageType.textMessage,
+        );
+        final delivered = <(String, String?, String?)>[];
+        final acknowledgements = <ProtocolMessage>[];
+
+        await handler.initializeRelaySystem(
+          currentNodeId: currentNodeId,
+          messageQueue: InMemoryOfflineMessageQueue(),
+        );
+        handler.onTextMessageReceived = (content, id, sender) async {
+          delivered.add((content, id, sender));
+        };
+        handler.onSendAckMessage = acknowledgements.add;
+
+        final rejectedResult = await handler.processReceivedData(
+          _rawProtocolFrame(unsignedEnvelope),
+          senderPublicKey: 'relay-hop',
+          contactRepository: sharedRepo,
+        );
+
+        expect(rejectedResult, isNull);
+        expect(delivered, isEmpty);
+        expect(acknowledgements, isEmpty);
+        expect(fakeSecurityService.decryptSealedCalls, 0);
+
+        final result = await handler.processReceivedData(
+          _rawProtocolFrame(envelope),
+          senderPublicKey: 'relay-hop',
+          contactRepository: sharedRepo,
+        );
+
+        expect(result, isNull);
+        expect(delivered, [
+          ('sealed:sealed-ciphertext', messageId, originalSender),
+        ]);
+        expect(fakeSecurityService.decryptSealedCalls, 1);
+        expect(acknowledgements.map((message) => message.type), [
+          ProtocolMessageType.relayAck,
+        ]);
+      },
+    );
+
     test('callback accessors round-trip assignments', () {
       void contactRequest(String _, String _) {}
       void contactAccept(String _, String _) {}
       void contactReject() {}
       void cryptoReq(String _, String _) {}
-      void cryptoResp(
-        String _,
-        String _,
-        bool _,
-        Map<String, dynamic>? _,
-      ) {}
+      void cryptoResp(String _, String _, bool _, Map<String, dynamic>? _) {}
       void queueSync(relay_models.QueueSyncMessage _, String _) {}
       void sendQueue(List<QueuedMessage> _, String _) {}
       void queueDone(String _, QueueSyncResult _) {}
@@ -291,21 +413,46 @@ void main() {
 
         handler.setCurrentNodeId(localEphemeralId);
         await sharedRepo.saveContactWithSecurity(
-          persistentPublicKey,
+          'first-ephemeral-key',
           'Peer',
           SecurityLevel.medium,
           currentEphemeralId: senderEphemeralId,
           persistentPublicKey: persistentPublicKey,
         );
-        await sharedRepo.cacheSharedSecret(persistentPublicKey, 'cached-secret');
+        await sharedRepo.cacheSharedSecret(
+          persistentPublicKey,
+          'cached-secret',
+        );
         expect(
           await sharedRepo.getCachedSharedSecret(persistentPublicKey),
           equals('cached-secret'),
         );
-        expect(await sharedRepo.getContact(persistentPublicKey), isNotNull);
+        expect(
+          await sharedRepo.getContactByPersistentKey(persistentPublicKey),
+          isNotNull,
+        );
 
         final revealed = <String>[];
         handler.onIdentityRevealed = revealed.add;
+
+        final futureTimestamp = DateTime.now()
+            .add(const Duration(minutes: 10))
+            .millisecondsSinceEpoch;
+        final futureProof = SimpleCrypto.signMessage(
+          '${localEphemeralId}_$futureTimestamp',
+        );
+        await handler.processReceivedData(
+          _rawProtocolFrame(
+            ProtocolMessage.friendReveal(
+              myPersistentKey: persistentPublicKey,
+              proof: futureProof!,
+              timestamp: futureTimestamp,
+            ),
+          ),
+          senderPublicKey: senderEphemeralId,
+          contactRepository: sharedRepo,
+        );
+        expect(revealed, isEmpty);
 
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         final proof = SimpleCrypto.signMessage(
@@ -339,7 +486,7 @@ void main() {
         expect(result, isNull);
         expect(
           revealed,
-          ['Peer'],
+          [persistentPublicKey],
           reason: logRecords
               .map((record) => '${record.level.name}: ${record.message}')
               .join('\n'),

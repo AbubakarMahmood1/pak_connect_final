@@ -46,9 +46,17 @@ class RelaySendPipeline {
         messageSize: relayMessage.messageSize,
       );
 
+      final relayPayload = nextHopMessage.relayPayload;
+      if (relayPayload == null || relayPayload.isEmpty) {
+        _logger.warning(
+          '🚫 Relay drop to $nextHopNodeId (missing encrypted inner payload)',
+        );
+        return false;
+      }
+
       await _messageQueue.queueMessageWithIds(
         chatId: ChatId('mesh_relay_$nextHopNodeId'),
-        content: nextHopMessage.originalContent,
+        content: relayPayload,
         recipientId: ChatId(nextHopNodeId),
         senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
         priority: nextHopMessage.relayMetadata.priority,
@@ -141,9 +149,21 @@ class RelaySendPipeline {
             messageSize: relayMessage.messageSize,
           );
 
+          final relayPayload = nextHopMessage.relayPayload;
+          if (relayPayload == null || relayPayload.isEmpty) {
+            failCount++;
+            final truncatedNeighbor = neighborId.length > 8
+                ? neighborId.shortId(8)
+                : neighborId;
+            _logger.info(
+              '  🚫 Skip neighbor $truncatedNeighbor... (missing encrypted inner payload)',
+            );
+            continue;
+          }
+
           await _messageQueue.queueMessageWithIds(
             chatId: ChatId('broadcast_relay_$neighborId'),
-            content: nextHopMessage.originalContent,
+            content: relayPayload,
             recipientId: ChatId(neighborId),
             senderId: ChatId(nextHopMessage.relayMetadata.originalSender),
             priority: nextHopMessage.relayMetadata.priority,

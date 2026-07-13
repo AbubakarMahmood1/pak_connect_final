@@ -1,10 +1,7 @@
 // Comprehensive offline message delivery and queue management system
 
 import 'dart:async';
-import 'dart:io';
 import 'package:logging/logging.dart';
-import 'package:sqflite_common/sqflite.dart' as sqflite_common;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite_ffi;
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/services/message_security.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
@@ -25,6 +22,7 @@ import 'offline_queue_sync.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/messaging/offline_message_queue_contract.dart';
 import '../../domain/values/id_types.dart';
+import 'offline_message_queue_platform_bootstrap.dart';
 
 part 'offline_message_queue_maintenance_helper.dart';
 
@@ -162,13 +160,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
       _repositoryProvider = null;
     }
 
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      // Ensure sqflite_common_ffi is initialized for desktop/test environments
-      if (sqflite_common.databaseFactory != sqflite_ffi.databaseFactoryFfi) {
-        sqflite_ffi.sqfliteFfiInit();
-        sqflite_common.databaseFactory = sqflite_ffi.databaseFactoryFfi;
-      }
-    }
+    await ensureOfflineQueueDatabaseFactoryReady();
 
     if (databaseProvider != null) {
       _databaseProvider = databaseProvider;

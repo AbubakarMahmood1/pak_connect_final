@@ -21,6 +21,7 @@ import 'package:pak_connect/data/services/export_import/export_service_adapter.d
 import 'package:pak_connect/data/services/export_import/import_service_adapter.dart';
 import 'package:pak_connect/data/services/mesh_routing_service.dart';
 import 'package:pak_connect/data/services/mesh_relay_handler.dart';
+import 'package:pak_connect/data/services/panic_wipe_service.dart';
 import 'package:pak_connect/data/services/protocol_message_handler.dart';
 import 'package:pak_connect/data/services/relay_coordinator.dart';
 import 'package:pak_connect/data/services/seen_message_store.dart';
@@ -42,6 +43,7 @@ import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_handshake_coordinator_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_seen_message_store.dart';
 import 'package:pak_connect/domain/interfaces/i_service_registry.dart';
@@ -263,6 +265,11 @@ Future<void> registerDataLayerServices(
     logger.fine('✅ IImportService registered');
   }
 
+  if (!services.isRegistered<IPanicWipeService>()) {
+    services.registerLazySingleton<IPanicWipeService>(() => PanicWipeService());
+    logger.fine('✅ IPanicWipeService registered');
+  }
+
   if (!services.isRegistered<ISeenMessageStore>()) {
     services.registerSingleton<ISeenMessageStore>(SeenMessageStore());
     logger.fine('✅ ISeenMessageStore registered');
@@ -297,4 +304,3 @@ Future<void> registerDataLayerServices(
     logger.fine('✅ IBLEServiceFacadeFactory registered');
   }
 }
-

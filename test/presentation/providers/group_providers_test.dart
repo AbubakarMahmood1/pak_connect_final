@@ -169,7 +169,9 @@ class _FakeGroupMessagingService extends Fake implements GroupMessagingService {
 
 class _FakeOfflineQueue extends Fake implements OfflineMessageQueueContract {}
 
-class _FakeSharedQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedQueueProvider({required this.isInitialized, required this.queue});
 
   @override

@@ -89,6 +89,7 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
   ChatListItem? contextMenuChat;
   ChatListItem? pinToggledChat;
   ChatId? markedReadChatId;
+  ChatId? markedUnreadChatId;
 
   @override
   Future<void> initialize() async {
@@ -198,6 +199,11 @@ class _FakeInteractionHandler implements IChatInteractionHandler {
   Future<void> markChatAsRead(ChatId chatId) async {
     markedReadChatId = chatId;
   }
+
+  @override
+  Future<void> markChatAsUnread(ChatId chatId) async {
+    markedUnreadChatId = chatId;
+  }
 }
 
 ChatListItem _sampleChat() => ChatListItem(
@@ -285,6 +291,20 @@ void main() {
     final initialLoads = chatsRepository.loadCount;
 
     interactionHandler.emit(ChatOpenedIntent('chat-1'));
+    await Future.delayed(Duration.zero);
+
+    expect(chatsRepository.loadCount, initialLoads + 1);
+  });
+
+  test('read-status intent triggers chat reload', () async {
+    facade = buildFacade();
+
+    await facade.loadChats();
+    final initialLoads = chatsRepository.loadCount;
+
+    interactionHandler.emit(
+      ChatReadStatusChangedIntent('chat-1', isUnread: true),
+    );
     await Future.delayed(Duration.zero);
 
     expect(chatsRepository.loadCount, initialLoads + 1);

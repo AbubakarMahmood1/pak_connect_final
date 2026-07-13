@@ -19,5 +19,13 @@ class AppCoreSharedMessageQueueProvider implements ISharedMessageQueueProvider {
   Future<void> initialize() => _appCore.initialize();
 
   @override
+  Future<OfflineMessageQueueContract> waitForMessageQueue() async {
+    if (!_appCore.isInitialized && !_appCore.isInitializing) {
+      await _appCore.initialize();
+    }
+    return _appCore.waitForMessageQueueReady();
+  }
+
+  @override
   OfflineMessageQueueContract get messageQueue => _appCore.messageQueue;
 }

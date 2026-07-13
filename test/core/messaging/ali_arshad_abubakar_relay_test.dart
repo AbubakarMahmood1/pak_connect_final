@@ -88,6 +88,7 @@ void main() {
         originalContent: 'Hello Abubakar from Ali!',
         finalRecipientPublicKey: abubakar,
         priority: MessagePriority.normal,
+        encryptedPayload: _relayPayload('Hello Abubakar from Ali!'),
       );
 
       expect(
@@ -97,7 +98,10 @@ void main() {
       );
       expect(aliMessage!.relayMetadata.finalRecipient, equals(abubakar));
       expect(aliMessage.relayMetadata.originalSender, equals(ali));
-      expect(aliMessage.originalContent, equals('Hello Abubakar from Ali!'));
+      expect(
+        aliMessage.relayPayload,
+        equals(_relayPayload('Hello Abubakar from Ali!')),
+      );
 
       // Step 2: Arshad processes the relay message
       final arshadEngine = await createRelayEngineForNode(arshad);
@@ -139,7 +143,7 @@ void main() {
       );
       expect(
         deliveryResult.content,
-        equals('Hello Abubakar from Ali!'),
+        equals(_relayPayload('Hello Abubakar from Ali!')),
         reason: 'Content should be preserved through relay',
       );
     });
@@ -155,6 +159,8 @@ void main() {
           originalContent: 'This message is for Abubakar only',
           finalRecipientPublicKey: abubakar,
           priority: MessagePriority.normal,
+          encryptedPayload:
+              _relayPayload('This message is for Abubakar only'),
         );
 
         expect(relayMessage, isNotNull);
@@ -196,6 +202,7 @@ void main() {
         originalMessageId: 'final_delivery_test',
         originalContent: 'Final delivery test message',
         finalRecipientPublicKey: abubakar,
+        encryptedPayload: _relayPayload('Final delivery test message'),
       );
 
       expect(originalMessage, isNotNull);
@@ -220,7 +227,7 @@ void main() {
       );
       expect(
         deliveryResult.content,
-        equals('Final delivery test message'),
+        equals(_relayPayload('Final delivery test message')),
         reason: 'Original content should be preserved',
       );
       expect(
@@ -240,6 +247,7 @@ void main() {
           originalMessageId: 'stats_test_$i',
           originalContent: 'Test message $i',
           finalRecipientPublicKey: abubakar,
+          encryptedPayload: _relayPayload('Test message $i'),
         );
         expect(message, isNotNull);
         messages.add(message!);
@@ -270,3 +278,5 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';

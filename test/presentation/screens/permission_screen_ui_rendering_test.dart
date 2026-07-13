@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/screens/permission_screen.dart';
 
@@ -56,6 +57,7 @@ class _ControllableTimeoutNotifier extends PermissionTimeoutStateNotifier {
 /// Pump the PermissionScreen wrapped in MaterialApp + ProviderScope.
 Future<void> _pumpPermissionScreen(WidgetTester tester, {
  required AsyncValue<BluetoothLowEnergyState> bleState,
+ bool hasBlePermissions = true,
  PermissionTimeoutStateNotifier? timeoutNotifier,
 }) async {
  tester.view.physicalSize = const Size(1200, 2400);
@@ -65,6 +67,9 @@ Future<void> _pumpPermissionScreen(WidgetTester tester, {
 
  await tester.pumpWidget(ProviderScope(overrides: [
  bleStateProvider.overrideWith((ref) => bleState),
+ blePermissionsGrantedProvider.overrideWith(
+   (ref) async => hasBlePermissions,
+ ),
  permissionTimeoutProvider.overrideWith((ref) => timeoutNotifier ?? _SafePermissionTimeoutNotifier(),
 ),
 ],
@@ -129,22 +134,26 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
- expect(find.text('BLE Chat'), findsOneWidget);
- expect(find.text('Secure offline messaging\nfor family & friends'),
+ expect(find.text('Set Up PakConnect'), findsOneWidget);
+ expect(
+  find.text(
+    'Restore a backup, finish Bluetooth access,\nor continue with a fresh local profile.',
+  ),
  findsOneWidget,
-);
+ );
  expect(find.byIcon(Icons.check_circle), findsOneWidget);
- expect(find.text('All set! Ready to chat'), findsOneWidget);
- expect(find.text('Start Anew'), findsOneWidget);
- expect(find.text('Import Existing Data'), findsOneWidget);
+ expect(find.text('Setup complete'), findsOneWidget);
+ expect(find.text('Open Home'), findsOneWidget);
+ expect(find.text('Restore Backup'), findsOneWidget);
  expect(find.byIcon(Icons.upload_file), findsOneWidget);
- expect(find.text('Why is this needed?'), findsOneWidget);
+ expect(find.text('Why does mesh need this?'), findsOneWidget);
  });
 
  testWidgets('unauthorized shows permission request UI', (tester) async {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
  expect(find.byIcon(Icons.bluetooth_disabled), findsOneWidget);
  expect(find.text('Bluetooth Permission Required'), findsOneWidget);
@@ -163,8 +172,20 @@ void main() {
 );
  expect(find.byIcon(Icons.bluetooth_disabled), findsOneWidget);
  expect(find.text('Bluetooth is turned off'), findsOneWidget);
- expect(find.textContaining('Please turn on Bluetooth'), findsOneWidget);
+ expect(find.textContaining('Turn Bluetooth back on'), findsOneWidget);
  expect(find.text('Settings > Bluetooth > Turn On'), findsOneWidget);
+ expect(find.text('Check Again'), findsOneWidget);
+ });
+
+ testWidgets('poweredOn without BLE permissions shows grant flow', (tester) async {
+ await _pumpPermissionScreen(
+   tester,
+   bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
+   hasBlePermissions: false,
+ );
+ expect(find.text('Nearby Devices Permission Required'), findsOneWidget);
+ expect(find.text('Grant Permission'), findsOneWidget);
+ expect(find.text('Setup complete'), findsNothing);
  });
 
  testWidgets('unknown state shows progress indicator', (tester) async {
@@ -181,7 +202,7 @@ void main() {
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
  expect(find.byIcon(Icons.bluetooth), findsOneWidget);
- expect(find.text('BLE Chat'), findsOneWidget);
+ expect(find.text('Set Up PakConnect'), findsOneWidget);
  });
 
  testWidgets('screen wraps in SafeArea and Padding', (tester) async {
@@ -197,6 +218,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
  final button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Grant Permission'),
 );
@@ -208,6 +230,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
  expect(find.widgetWithText(OutlinedButton, 'Open Settings'),
  findsOneWidget,
@@ -218,7 +241,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
- expect(find.text('All set! Ready to chat'), findsOneWidget);
+ expect(find.text('Setup complete'), findsOneWidget);
  expect(find.text('Bluetooth is turned off'), findsNothing);
  expect(find.text('Bluetooth Permission Required'), findsNothing);
  });
@@ -232,11 +255,11 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
- await tester.tap(find.text('Why is this needed?'));
+ await tester.tap(find.text('Why does mesh need this?'));
  await tester.pumpAndSettle();
 
- expect(find.text('Why Bluetooth Permission?'), findsOneWidget);
- expect(find.text('We need Bluetooth to:'), findsOneWidget);
+ expect(find.text('Why Mesh Permissions?'), findsOneWidget);
+ expect(find.text('PakConnect uses Bluetooth mesh to:'), findsOneWidget);
  expect(find.text('• Find nearby devices'), findsOneWidget);
  expect(find.text('• Send/receive messages'), findsOneWidget);
  expect(find.text('• Maintain connections'), findsOneWidget);
@@ -251,14 +274,15 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
- await tester.tap(find.text('Why is this needed?'));
+ await tester.tap(find.text('Why does mesh need this?'));
  await tester.pumpAndSettle();
- expect(find.text('Why Bluetooth Permission?'), findsOneWidget);
+ expect(find.text('Why Mesh Permissions?'), findsOneWidget);
 
  await tester.tap(find.text('Got it'));
  await tester.pumpAndSettle();
- expect(find.text('Why Bluetooth Permission?'), findsNothing);
+ expect(find.text('Why Mesh Permissions?'), findsNothing);
  });
  });
 
@@ -302,7 +326,7 @@ void main() {
  await tester.pump();
 
  // Should still be showing the screen
- expect(find.text('BLE Chat'), findsOneWidget);
+ expect(find.text('Set Up PakConnect'), findsOneWidget);
  });
  });
 
@@ -316,6 +340,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
 
  // Tap Grant Permission – triggers _requestBLEPermissions
@@ -333,6 +358,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
 
  final button = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Grant Permission'),
@@ -371,6 +397,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
 
  // Tap "Open Settings" – triggers _openSettings (line 362)
@@ -393,6 +420,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.unauthorized,
 ),
+ hasBlePermissions: false,
 );
 
  // Tap "Open Settings" without mocked channel – Windows plugin
@@ -413,14 +441,14 @@ void main() {
  // _showImportDialog (line 138)
  // =========================================================================
  group('PermissionScreen – _showImportDialog', () {
- testWidgets('tapping Import Existing Data shows ImportDialog', (tester,
+ testWidgets('tapping Restore Backup shows ImportDialog', (tester,
 ) async {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
 
- // Tap "Import Existing Data" (line 138)
- await tester.tap(find.text('Import Existing Data'));
+ // Tap "Restore Backup"
+ await tester.tap(find.text('Restore Backup'));
  await tester.pumpAndSettle();
 
  // ImportDialog should be visible
@@ -435,7 +463,7 @@ void main() {
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
 
- await tester.tap(find.text('Import Existing Data'));
+ await tester.tap(find.text('Restore Backup'));
  await tester.pumpAndSettle();
 
  // Dismiss via Cancel (result=null, so no navigation)
@@ -443,20 +471,20 @@ void main() {
  await tester.pumpAndSettle();
 
  // Should be back on PermissionScreen
- expect(find.text('All set! Ready to chat'), findsOneWidget);
+ expect(find.text('Setup complete'), findsOneWidget);
  expect(find.text('Import Backup'), findsNothing);
  });
  });
 
  // =========================================================================
- // Start Anew navigation (line 130 → _navigateToChatsScreen)
+ // Open Home navigation (line 130 → _navigateToChatsScreen)
  // =========================================================================
  group('PermissionScreen – navigation', () {
- testWidgets('tapping Start Anew does not crash', (tester) async {
+ testWidgets('tapping Open Home does not crash', (tester) async {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
- await tester.tap(find.text('Start Anew'));
+ await tester.tap(find.text('Open Home'));
  await tester.pump(const Duration(milliseconds: 100));
  });
 
@@ -464,7 +492,7 @@ void main() {
  await _pumpPermissionScreen(tester,
  bleState: const AsyncValue.data(BluetoothLowEnergyState.poweredOn),
 );
- expect(find.text('Import Existing Data'), findsOneWidget);
+ expect(find.text('Restore Backup'), findsOneWidget);
  expect(find.byIcon(Icons.upload_file), findsOneWidget);
  });
  });

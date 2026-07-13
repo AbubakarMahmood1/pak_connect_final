@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
+
+import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:logging/logging.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import '../providers/app_permission_providers.dart';
 import '../providers/ble_providers.dart';
 import '../widgets/import_dialog.dart';
 import 'home_screen.dart';
@@ -18,9 +20,30 @@ class PermissionScreen extends ConsumerStatefulWidget {
   ConsumerState<PermissionScreen> createState() => _PermissionScreenState();
 }
 
-class _PermissionScreenState extends ConsumerState<PermissionScreen> {
+class _PermissionScreenState extends ConsumerState<PermissionScreen>
+    with WidgetsBindingObserver {
   final _logger = Logger('PermissionScreen');
   bool _isRequestingPermissions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissionState();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,69 +57,91 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     });
 
     final bleStateAsync = ref.watch(bleStateProvider);
+    final blePermissionsAsync = ref.watch(blePermissionsGrantedProvider);
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // App Logo/Icon area
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  shape: BoxShape.circle,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: EdgeInsets.all(24.0),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // App Logo/Icon area
+                    Container(
+                      width: 120,
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.bluetooth,
+                        size: 60,
+                        color: Colors.white,
+                      ),
+                    ),
+
+                    SizedBox(height: 32),
+
+                    // App Title
+                    Text(
+                      'Set Up PakConnect',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+
+                    SizedBox(height: 16),
+
+                    // Subtitle
+                    Text(
+                      'Restore a backup, finish Bluetooth access,\nor continue with a fresh local profile.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+
+                    SizedBox(height: 48),
+
+                    Center(
+                      child: bleStateAsync.when(
+                        data: (state) => blePermissionsAsync.when(
+                          data: (hasBlePermissions) =>
+                              _buildPermissionContent(
+                                context,
+                                state,
+                                hasBlePermissions,
+                              ),
+                          loading: () => const CircularProgressIndicator(),
+                          error: (err, stack) => _buildPermissionContent(
+                            context,
+                            state,
+                            false,
+                          ),
+                        ),
+                        loading: () => const CircularProgressIndicator(),
+                        error: (err, stack) => Text('Error: $err'),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    Center(
+                      child: TextButton(
+                        onPressed: () => _showPermissionExplanation(context),
+                        child: Text('Why does mesh need this?'),
+                      ),
+                    ),
+                  ],
                 ),
-                child: Icon(Icons.bluetooth, size: 60, color: Colors.white),
               ),
-
-              SizedBox(height: 32),
-
-              // App Title
-              Text(
-                'BLE Chat',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              SizedBox(height: 16),
-
-              // Subtitle
-              Text(
-                'Secure offline messaging\nfor family & friends',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-
-              SizedBox(height: 48),
-
-              // Permission status and button
-              Center(
-                child: bleStateAsync.when(
-                  data: (state) => _buildPermissionContent(context, state),
-                  loading: () => CircularProgressIndicator(),
-                  error: (err, stack) => Text('Error: $err'),
-                ),
-              ),
-
-              SizedBox(height: 24),
-
-              // Why is this needed? button
-              Center(
-                child: TextButton(
-                  onPressed: () => _showPermissionExplanation(context),
-                  child: Text('Why is this needed?'),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -106,6 +151,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
   Widget _buildPermissionContent(
     BuildContext context,
     BluetoothLowEnergyState state,
+    bool hasBlePermissions,
   ) {
     // Cancel timeout timer when BLE state is resolved
     if (state != BluetoothLowEnergyState.unknown &&
@@ -113,8 +159,19 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
       ref.read(permissionTimeoutProvider.notifier).cancel();
     }
 
+    final permissionsMissing =
+        state == BluetoothLowEnergyState.unauthorized || !hasBlePermissions;
+
     switch (state) {
       case BluetoothLowEnergyState.poweredOn:
+        if (permissionsMissing) {
+          return _buildPermissionRequestContent(
+            context,
+            title: 'Nearby Devices Permission Required',
+            description:
+                'Bluetooth is on, but PakConnect still needs Nearby Devices access to scan, advertise, and connect securely.',
+          );
+        }
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -122,7 +179,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             Icon(Icons.check_circle, color: Colors.green, size: 48),
             SizedBox(height: 16),
             Text(
-              'All set! Ready to chat',
+              'Setup complete',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             SizedBox(height: 24),
@@ -130,72 +187,44 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
               onPressed: () => _navigateToChatsScreen(context),
               child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                child: Text('Start Anew'),
+                child: Text('Open Home'),
               ),
             ),
             SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () => _showImportDialog(context),
               icon: Icon(Icons.upload_file),
-              label: Text('Import Existing Data'),
+              label: Text('Restore Backup'),
             ),
           ],
         );
 
       case BluetoothLowEnergyState.unauthorized:
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.bluetooth_disabled,
-              color: Theme.of(context).colorScheme.error,
-              size: 48,
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Bluetooth Permission Required',
-              style: Theme.of(context).textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 8),
-            Text(
-              'We need Bluetooth access to find nearby devices and send messages securely.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            SizedBox(height: 24),
-            FilledButton(
-              onPressed: _isRequestingPermissions
-                  ? null
-                  : _requestBLEPermissions,
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                child: _isRequestingPermissions
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Text('Requesting...'),
-                        ],
-                      )
-                    : Text('Grant Permission'),
+        if (hasBlePermissions) {
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                'Finalizing Bluetooth access...',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-            ),
-            SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: _openSettings,
-              child: Text('Open Settings'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                'Android permissions are granted. PakConnect is re-checking Bluetooth availability now.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          );
+        }
+        return _buildPermissionRequestContent(
+          context,
+          title: 'Bluetooth Permission Required',
+          description:
+              'We need Bluetooth access to find nearby devices and send messages securely.',
         );
 
       case BluetoothLowEnergyState.poweredOff:
@@ -215,7 +244,7 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
             ),
             SizedBox(height: 8),
             Text(
-              'Please turn on Bluetooth in your device settings to use this app.',
+              'Turn Bluetooth back on and this setup screen will keep checking automatically.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
@@ -227,6 +256,12 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
                 fontStyle: FontStyle.italic,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
+            ),
+            SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: _refreshPermissionState,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Check Again'),
             ),
           ],
         );
@@ -254,40 +289,78 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     }
   }
 
-  // 🆕 NEW: Proper BLE permission handling
+  Widget _buildPermissionRequestContent(
+    BuildContext context, {
+    required String title,
+    required String description,
+  }) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.bluetooth_disabled,
+          color: Theme.of(context).colorScheme.error,
+          size: 48,
+        ),
+        SizedBox(height: 16),
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium,
+          textAlign: TextAlign.center,
+        ),
+        SizedBox(height: 8),
+        Text(
+          description,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        SizedBox(height: 24),
+        FilledButton(
+          onPressed: _isRequestingPermissions ? null : _requestBLEPermissions,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+            child: _isRequestingPermissions
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text('Requesting...'),
+                    ],
+                  )
+                : Text('Grant Permission'),
+          ),
+        ),
+        SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: _openSettings,
+          child: Text('Open Settings'),
+        ),
+      ],
+    );
+  }
+
   Future<void> _requestBLEPermissions() async {
     setState(() => _isRequestingPermissions = true);
 
     try {
       if (Platform.isAndroid) {
-        final deviceInfo = DeviceInfoPlugin();
-        final androidInfo = await deviceInfo.androidInfo;
-
-        List<Permission> permissionsToRequest = [];
-
-        if (androidInfo.version.sdkInt >= 31) {
-          // Android 12+ - use granular BLE permissions
-          permissionsToRequest = [
-            Permission.bluetoothScan,
-            Permission.bluetoothAdvertise,
-            Permission.bluetoothConnect,
-          ];
-        } else {
-          // Android < 12 - use location permission for BLE
-          permissionsToRequest = [Permission.locationWhenInUse];
-        }
-
-        final statuses = await permissionsToRequest.request();
+        final permissionService = ref.read(appPermissionServiceProvider);
+        final statuses = await permissionService.requestRequiredBlePermissions();
+        _refreshPermissionState();
 
         final allGranted = statuses.values.every((status) => status.isGranted);
 
         if (allGranted) {
           _showSuccess('Permissions granted! 🎉');
-          // Give a moment for user to see success, then navigate
-          await Future.delayed(Duration(seconds: 1));
-          if (mounted) {
-            _navigateToChatsScreen(context);
-          }
         } else {
           _showPermissionDeniedDialog(statuses);
         }
@@ -367,6 +440,11 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     }
   }
 
+  void _refreshPermissionState() {
+    if (!mounted) return;
+    ref.invalidate(blePermissionsGrantedProvider);
+  }
+
   void _showSuccess(String message) {
     _logger.info('✅ $message');
   }
@@ -379,12 +457,12 @@ class _PermissionScreenState extends ConsumerState<PermissionScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Why Bluetooth Permission?'),
+        title: Text('Why Mesh Permissions?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('We need Bluetooth to:'),
+            Text('PakConnect uses Bluetooth mesh to:'),
             SizedBox(height: 8),
             Text('• Find nearby devices'),
             Text('• Send/receive messages'),

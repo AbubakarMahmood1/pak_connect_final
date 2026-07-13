@@ -2,6 +2,13 @@
 
 This document details quality attributes and constraints extracted from implementation.
 
+> **Evidence status:** Numeric latency, throughput, capacity, availability,
+> delivery-rate, battery, memory, CPU, and storage figures below are design
+> targets unless a row cites a measured artifact in the current readiness
+> ledger. They are not current product results. Automated tests establish code
+> behavior, not BLE radio, multi-link, battery, killed-process background, or
+> fleet-scale performance on physical devices.
+
 ## NFR-1: Performance
 
 ### NFR-1.1: Response Time
@@ -18,7 +25,7 @@ This document details quality attributes and constraints extracted from implemen
 | ID | Requirement | Target | Implementation |
 |----|-------------|--------|----------------|
 | NFR-1.2.1 | Messages per second (1-to-1) | 5-10 messages/sec | BLE MTU limited |
-| NFR-1.2.2 | Concurrent BLE connections | 7 (Android), 10 (iOS) | Platform limitation |
+| NFR-1.2.2 | Concurrent BLE connections | Configuration target: 7 (Android), 10 (iOS) | Current payload policy is single-link; multi-link device evidence pending |
 | NFR-1.2.3 | Database writes | 100+ inserts/sec | WAL mode enabled |
 | NFR-1.2.4 | Relay throughput | 3-5 messages/sec/node | Duplicate detection overhead |
 | NFR-1.2.5 | Fragment reassembly | < 500ms per message | 30-second timeout |
@@ -29,7 +36,7 @@ This document details quality attributes and constraints extracted from implemen
 | NFR-1.3.1 | Maximum contacts | 1000+ | SQLite indexed |
 | NFR-1.3.2 | Maximum messages per chat | 100,000+ | Paginated queries |
 | NFR-1.3.3 | Maximum message queue size | 10,000 messages | Persistent storage |
-| NFR-1.3.4 | Maximum network nodes | 50-100 nodes | Mesh topology limits |
+| NFR-1.3.4 | Maximum network nodes | Design target: 50-100 nodes | Not demonstrated on physical hardware |
 | NFR-1.3.5 | Maximum relay hops | 5 hops | Configurable limit |
 
 ## NFR-2: Security
@@ -47,7 +54,7 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-2.2: Data Protection
 | ID | Requirement | Method | Implementation |
 |----|-------------|--------|----------------|
-| NFR-2.2.1 | Database encryption | SQLCipher AES-256 | `sqflite_sqlcipher` |
+| NFR-2.2.1 | Mobile database encryption | SQLCipher path on Android/iOS | Implemented path; device at-rest proof pending; desktop/test may be plaintext |
 | NFR-2.2.2 | Key storage | Platform secure storage | `flutter_secure_storage` |
 | NFR-2.2.3 | Memory clearing | Secure key destruction | `DHState.destroy()` |
 | NFR-2.2.4 | Replay protection | Nonce sequence tracking | Per-session counters |
@@ -56,10 +63,10 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-2.3: Privacy
 | ID | Requirement | Implementation | Status |
 |----|-------------|----------------|--------|
-| NFR-2.3.1 | No cloud storage | All data local only | Implemented |
-| NFR-2.3.2 | No telemetry/analytics | Zero data collection | Implemented |
+| NFR-2.3.1 | No project-operated cloud storage | No PakConnect account/message server | Implemented default composition |
+| NFR-2.3.2 | No project-operated telemetry/analytics | No analytics SDK or endpoint | Implemented default composition |
 | NFR-2.3.3 | Ephemeral identity rotation | `EphemeralKeyManager` | Implemented |
-| NFR-2.3.4 | No metadata leakage | BLE advertises ephemeral IDs | Implemented |
+| NFR-2.3.4 | Reduce metadata correlation | Rotating ephemeral IDs and blinded hints | Partial; BLE/control/routing metadata remains exposed |
 | NFR-2.3.5 | Secure deletion | Overwrite sensitive memory | Partial (key objects only) |
 
 ## NFR-3: Reliability
@@ -145,7 +152,7 @@ This document details quality attributes and constraints extracted from implemen
 |----|-------------|-----------|----------------|
 | NFR-5.3.1 | Plugin architecture | Riverpod providers | Yes |
 | NFR-5.3.2 | Configurable policies | `RelayPolicy`, `ArchivePolicy` | Yes |
-| NFR-5.3.3 | Database migrations | Version-based upgrades | Yes (v1-v9) |
+| NFR-5.3.3 | Database migrations | Version-based upgrades | Implemented v1-v12; v11/v12 upgrade proof pending |
 | NFR-5.3.4 | Notification handlers | Factory pattern | Yes |
 | NFR-5.3.5 | Power management strategies | Strategy pattern | Yes |
 
@@ -154,20 +161,20 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-6.1: Platform Support
 | ID | Platform | Status | Notes |
 |----|----------|--------|-------|
-| NFR-6.1.1 | Android 8.0+ | Supported | Primary platform |
-| NFR-6.1.2 | iOS 13.0+ | Partial | BLE background limitations |
-| NFR-6.1.3 | Windows | Desktop BLE limited | Dev/testing only |
+| NFR-6.1.1 | Android API 24+ | Build target | Primary platform; hardware matrix pending |
+| NFR-6.1.2 | iOS 12.0+ | Source target only | Build, radio, and background behavior unverified |
+| NFR-6.1.3 | Windows | Development/test target | BLE behavior unverified |
 | NFR-6.1.4 | Linux | Desktop BLE limited | Dev/testing only |
 | NFR-6.1.5 | macOS | Desktop BLE limited | Dev/testing only |
 
 ### NFR-6.2: Environment
 | ID | Requirement | Implementation | Notes |
 |----|-------------|----------------|-------|
-| NFR-6.2.1 | Flutter version | 3.9+ | Specified in pubspec |
-| NFR-6.2.2 | Dart version | 3.9+ | Null safety |
-| NFR-6.2.3 | Android SDK | 26+ (API 26) | BLE improvements |
-| NFR-6.2.4 | iOS SDK | 13.0+ | Background BLE |
-| NFR-6.2.5 | Storage requirement | 100MB minimum | Database + logs |
+| NFR-6.2.1 | Flutter version | 3.38.4+ | Locked dependency minimum; CI pinned to 3.44.4 |
+| NFR-6.2.2 | Dart version | 3.10.3+ | Locked dependency minimum; null safety |
+| NFR-6.2.3 | Android SDK | min 24, compile/target 36 | Resolved by the current Flutter SDK; repo does not pin it |
+| NFR-6.2.4 | iOS deployment target | 12.0+ | Background BLE remains limited |
+| NFR-6.2.5 | Storage requirement | Artifact-derived | Debug APK is 203,988,403 bytes before installed data; release size unverified |
 
 ## NFR-7: Efficiency
 
@@ -203,20 +210,20 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-8.1: Legal
 | ID | Requirement | Status | Notes |
 |----|-------------|--------|-------|
-| NFR-8.1.1 | Open source license | MIT License | Permissive |
-| NFR-8.1.2 | GDPR compliance | Compliant | No personal data collection |
-| NFR-8.1.3 | Export control (crypto) | Generally exempt | Open source exception |
-| NFR-8.1.4 | Third-party licenses | Documented | Dependencies |
+| NFR-8.1.1 | Repository license | Proprietary | See `LICENSE`; public source does not grant reuse rights |
+| NFR-8.1.2 | Privacy review | Not independently audited | No project-operated analytics, account, or message server |
+| NFR-8.1.3 | Export control (crypto) | Jurisdiction review required | No exemption is claimed |
+| NFR-8.1.4 | Third-party licenses | Distribution audit pending | Dependencies retain their own terms/notices |
 | NFR-8.1.5 | Privacy policy | Included | `assets/privacy_policy.md` |
 
 ### NFR-8.2: Standards
 | ID | Requirement | Standard | Compliance |
 |----|-------------|----------|------------|
-| NFR-8.2.1 | Noise Protocol | Noise Protocol Framework (Rev 34) | Yes |
-| NFR-8.2.2 | BLE GATT | Bluetooth 4.0+ GATT | Yes |
-| NFR-8.2.3 | Cryptography | NIST approved algorithms | Yes (ChaCha20, SHA-256) |
-| NFR-8.2.4 | SQL | SQL-92 subset | Yes (SQLite) |
-| NFR-8.2.5 | UTF-8 encoding | Unicode standard | Yes |
+| NFR-8.2.1 | Noise Protocol | Noise Protocol Framework (Rev 34) | Implementation and automated vectors/tests; no independent conformance audit |
+| NFR-8.2.2 | BLE GATT | Bluetooth 4.0+ GATT | Plugin/source implementation; hardware interoperability pending |
+| NFR-8.2.3 | Cryptography | ChaCha20-Poly1305, X25519, SHA-256 | Algorithm selection only; no compliance certification claimed |
+| NFR-8.2.4 | SQL | SQLite dialect | Implemented through SQLite/SQLCipher paths |
+| NFR-8.2.5 | UTF-8 encoding | Unicode standard | Automated round-trip coverage; physical BLE row pending |
 
 ## NFR-9: Localization
 
@@ -234,23 +241,23 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-10.1: Backward Compatibility
 | ID | Requirement | Mechanism | Status |
 |----|-------------|-----------|--------|
-| NFR-10.1.1 | Database schema migrations | Version-based upgrades | v1-v9 supported |
-| NFR-10.1.2 | Protocol versioning | Not implemented | Future consideration |
-| NFR-10.1.3 | Settings migration | SharedPreferences fallback | Partial |
+| NFR-10.1.1 | Database schema migrations | Version-based upgrades | Implemented through v12; latest upgrade/device proof pending |
+| NFR-10.1.2 | Protocol versioning | `ProtocolMessage.version` plus peer floor | Implemented v2 enforcement; cross-version device proof pending |
+| NFR-10.1.3 | Legacy preference cleanup | Retired importer shim | Removes obsolete keys only |
 | NFR-10.1.4 | Archive format versioning | Not implemented | Future feature |
 | NFR-10.1.5 | API stability | Internal only | Not applicable |
 
 ### NFR-10.2: Interoperability
 | ID | Requirement | Status | Notes |
 |----|-------------|--------|-------|
-| NFR-10.2.1 | Cross-platform messaging | Yes | Android ↔ iOS |
-| NFR-10.2.2 | Protocol compatibility | Yes | Noise Protocol standard |
-| NFR-10.2.3 | Different app versions | Partial | Same database schema required |
-| NFR-10.2.4 | Third-party implementations | Theoretically yes | Noise Protocol based |
-| NFR-10.2.5 | Export format portability | JSON/Text | Standard formats |
+| NFR-10.2.1 | Cross-platform messaging | Device-gated | Android ↔ iOS has not been demonstrated |
+| NFR-10.2.2 | Protocol compatibility | Internal automated coverage | Physical cross-device/version matrix pending |
+| NFR-10.2.3 | Different app versions | Partial | Protocol floor exists; compatibility matrix pending |
+| NFR-10.2.4 | Third-party implementations | Not claimed | Noise use alone does not define PakConnect envelope interoperability |
+| NFR-10.2.5 | Export format portability | Versioned `.pakconnect` v2.1 bundle | Import/export automated coverage; external implementation not claimed |
 
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-13
 **Total Non-Functional Requirements**: 105

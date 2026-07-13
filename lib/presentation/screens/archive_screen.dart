@@ -7,6 +7,7 @@ import '../providers/archive_provider.dart';
 import '../widgets/archived_chat_tile.dart';
 import '../widgets/archive_statistics_card.dart';
 import '../widgets/archive_search_delegate.dart';
+import 'archive_detail_screen.dart';
 import '../../domain/models/archive_models.dart';
 import '../../domain/entities/archived_chat.dart';
 import '../../domain/entities/archived_message.dart';
@@ -525,20 +526,9 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
 
   void _openArchiveDetail(ArchivedChatSummary archive) {
-    // For now, show a placeholder dialog - will be replaced with actual detail screen
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Archive Details'),
-        content: Text(
-          'Archive details for ${archive.contactName} will be shown here.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArchiveDetailScreen(archivedChatId: archive.id),
       ),
     );
   }
@@ -555,18 +545,9 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
 
   void _openSearchResult(ArchivedMessage message) {
-    // For now, show a placeholder dialog
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Search Result'),
-        content: Text('Message: ${message.content}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArchiveDetailScreen(archivedChatId: message.archiveId),
       ),
     );
   }

@@ -586,6 +586,14 @@ class MockArchiveManagementService extends _i1.Mock
           as _i6.Future<_i2.ArchiveOperationResult>);
 
   @override
+  _i6.Future<_i14.ArchivedChat?> getArchivedChat(_i10.ArchiveId? archiveId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getArchivedChat, [archiveId]),
+            returnValue: _i6.Future<_i14.ArchivedChat?>.value(),
+          )
+          as _i6.Future<_i14.ArchivedChat?>);
+
+  @override
   _i6.Future<List<_i3.EnhancedArchiveSummary>> getEnhancedArchiveSummaries({
     _i2.ArchiveSearchFilter? filter,
     int? limit,

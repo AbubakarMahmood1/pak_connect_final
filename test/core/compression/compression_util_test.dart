@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -250,6 +251,23 @@ void main() {
         // Should return empty list or null (both are acceptable)
         // Decompressing empty data can validly return empty array
         expect(decompressed == null || decompressed.isEmpty, isTrue);
+      });
+
+      test('rejects compressed payloads that inflate past the safety limit', () {
+        final oversized = Uint8List.fromList(
+          List<int>.filled(
+            CompressionUtil.maxDecompressedSize + 1024,
+            0x41,
+          ),
+        );
+        final compressed = ZLibCodec(raw: true).encode(oversized);
+
+        final decompressed = CompressionUtil.decompress(
+          Uint8List.fromList(compressed),
+          config: const CompressionConfig(useRawDeflate: true),
+        );
+
+        expect(decompressed, isNull);
       });
     });
 

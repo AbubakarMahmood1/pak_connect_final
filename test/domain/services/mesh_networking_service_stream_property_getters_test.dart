@@ -24,6 +24,7 @@ import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     show RelayDecision, RelayStatistics;
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_relay_coordinator.dart';
 import 'package:pak_connect/domain/services/mesh_networking_service.dart';
@@ -62,6 +63,9 @@ void main() {
   void stubForInitialize() {
     when(mockSharedQueueProvider.isInitialized).thenReturn(true);
     when(mockSharedQueueProvider.messageQueue).thenReturn(mockMessageQueue);
+    when(
+      mockSharedQueueProvider.waitForMessageQueue(),
+    ).thenAnswer((_) async => mockMessageQueue);
     when(mockMessageQueue.getStatistics()).thenReturn(_emptyQueueStats);
     when(
       mockQueueCoordinator.initialize(
@@ -91,6 +95,25 @@ void main() {
     stubForInitialize();
     await service.initialize(nodeId: nodeId);
     await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
+
+  void stubSecureInnerProtocolMessage({
+    required String recipientKey,
+    required String content,
+  }) {
+    when(
+      mockMessageHandler.buildSecureTextProtocolMessage(
+        recipientKey: recipientKey,
+        content: content,
+      ),
+    ).thenAnswer((_) async {
+      return ProtocolMessage.textMessage(
+        messageId: 'relay-inner-message',
+        content: 'sealed:$content',
+        encrypted: true,
+        recipientId: recipientKey,
+      );
+    });
   }
 
   setUp(() {
@@ -357,9 +380,10 @@ void main() {
       when(
         mockBleService.currentConnectionInfo,
       ).thenReturn(const ConnectionInfo(isConnected: false, isReady: false));
+      stubSecureInnerProtocolMessage(recipientKey: 'short', content: 'hello');
       when(
         mockRelayCoordinator.sendRelayMessage(
-          content: anyNamed('content'),
+          innerProtocolMessage: anyNamed('innerProtocolMessage'),
           recipientPublicKey: anyNamed('recipientPublicKey'),
           chatId: anyNamed('chatId'),
           priority: anyNamed('priority'),
@@ -609,10 +633,14 @@ void main() {
       when(
         mockBleService.currentConnectionInfo,
       ).thenReturn(const ConnectionInfo(isConnected: true, isReady: false));
+      stubSecureInnerProtocolMessage(
+        recipientKey: 'some-key',
+        content: 'hello',
+      );
 
       when(
         mockRelayCoordinator.sendRelayMessage(
-          content: anyNamed('content'),
+          innerProtocolMessage: anyNamed('innerProtocolMessage'),
           recipientPublicKey: anyNamed('recipientPublicKey'),
           chatId: anyNamed('chatId'),
           priority: anyNamed('priority'),
@@ -635,10 +663,14 @@ void main() {
         mockBleService.currentConnectionInfo,
       ).thenReturn(const ConnectionInfo(isConnected: true, isReady: true));
       when(mockBleService.currentSessionId).thenReturn('other-peer');
+      stubSecureInnerProtocolMessage(
+        recipientKey: 'target-key',
+        content: 'hello',
+      );
 
       when(
         mockRelayCoordinator.sendRelayMessage(
-          content: anyNamed('content'),
+          innerProtocolMessage: anyNamed('innerProtocolMessage'),
           recipientPublicKey: anyNamed('recipientPublicKey'),
           chatId: anyNamed('chatId'),
           priority: anyNamed('priority'),

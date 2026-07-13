@@ -56,12 +56,11 @@ void main() {
         expect(chunks[i].totalChunks, equals(chunks.length));
       }
 
-      // Verify message ID consistency
+      // Verify wire-id consistency: all chunks of one message share the same
+      // generated wire id (collision-resistant, not derived from the caller id).
+      final wireId = chunks.first.messageId;
       for (final chunk in chunks) {
-        expect(
-          chunk.messageId.contains(messageId.substring(messageId.length - 6)),
-          isTrue,
-        );
+        expect(chunk.messageId, equals(wireId));
       }
     });
 
@@ -111,10 +110,17 @@ void main() {
       final result = reassembler.addChunk(decoded);
 
       expect(result, equals(secret));
-      expect(
-        logRecords.where((log) => log.message.contains(secret)),
-        isEmpty,
-      );
+      expect(logRecords.where((log) => log.message.contains(secret)), isEmpty);
+
+      Object? parseError;
+      try {
+        MessageChunk.fromBytes(Uint8List.fromList(utf8.encode('bad|$secret')));
+      } catch (error) {
+        parseError = error;
+      }
+      expect(parseError, isA<FormatException>());
+      expect(parseError.toString(), isNot(contains(secret)));
+      expect(logRecords.where((log) => log.message.contains(secret)), isEmpty);
     });
 
     // TEST 3: Handle out-of-order chunks
@@ -308,13 +314,9 @@ void main() {
           reason: '$size bytes should create many chunks',
         );
 
-        // Verify total chunks calculation
-        final expectedChunks = (size / ((maxSize - 15 - 5) * 3 / 4)).ceil();
-        expect(
-          chunks.length,
-          equals(expectedChunks),
-          reason: 'Chunk count mismatch for ${size ~/ 1024}KB message',
-        );
+        for (final chunk in chunks) {
+          expect(chunk.toBytes().length + 5, lessThanOrEqualTo(maxSize));
+        }
 
         // Reassemble (sample every 10th chunk to speed up test)
         Uint8List? result;
@@ -470,39 +472,315 @@ void main() {
       expect(result2, isNull, reason: 'Message 2 should have expired');
     });
 
-    // TEST 14: Memory bounds (max 100 pending messages per sender)
-    test('enforces memory bounds for pending messages', () {
-      // Note: Current implementation doesn't enforce per-sender limit
-      // This test validates current behavior and documents expected behavior
+    // TEST 14: Memory bounds
+    test('rejects invalid reassembler limits at runtime', () {
+      final invalidConstructors = <MessageReassembler Function()>[
+        () => MessageReassembler(maxActiveAssemblies: 0),
+        () => MessageReassembler(maxMessageBytes: 0),
+        () => MessageReassembler(maxRetainedBytes: -1),
+        () => MessageReassembler(maxChunksPerMessage: 0),
+        () => MessageReassembler(maxRetainedFragments: 0),
+      ];
 
-      const maxPendingMessages = 100;
-      final data = Uint8List.fromList([1, 2, 3, 4, 5]);
-
-      // Send first chunk of 100 different messages
-      for (int i = 0; i < maxPendingMessages; i++) {
-        final messageId = 'msg_$i';
-        final chunks = MessageFragmenter.fragmentBytes(data, 100, messageId);
-        reassembler.addChunkBytes(chunks[0]);
+      for (final create in invalidConstructors) {
+        expect(create, throwsArgumentError);
       }
+    });
 
-      // TODO: Current implementation doesn't enforce limit
-      // Expected behavior: 101st message should either:
-      //   1. Reject with error
-      //   2. Evict oldest pending message (LRU)
-      // Actual behavior: Accepts unlimited pending messages (memory leak risk)
+    test('enforces memory bounds for pending messages', () {
+      reassembler = MessageReassembler(
+        maxActiveAssemblies: 2,
+        maxMessageBytes: 10,
+        maxRetainedBytes: 10,
+      );
+      MessageChunk partial(String id) => MessageChunk(
+        messageId: id,
+        chunkIndex: 0,
+        totalChunks: 2,
+        content: 'a',
+        timestamp: DateTime.now(),
+      );
 
-      // For now, just verify we can send many messages
-      final messageId101 = 'msg_100';
-      final chunks101 = MessageFragmenter.fragmentBytes(
-        data,
-        100,
-        messageId101,
+      expect(reassembler.addChunkBytes(partial('msg-1')), isNull);
+      expect(reassembler.addChunkBytes(partial('msg-2')), isNull);
+
+      expect(
+        () => reassembler.addChunkBytes(partial('msg-3')),
+        throwsFormatException,
+      );
+    });
+
+    test('caps retained fragment entries and cleanup frees capacity', () {
+      final bounded = MessageReassembler(
+        maxActiveAssemblies: 3,
+        maxMessageBytes: 20,
+        maxRetainedBytes: 20,
+        maxRetainedFragments: 2,
+      );
+      MessageChunk part(String id, int index, String content) => MessageChunk(
+        messageId: id,
+        chunkIndex: index,
+        totalChunks: 2,
+        content: content,
+        timestamp: DateTime.now(),
+      );
+
+      expect(bounded.addChunkBytes(part('one', 0, 'A')), isNull);
+      expect(bounded.addChunkBytes(part('two', 0, 'B')), isNull);
+      expect(
+        () => bounded.addChunkBytes(part('three', 0, 'C')),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Fragment buffer contains too many parts',
+          ),
+        ),
+      );
+
+      bounded.cleanupOldMessages(timeout: Duration.zero);
+      expect(bounded.addChunkBytes(part('three', 0, 'C')), isNull);
+      expect(
+        bounded.addChunkBytes(part('three', 1, 'D')),
+        Uint8List.fromList(utf8.encode('CD')),
+      );
+    });
+
+    test('cleanup releases active-assembly and aggregate-byte capacity', () {
+      final bounded = MessageReassembler(
+        maxActiveAssemblies: 1,
+        maxMessageBytes: 10,
+        maxRetainedBytes: 2,
+        maxRetainedFragments: 2,
+      );
+      final stale = MessageChunk(
+        messageId: 'stale-capacity',
+        chunkIndex: 0,
+        totalChunks: 2,
+        content: 'ab',
+        timestamp: DateTime.now(),
+      );
+      final replacement = MessageChunk(
+        messageId: 'replacement',
+        chunkIndex: 0,
+        totalChunks: 1,
+        content: 'cd',
+        timestamp: DateTime.now(),
+      );
+
+      expect(bounded.addChunkBytes(stale), isNull);
+      expect(() => bounded.addChunkBytes(replacement), throwsFormatException);
+
+      bounded.cleanupOldMessages(timeout: Duration.zero);
+      expect(
+        bounded.addChunkBytes(replacement),
+        Uint8List.fromList(utf8.encode('cd')),
+      );
+    });
+
+    test('rejects forged total downgrade and clears the poisoned assembly', () {
+      MessageChunk chunk(int index, int total, String content) => MessageChunk(
+        messageId: 'forged-total',
+        chunkIndex: index,
+        totalChunks: total,
+        content: content,
+        timestamp: DateTime.now(),
+      );
+
+      expect(reassembler.addChunkBytes(chunk(0, 3, 'A')), isNull);
+      expect(
+        () => reassembler.addChunkBytes(chunk(0, 1, 'A')),
+        throwsFormatException,
+      );
+      expect(reassembler.addChunkBytes(chunk(1, 3, 'B')), isNull);
+      expect(reassembler.addChunkBytes(chunk(2, 3, 'C')), isNull);
+    });
+
+    test(
+      'rejects stale binary-mode metadata and requires a fresh assembly',
+      () {
+        final textFirst = MessageChunk(
+          messageId: 'mode-conflict',
+          chunkIndex: 0,
+          totalChunks: 2,
+          content: 'A',
+          timestamp: DateTime.now(),
+        );
+        final binarySecond = MessageChunk(
+          messageId: 'mode-conflict',
+          chunkIndex: 1,
+          totalChunks: 2,
+          content: base64.encode([66]),
+          timestamp: DateTime.now(),
+          isBinary: true,
+        );
+
+        expect(reassembler.addChunkBytes(textFirst), isNull);
+        expect(
+          () => reassembler.addChunkBytes(binarySecond),
+          throwsFormatException,
+        );
+        final textSecond = MessageChunk(
+          messageId: 'mode-conflict',
+          chunkIndex: 1,
+          totalChunks: 2,
+          content: 'B',
+          timestamp: DateTime.now(),
+        );
+        expect(reassembler.addChunkBytes(textSecond), isNull);
+        expect(reassembler.addChunk(textFirst), 'AB');
+      },
+    );
+
+    test('rejects invalid indexes and chunk totals', () {
+      final cases = <(int, int)>[(0, 0), (-1, 1), (1, 1), (0, 0x10000)];
+      for (var i = 0; i < cases.length; i++) {
+        final (index, total) = cases[i];
+        final chunk = MessageChunk(
+          messageId: 'bad-meta-$i',
+          chunkIndex: index,
+          totalChunks: total,
+          content: 'A',
+          timestamp: DateTime.now(),
+        );
+        expect(() => reassembler.addChunkBytes(chunk), throwsFormatException);
+      }
+    });
+
+    test('invalid base64 clears previously retained fragments', () {
+      MessageChunk binary(int index, String content) => MessageChunk(
+        messageId: 'bad-base64',
+        chunkIndex: index,
+        totalChunks: 2,
+        content: content,
+        timestamp: DateTime.now(),
+        isBinary: true,
+      );
+      final first = binary(0, base64.encode([1]));
+      final second = binary(1, base64.encode([2]));
+
+      expect(reassembler.addChunkBytes(first), isNull);
+      expect(
+        () => reassembler.addChunkBytes(binary(1, '%%%')),
+        throwsFormatException,
+      );
+      expect(reassembler.addChunkBytes(second), isNull);
+      expect(reassembler.addChunkBytes(first), Uint8List.fromList([1, 2]));
+    });
+
+    test('prechecks encoded length before decoding oversized base64', () {
+      final bounded = MessageReassembler(
+        maxMessageBytes: 2,
+        maxRetainedBytes: 10,
+      );
+      MessageChunk binary(int index, String content) => MessageChunk(
+        messageId: 'encoded-precheck',
+        chunkIndex: index,
+        totalChunks: 2,
+        content: content,
+        timestamp: DateTime.now(),
+        isBinary: true,
+      );
+      final first = binary(0, base64.encode([1]));
+      final second = binary(1, base64.encode([2]));
+
+      expect(bounded.addChunkBytes(first), isNull);
+      expect(
+        () => bounded.addChunkBytes(binary(1, '!' * 100)),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Fragment assembly exceeds message limit',
+          ),
+        ),
+      );
+      expect(bounded.addChunkBytes(second), isNull);
+      expect(bounded.addChunkBytes(first), Uint8List.fromList([1, 2]));
+    });
+
+    test('prechecks exact UTF-8 byte length before retaining text', () {
+      final bounded = MessageReassembler(
+        maxMessageBytes: 3,
+        maxRetainedBytes: 3,
+      );
+      final oversized = MessageChunk(
+        messageId: 'utf8-precheck',
+        chunkIndex: 0,
+        totalChunks: 1,
+        content: '😀',
+        timestamp: DateTime.now(),
       );
 
       expect(
-        () => reassembler.addChunkBytes(chunks101[0]),
-        returnsNormally,
-        reason: 'Current implementation accepts unlimited messages (not ideal)',
+        () => bounded.addChunkBytes(oversized),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Fragment assembly exceeds message limit',
+          ),
+        ),
+      );
+    });
+
+    test('rejects conflicting duplicate content and clears the assembly', () {
+      MessageChunk text(int index, String content) => MessageChunk(
+        messageId: 'duplicate-conflict',
+        chunkIndex: index,
+        totalChunks: 2,
+        content: content,
+        timestamp: DateTime.now(),
+      );
+      final first = text(0, 'A');
+      final second = text(1, 'B');
+
+      expect(reassembler.addChunkBytes(first), isNull);
+      expect(
+        () => reassembler.addChunkBytes(text(0, 'X')),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Conflicting duplicate fragment',
+          ),
+        ),
+      );
+      expect(reassembler.addChunkBytes(second), isNull);
+      expect(
+        reassembler.addChunkBytes(first),
+        Uint8List.fromList(utf8.encode('AB')),
+      );
+    });
+
+    test('enforces per-message and aggregate retained byte limits', () {
+      MessageChunk partial(String id, int index, String content) =>
+          MessageChunk(
+            messageId: id,
+            chunkIndex: index,
+            totalChunks: 2,
+            content: content,
+            timestamp: DateTime.now(),
+          );
+
+      final perMessage = MessageReassembler(
+        maxMessageBytes: 3,
+        maxRetainedBytes: 10,
+      );
+      expect(perMessage.addChunkBytes(partial('large', 0, 'ab')), isNull);
+      expect(
+        () => perMessage.addChunkBytes(partial('large', 1, 'cd')),
+        throwsFormatException,
+      );
+
+      final aggregate = MessageReassembler(
+        maxMessageBytes: 10,
+        maxRetainedBytes: 3,
+      );
+      expect(aggregate.addChunkBytes(partial('one', 0, 'ab')), isNull);
+      expect(
+        () => aggregate.addChunkBytes(partial('two', 0, 'ab')),
+        throwsFormatException,
       );
     });
 
@@ -547,7 +825,7 @@ void main() {
       // MTU of 10 is too small (need at least 15 for header + 5 for BLE overhead)
       expect(
         () => MessageFragmenter.fragmentBytes(data, 10, messageId),
-        throwsException,
+        throwsA(isA<ArgumentError>()),
         reason: 'MTU too small should throw',
       );
     });
@@ -563,15 +841,16 @@ void main() {
       );
     });
 
-    test('handles message ID shorter than 6 characters', () {
+    test('generates a collision-resistant wire id regardless of caller id', () {
       final data = Uint8List.fromList([1, 2, 3]);
       final shortId = 'ab';
 
       final chunks = MessageFragmenter.fragmentBytes(data, 100, shortId);
 
-      // Should handle short IDs gracefully
+      // The wire id is generated, not the (short, low-entropy) caller id.
       expect(chunks.isNotEmpty, isTrue);
-      expect(chunks[0].messageId, equals(shortId));
+      expect(chunks[0].messageId, isNot(equals(shortId)));
+      expect(chunks[0].messageId.length, greaterThanOrEqualTo(8));
     });
   });
 }

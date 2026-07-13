@@ -69,7 +69,9 @@ class MessageRouter {
 
   /// Configure dependency resolvers from bootstrap/composition code.
   static void configureDependencyResolvers({
-    @Deprecated('No longer used; public key now fetched via userPreferencesResolver')
+    @Deprecated(
+      'No longer used; public key now fetched via userPreferencesResolver',
+    )
     IPreferencesRepository Function()? preferencesRepositoryResolver,
     IUserPreferences Function()? userPreferencesResolver,
     ISharedMessageQueueProvider? Function()? sharedQueueProviderResolver,
@@ -313,11 +315,9 @@ class MessageRouter {
     }
 
     final sharedQueueProvider = _resolveSharedQueueProvider();
-    if (sharedQueueProvider != null &&
-        (sharedQueueProvider.isInitialized ||
-            sharedQueueProvider.isInitializing)) {
+    if (sharedQueueProvider != null) {
       try {
-        return sharedQueueProvider.messageQueue;
+        return await sharedQueueProvider.waitForMessageQueue();
       } catch (error) {
         _logger.warning(
           'Shared queue provider unavailable during MessageRouter init: $error',

@@ -38,7 +38,7 @@ void main() {
               connections.any((connection) => connection.address == address),
         );
 
-        manager.handleCentralConnected(central);
+        expect(await manager.handleCentralConnected(central), isTrue);
 
         final emitted = await emittedFuture.timeout(const Duration(seconds: 2));
         expect(manager.serverConnectionCount, 1);
@@ -50,7 +50,7 @@ void main() {
     );
 
     test(
-      'handleCentralConnected rejects inbound when state is ready',
+      'handleCentralConnected accepts new inbound peer when another peer is ready',
       () async {
         final central = fakeCentralFromString(
           '00000000-0000-0000-0000-000000000102',
@@ -58,12 +58,13 @@ void main() {
         final address = central.uuid.toString();
         manager.markHandshakeComplete();
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
 
-        verify(peripheralManager.disconnect(central)).called(1);
-        expect(manager.serverConnectionCount, 0);
-        expect(manager.isResponderHandshakeBlocked(address), isTrue);
+        verifyNever(peripheralManager.disconnect(central));
+        expect(manager.serverConnectionCount, 1);
+        expect(manager.hasServerConnection(address), isTrue);
+        expect(manager.isResponderHandshakeBlocked(address), isFalse);
       },
     );
 
@@ -74,10 +75,8 @@ void main() {
           '00000000-0000-0000-0000-000000000103',
         );
 
-        manager.handleCentralConnected(central);
-        await _settle();
-        manager.handleCentralConnected(central);
-        await _settle();
+        expect(await manager.handleCentralConnected(central), isTrue);
+        expect(await manager.handleCentralConnected(central), isFalse);
 
         verify(peripheralManager.disconnect(central)).called(1);
         expect(manager.serverConnectionCount, 1);
@@ -107,7 +106,7 @@ void main() {
           }
         };
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
 
         manager.handleCentralDisconnected(central);
@@ -141,7 +140,7 @@ void main() {
           uuid: UUID.fromString('00000000-0000-0000-0000-000000000601'),
         );
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
         manager.handleCharacteristicSubscribed(central, characteristic);
         await _settle();
@@ -162,7 +161,7 @@ void main() {
           uuid: UUID.fromString('00000000-0000-0000-0000-000000000701'),
         );
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
         manager.cachePeerHintForAddress(address, 'peer-hint-107');
         manager.markHandshakeComplete();
@@ -181,7 +180,7 @@ void main() {
       );
       final address = central.uuid.toString();
 
-      manager.handleCentralConnected(central);
+      await manager.handleCentralConnected(central);
       await _settle();
       manager.updateServerMtu(address, 185);
       await _settle();
@@ -198,7 +197,7 @@ void main() {
         final central = fakeCentralFromString(uuid);
         final peripheral = fakePeripheralFromString(uuid);
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
         await manager.connectToDevice(peripheral);
 
@@ -244,7 +243,7 @@ void main() {
         );
         final address = central.uuid.toString();
 
-        manager.handleCentralConnected(central);
+        await manager.handleCentralConnected(central);
         await _settle();
 
         manager.clearConnectionState(keepMonitoring: true);

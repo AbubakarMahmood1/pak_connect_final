@@ -18,12 +18,14 @@ class BleWriteAdapter {
     Function(bool)? onMessageOperationChanged,
     Logger? logger,
     IBleWriteClient? writeClient,
+    MessageAckTracker? ackTracker,
   }) : _contactRepository = contactRepository,
        _stateManagerProvider = stateManagerProvider,
        _onMessageOperationChanged = onMessageOperationChanged,
        _logger = logger ?? Logger('BleWriteAdapter'),
        _writeClient = writeClient ?? BleWriteClient() {
-    _ackTracker = MessageAckTracker(timeout: Duration(seconds: 5));
+    _ackTracker =
+        ackTracker ?? MessageAckTracker(timeout: const Duration(seconds: 5));
     _chunkSender = MessageChunkSender(logger: _logger);
     _outboundSender = OutboundMessageSender(
       logger: _logger,
@@ -156,6 +158,7 @@ class BleWriteAdapter {
         stateManager: stateManager,
         onMessageSent: stateManager.onMessageSent,
         onMessageSentIds: stateManager.onMessageSentIds,
+        awaitAck: true,
       );
     } catch (e) {
       _logger.warning('⚠️ sendPeripheralMessage failed via adapter: $e');

@@ -160,15 +160,19 @@ sequenceDiagram
 - **PakConnect System**: The application (black box)
 
 ### Scenario
-User receives an encrypted message from a remote device via BLE.
+User receives a protocol packet from a remote device via BLE. Direct user
+payloads are Noise-encrypted; an offline relay packet exposes its outer routing
+metadata while carrying a signed recipient-encrypted inner payload.
 
 ### Sequence
 
-1. **Remote Device → System**: sendBLEPacket(encryptedMessage)
-   - Remote device sends encrypted message via BLE characteristic
+1. **Remote Device → System**: sendBLEPacket(protocolEnvelope)
+   - Remote device sends a direct or relay protocol envelope via BLE
 
-2. **System → System**: [Internal: decrypt, validate, process relay decision]
-   - System decrypts and determines if message is for local user or relay
+2. **System → System**: [Internal: parse relay envelope and process relay
+   decision]
+   - The system parses routing metadata first; only the final recipient
+     decrypts/authenticates the encrypted inner payload
 
 3. **System → User**: displayNotification(senderName, previewText)
    - System shows notification banner
@@ -198,10 +202,10 @@ sequenceDiagram
     participant System as PakConnect System
     actor User
 
-    Remote->>System: sendBLEPacket(encryptedMessage)
+    Remote->>System: sendBLEPacket(protocolEnvelope)
 
     rect rgb(200, 220, 250)
-        note right of System: Internal Operations:<br/>Decrypt, Validate,<br/>Check if for self or relay
+        note right of System: Internal Operations:<br/>Parse relay envelope,<br/>inspect routing metadata
     end
 
     alt Message for Local User
@@ -214,7 +218,7 @@ sequenceDiagram
         end
     else Message for Relay
         rect rgb(255, 240, 200)
-            note right of System: Forward to next hop<br/>(transparent to user)
+            note right of System: Forward unchanged encrypted inner payload<br/>(transparent to user)
         end
     end
 ```
@@ -283,50 +287,51 @@ sequenceDiagram
 
 ---
 
-## SSD-5: Create and Send Group Message
+## SSD-5: Create a Broadcast List and Send a Broadcast
 
 ### Participants
-- **User**: Person sending group message
+- **User**: Person sending the same update to several contacts
 - **PakConnect System**: The application (black box)
 
 ### Scenario
-User creates a group, adds members, and sends a message to all members.
+User creates a sender-local recipient list and queues one ordinary direct
+message per recipient. No shared recipient-side group is created.
 
 ### Sequence
 
-1. **User → System**: openCreateGroupScreen()
-   - User navigates to group creation
+1. **User → System**: openCreateBroadcastListScreen()
+   - User navigates to broadcast-list creation
 
 2. **System → User**: displayContactList(allContacts)
    - System shows all contacts for selection
 
-3. **User → System**: selectGroupMembers(contactKeys[])
+3. **User → System**: selectRecipients(chatIds[])
    - User selects multiple contacts
 
-4. **User → System**: setGroupName(name)
-   - User enters group name
+4. **User → System**: setListName(name)
+   - User enters a local list name
 
-5. **User → System**: tapCreateGroup()
-   - User confirms group creation
+5. **User → System**: tapCreateBroadcastList()
+   - User confirms local list creation
 
-6. **System → User**: displayGroupChatScreen(groupName, members)
-   - System shows group chat interface
+6. **System → User**: displayBroadcastListScreen(listName, recipients)
+   - System shows sender-local broadcast history
 
-7. **User → System**: typeGroupMessage(content)
-   - User types message
+7. **User → System**: typeBroadcast(content)
+   - User types the shared content
 
 8. **User → System**: tapSendButton()
-   - User sends group message
+   - User submits the broadcast
 
-9. **System → System**: [Internal: encrypt for each member, send individual messages]
-   - System sends individual encrypted messages (multi-unicast)
+9. **System → System**: [Internal: enqueue one ordinary direct message per recipient]
+   - The direct-message pipeline later encrypts and transports each entry
 
-10. **System → User**: displayDeliveryMatrix(memberStatuses)
-    - System shows per-member delivery status
+10. **System → User**: displayRecipientQueueStatus(recipientStatuses)
+    - System shows sender-local pending, queued, or failed status
 
-**Alternative Flow 10a: Partial Delivery**
-- 10a1. **System → User**: displayMixedStatus(deliveredCount, pendingCount, failedCount)
-- 10a2. System continues retrying pending messages
+**Alternative Flow 10a: Partial Queue Acceptance**
+- 10a1. **System → User**: displayMixedStatus(queuedCount, pendingCount, failedCount)
+- 10a2. Ordinary direct queues continue their normal retry behavior
 
 ### Diagram Context (Mermaid)
 
@@ -335,28 +340,28 @@ sequenceDiagram
     actor User
     participant System as PakConnect System
 
-    User->>System: openCreateGroupScreen()
+    User->>System: openCreateBroadcastListScreen()
     System->>User: displayContactList(allContacts)
 
-    User->>System: selectGroupMembers(contactKeys[])
-    User->>System: setGroupName(name)
-    User->>System: tapCreateGroup()
+    User->>System: selectRecipients(chatIds[])
+    User->>System: setListName(name)
+    User->>System: tapCreateBroadcastList()
 
-    System->>User: displayGroupChatScreen(groupName, members)
+    System->>User: displayBroadcastListScreen(listName, recipients)
 
-    User->>System: typeGroupMessage(content)
+    User->>System: typeBroadcast(content)
     User->>System: tapSendButton()
 
     rect rgb(200, 220, 250)
-        note right of System: Internal Operations:<br/>Encrypt for each member,<br/>Send individual messages,<br/>Track delivery per member
+        note right of System: Internal Operations:<br/>Create one direct queue entry<br/>per recipient and track<br/>local queue acceptance
     end
 
-    System->>User: displayDeliveryMatrix(memberStatuses)
+    System->>User: displayRecipientQueueStatus(recipientStatuses)
 
-    alt All Delivered
-        note over User,System: Group message fully delivered
-    else Partial Delivery
-        System->>User: displayMixedStatus(delivered, pending, failed)
+    alt All Queue Submissions Accepted
+        note over User,System: Every direct message is queued
+    else Partial Queue Acceptance
+        System->>User: displayMixedStatus(queued, pending, failed)
     end
 ```
 
@@ -529,7 +534,7 @@ sequenceDiagram
 2. **SSD-2**: Add Contact via QR Code (onboarding)
 3. **SSD-3**: Receive Incoming Message (passive reception)
 4. **SSD-4**: Search Messages (discovery)
-5. **SSD-5**: Create and Send Group Message (group messaging)
+5. **SSD-5**: Create a Broadcast List and Send a Broadcast (sender-local multi-unicast)
 6. **SSD-6**: Verify Contact Security (security upgrade)
 7. **SSD-7**: Export Chat History (data portability)
 

@@ -100,7 +100,9 @@ class GCSFilter {
   static List<int> decodeToSortedList(GCSFilterParams params) {
     final values = <int>[];
     final reader = _BitReader(params.data);
-    var acc = 0;
+    // The encoder uses a virtual previous value of -1 so that 0 remains a
+    // valid first mapped value after JS-safe hashing.
+    var acc = -1;
     // final mask = (1 << params.p) - 1; // Unused
 
     while (!reader.eof()) {
@@ -157,22 +159,27 @@ class GCSFilter {
   /// Hash byte array to 64-bit unsigned integer
   /// Uses first 8 bytes of SHA-256 hash
   static int _h64(Uint8List id) {
+    // Web compiles to JavaScript numbers, so keep the hash inside a 53-bit
+    // positive integer while preserving deterministic cross-platform output.
+    const jsSafePositiveMask = 0x1FFFFFFFFFFFFF;
     final digest = sha256.convert(id).bytes;
     var x = 0;
 
-    // Take first 8 bytes (big-endian)
-    for (var i = 0; i < 8; i++) {
+    // Take the first 53 bits (big-endian) to stay within JS-safe integer
+    // precision on web.
+    for (var i = 0; i < 6; i++) {
       x = (x << 8) | (digest[i] & 0xFF);
     }
+    x = (x << 5) | ((digest[6] & 0xF8) >> 3);
 
-    // Ensure positive (mask off sign bit for Dart's signed int64)
-    return x & 0x7FFFFFFFFFFFFFFF;
+    return x & jsSafePositiveMask;
   }
 
   /// Encode sorted values using Golomb-Rice coding
   static Uint8List _encode(List<int> sorted, int p) {
     final bw = _BitWriter();
-    var prev = 0;
+    // Use a virtual previous value of -1 so the first value may legally be 0.
+    var prev = -1;
     final mask = (1 << p) - 1;
 
     for (final v in sorted) {

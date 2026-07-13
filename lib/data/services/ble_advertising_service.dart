@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_advertising_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_experiment_metrics_recorder.dart';
 import '../../domain/constants/ble_constants.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
@@ -27,6 +28,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   final AdvertisingManager advertisingManager;
   final PeripheralInitializer peripheralInitializer;
   final PeripheralManager peripheralManager;
+  final IBleExperimentMetricsRecorder? metricsRecorder;
 
   // Callback to update connection info in facade
   final Function({
@@ -55,6 +57,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
     required this.peripheralInitializer,
     required this.peripheralManager,
     required this.onUpdateConnectionInfo,
+    this.metricsRecorder,
   });
 
   // ============================================================================
@@ -76,6 +79,10 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
       _logger.fine(
         '📡 Already advertising - skipping redundant peripheral start',
       );
+      return;
+    }
+
+    if (!await _canStartPeripheralAdvertising()) {
       return;
     }
 
@@ -139,6 +146,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
         isAdvertising: true,
         statusMessage: 'Advertising - dual-role active',
       );
+      metricsRecorder?.recordAdvertisingStarted();
       _logger.info(
         '✅ Peripheral advertising active (dual-role - central still running)!',
       );
@@ -271,6 +279,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
   Future<void> stopAdvertising() async {
     _logger.info('🛑 Stopping advertising via IBLEAdvertisingService');
     await advertisingManager.stopAdvertising();
+    metricsRecorder?.recordAdvertisingStopped();
   }
 
   @override
@@ -278,6 +287,7 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
     _logger.info('📡 Starting advertising via IBLEAdvertisingService');
     final myPublicKey = await stateManager.getMyPersistentId();
     await advertisingManager.startAdvertising(myPublicKey: myPublicKey);
+    metricsRecorder?.recordAdvertisingStarted();
   }
 
   @override
@@ -293,5 +303,22 @@ class BLEAdvertisingService implements IBLEAdvertisingService {
     _peripheralHandshakeStarted = false;
     _peripheralNegotiatedMTU = null;
     _peripheralMtuReady = false;
+  }
+
+  Future<bool> _canStartPeripheralAdvertising() async {
+    final bluetoothState = peripheralManager.state;
+    if (bluetoothState != BluetoothLowEnergyState.poweredOn) {
+      _logger.info(
+        '📡 Skipping peripheral advertising until Bluetooth is powered on '
+        '(state: $bluetoothState)',
+      );
+      onUpdateConnectionInfo(
+        isAdvertising: false,
+        statusMessage: 'Bluetooth unavailable for advertising',
+      );
+      return false;
+    }
+
+    return true;
   }
 }

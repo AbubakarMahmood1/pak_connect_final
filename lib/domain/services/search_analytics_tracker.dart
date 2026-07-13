@@ -61,6 +61,16 @@ class SearchAnalyticsTracker {
           _queryAnalytics[entry.key] = SearchAnalytics.fromJson(entry.value);
         }
 
+        if (_queryAnalytics.isNotEmpty && _totalSearches <= 0) {
+          _totalSearches = _queryAnalytics.values.fold(
+            0,
+            (sum, analytics) => sum + analytics.searchCount,
+          );
+          _logger.info(
+            'Normalized inconsistent search analytics state to $_totalSearches total searches',
+          );
+        }
+
         _logger.fine(
           'Loaded analytics: $_totalSearches total searches, ${_queryAnalytics.length} unique queries',
         );
@@ -207,7 +217,7 @@ class SearchAnalyticsTracker {
 
   /// Get average search time across all queries
   Duration getAverageSearchTime() {
-    if (_queryAnalytics.isEmpty) return Duration.zero;
+    if (_queryAnalytics.isEmpty || _totalSearches <= 0) return Duration.zero;
 
     final totalTime = _queryAnalytics.values.fold(
       Duration.zero,

@@ -8,6 +8,7 @@
 library;
 
 import 'dart:typed_data';
+import '../noise_handshake_message_size.dart';
 import 'dh_state.dart';
 import 'symmetric_state.dart';
 import 'cipher_state.dart';
@@ -82,10 +83,9 @@ class HandshakeStateKK {
   ///
   /// Generates Message 1: → e, es, ss
   ///
-  /// Returns 96-byte message:
+  /// Returns 48-byte message:
   /// - 32 bytes: ephemeral public key
-  /// - 32 bytes: encrypted payload 1 (es applied)
-  /// - 32 bytes: encrypted payload 2 (ss applied)
+  /// - 16 bytes: encrypted empty payload/MAC after es + ss key mixing
   ///
   /// KK pattern message 1 performs DH operations:
   /// - es: DH(e, rs) - ephemeral to remote static
@@ -131,7 +131,7 @@ class HandshakeStateKK {
   ///
   /// Receives Message 1: ← e, es, ss
   ///
-  /// [message] 96-byte message
+  /// [message] 48-byte message
   ///
   /// Processes initiator's ephemeral key and verifies authentication.
   Future<void> readMessageA(Uint8List message) async {
@@ -141,9 +141,9 @@ class HandshakeStateKK {
     if (_messageIndex != 0) {
       throw StateError('Message A already processed');
     }
-    if (message.length < 32) {
+    if (message.length != NoiseHandshakeMessageSize.kkMessage1) {
       throw ArgumentError(
-        'Message A must be at least 32 bytes (got ${message.length})',
+        'Message A must be ${NoiseHandshakeMessageSize.kkMessage1} bytes (got ${message.length})',
       );
     }
 

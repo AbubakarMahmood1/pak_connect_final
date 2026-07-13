@@ -300,6 +300,15 @@ class MessageSecurity {
     _logger.info('Cleared all processed message tracking');
   }
 
+  /// Clear replay protection state including cached nonces.
+  static Future<void> clearReplayProtectionState() async {
+    _processedMessageCache.clear();
+    _nonceCounters.clear();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_processedMessageIdsKey);
+    _logger.info('Cleared replay protection state');
+  }
+
   /// Get statistics about replay protection
   static Future<ReplayProtectionStats> getStats() async {
     final prefs = await SharedPreferences.getInstance();

@@ -388,7 +388,10 @@ void main() {
   group('AboutSection', () {
     testWidgets('shows about and help dialogs', (tester) async {
       final controller = _TestSettingsController();
-      await _pumpWidgetHarness(tester, AboutSection(controller: controller));
+      await _pumpWidgetHarness(
+        tester,
+        AboutSection(controller: controller, onPanicWipeRequested: () async {}),
+      );
 
       await tester.tap(find.text('About PakConnect'));
       await tester.pumpAndSettle();
@@ -411,7 +414,10 @@ void main() {
     testWidgets('loads markdown privacy policy and renders it', (tester) async {
       final controller = _TestSettingsController()
         ..privacyMarkdown = '# Privacy Policy\nAll data stays local.';
-      await _pumpWidgetHarness(tester, AboutSection(controller: controller));
+      await _pumpWidgetHarness(
+        tester,
+        AboutSection(controller: controller, onPanicWipeRequested: () async {}),
+      );
 
       await tester.tap(find.text('Privacy Policy'));
       await tester.pumpAndSettle();
@@ -426,13 +432,42 @@ void main() {
     ) async {
       final controller = _TestSettingsController()
         ..loadPrivacyPolicyMarkdownError = StateError('missing asset');
-      await _pumpWidgetHarness(tester, AboutSection(controller: controller));
+      await _pumpWidgetHarness(
+        tester,
+        AboutSection(controller: controller, onPanicWipeRequested: () async {}),
+      );
 
       await tester.tap(find.text('Privacy Policy'));
       await tester.pumpAndSettle();
 
       expect(find.text('Your Privacy Matters'), findsOneWidget);
       expect(find.textContaining('Error loading full policy'), findsOneWidget);
+    });
+
+    testWidgets('version multi-tap triggers hidden panic wipe callback', (
+      tester,
+    ) async {
+      final controller = _TestSettingsController();
+      var panicWipeRequests = 0;
+      await _pumpWidgetHarness(
+        tester,
+        AboutSection(
+          controller: controller,
+          onPanicWipeRequested: () async => panicWipeRequests++,
+        ),
+      );
+
+      await tester.tap(find.text('About PakConnect'));
+      await tester.pumpAndSettle();
+
+      final versionFinder = find.byKey(const Key('aboutVersionText'));
+      for (var i = 0; i < 7; i++) {
+        await tester.tap(versionFinder);
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+
+      expect(panicWipeRequests, 1);
     });
   });
 
@@ -509,7 +544,10 @@ void main() {
         ..autoArchiveOldChats = true;
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: enabledController),
+        DataStorageSection(
+          controller: enabledController,
+          onPanicWipeRequested: () async {},
+        ),
       );
       expect(find.text('Archive After'), findsOneWidget);
       expect(find.text('Check Inactive Chats Now'), findsOneWidget);
@@ -518,7 +556,10 @@ void main() {
         ..autoArchiveOldChats = false;
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: disabledController),
+        DataStorageSection(
+          controller: disabledController,
+          onPanicWipeRequested: () async {},
+        ),
       );
       expect(find.text('Archive After'), findsNothing);
       expect(find.text('Check Inactive Chats Now'), findsNothing);
@@ -532,7 +573,10 @@ void main() {
         ..archiveAfterDays = 30;
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: controller),
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async {},
+        ),
       );
 
       await tester.tap(
@@ -558,7 +602,10 @@ void main() {
         ..manualAutoArchiveCheckResult = 2;
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: controller),
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async {},
+        ),
       );
 
       await tester.tap(find.text('Check Inactive Chats Now'));
@@ -577,7 +624,10 @@ void main() {
         ..manualAutoArchiveCheckError = StateError('scheduler failed');
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: controller),
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async {},
+        ),
       );
 
       await tester.tap(find.text('Check Inactive Chats Now'));
@@ -599,7 +649,10 @@ void main() {
         );
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: controller),
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async {},
+        ),
       );
 
       await tester.tap(find.text('Storage Usage'));
@@ -621,7 +674,10 @@ void main() {
       final controller = _TestSettingsController();
       await _pumpWidgetHarness(
         tester,
-        DataStorageSection(controller: controller),
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async {},
+        ),
       );
 
       await tester.tap(find.text('Clear All Data'));
@@ -637,6 +693,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.clearAllDataCalls, 1);
       expect(find.textContaining('Failed to clear data'), findsOneWidget);
+    });
+
+    testWidgets('panic wipe tile delegates to callback', (tester) async {
+      final controller = _TestSettingsController();
+      var panicWipeRequests = 0;
+      await _pumpWidgetHarness(
+        tester,
+        DataStorageSection(
+          controller: controller,
+          onPanicWipeRequested: () async => panicWipeRequests++,
+        ),
+      );
+
+      expect(find.text('Panic Wipe'), findsOneWidget);
+      await tester.tap(find.text('Panic Wipe'));
+      await tester.pump();
+
+      expect(panicWipeRequests, 1);
     });
   });
 

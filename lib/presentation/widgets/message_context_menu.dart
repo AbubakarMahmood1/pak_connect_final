@@ -18,84 +18,85 @@ class MessageContextMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Handle indicator
-          Container(
-            width: 36,
-            height: 4,
-            margin: EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-
-          // Copy option
-          if (onCopy != null)
-            ListTile(
-              leading: Icon(Icons.content_copy),
-              title: Text('Copy Message'),
-              onTap: () {
-                Navigator.pop(context);
-                onCopy?.call();
-              },
-            ),
-
-          // Delete option (only for own messages)
-          if (onDelete != null && message.isFromMe)
-            ListTile(
-              leading: Icon(Icons.delete_outline, color: Colors.red),
-              title: Text(
-                'Delete Message',
-                style: TextStyle(color: Colors.red),
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle indicator
+            Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
               ),
-              onTap: () {
-                Navigator.pop(context);
-                onDelete?.call();
-              },
             ),
 
-          // Message info/details
-          ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('Message Info'),
-            onTap: () {
-              Navigator.pop(context);
-              _showMessageInfo(context, message);
-            },
-          ),
+            // Copy option
+            if (onCopy != null)
+              ListTile(
+                leading: const Icon(Icons.content_copy),
+                title: const Text('Copy Message'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onCopy?.call();
+                },
+              ),
 
-          // Reply option (future enhancement)
-          if (onReply != null)
+            // Delete option (only for own messages)
+            if (onDelete != null && message.isFromMe)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text(
+                  'Delete Message',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  onDelete?.call();
+                },
+              ),
+
+            // Message info/details
             ListTile(
-              leading: Icon(Icons.reply),
-              title: Text('Reply'),
+              leading: const Icon(Icons.info_outline),
+              title: const Text('Message Info'),
               onTap: () {
                 Navigator.pop(context);
-                onReply?.call();
+                _showMessageInfo(context, message);
               },
             ),
 
-          // Cancel
-          ListTile(
-            leading: Icon(Icons.close),
-            title: Text('Cancel'),
-            onTap: () => Navigator.pop(context),
-          ),
+            // Reply option (future enhancement)
+            if (onReply != null)
+              ListTile(
+                leading: const Icon(Icons.reply),
+                title: const Text('Reply'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onReply?.call();
+                },
+              ),
 
-          // Bottom padding for safe area
-          SizedBox(height: MediaQuery.of(context).padding.bottom),
-        ],
+            // Cancel
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Cancel'),
+              onTap: () => Navigator.pop(context),
+            ),
+
+            // Bottom padding for safe area
+            SizedBox(height: MediaQuery.of(context).padding.bottom),
+          ],
+        ),
       ),
     );
   }

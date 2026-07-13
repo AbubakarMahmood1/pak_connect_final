@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_experiment_metrics_recorder.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import '../../data/services/ble_connection_manager.dart';
@@ -31,6 +32,8 @@ class BLEConnectionService implements IBLEConnectionService {
   final BLEConnectionManager connectionManager;
   final CentralManager centralManager;
   final BluetoothStateMonitor bluetoothStateMonitor;
+  final IBleExperimentMetricsRecorder? metricsRecorder;
+  final bool Function()? isRadioSchedulerManagingConnects;
 
   // Callback to update connection info in facade
   final Function({
@@ -71,6 +74,8 @@ class BLEConnectionService implements IBLEConnectionService {
     required this.centralManager,
     required this.bluetoothStateMonitor,
     required this.onUpdateConnectionInfo,
+    this.metricsRecorder,
+    this.isRadioSchedulerManagingConnects,
   });
 
   // ============================================================================
@@ -157,6 +162,35 @@ class BLEConnectionService implements IBLEConnectionService {
 
   @override
   Future<void> connectToDevice(Peripheral device) async {
+    await _connectToDeviceInternal(
+      device,
+      skipDiscoveryStop: isRadioSchedulerManagingConnects?.call() ?? false,
+      recordMetrics: !(isRadioSchedulerManagingConnects?.call() ?? false),
+      useDirectManagerConnect: false,
+    );
+  }
+
+  Future<void> connectToDeviceDirect(
+    Peripheral device, {
+    bool recordMetrics = false,
+    int? schedulerAttemptId,
+  }) async {
+    await _connectToDeviceInternal(
+      device,
+      skipDiscoveryStop: true,
+      recordMetrics: recordMetrics,
+      useDirectManagerConnect: true,
+      schedulerAttemptId: schedulerAttemptId,
+    );
+  }
+
+  Future<void> _connectToDeviceInternal(
+    Peripheral device, {
+    required bool skipDiscoveryStop,
+    required bool recordMetrics,
+    required bool useDirectManagerConnect,
+    int? schedulerAttemptId,
+  }) async {
     try {
       // Single-link policy: if we already have an inbound (server) link to this peer, adopt it
       try {
@@ -170,15 +204,28 @@ class BLEConnectionService implements IBLEConnectionService {
         }
       } catch (_) {}
 
-      // Stop any active discovery first
-      try {
-        await centralManager.stopDiscovery();
-      } catch (e) {
-        // Ignore
+      if (recordMetrics) {
+        metricsRecorder?.recordOutboundConnectRequested(device.uuid.toString());
+      }
+
+      // Stop any active discovery first unless the strict TDM scheduler owns the radio.
+      if (!skipDiscoveryStop) {
+        try {
+          await centralManager.stopDiscovery();
+        } catch (e) {
+          // Ignore
+        }
       }
 
       _updateConnectionInfo(isConnected: false, statusMessage: 'Connecting...');
-      await connectionManager.connectToDevice(device);
+      if (useDirectManagerConnect) {
+        await connectionManager.connectToDeviceDirect(
+          device,
+          schedulerAttemptId: schedulerAttemptId,
+        );
+      } else {
+        await connectionManager.connectToDevice(device);
+      }
 
       if (connectionManager.hasBleConnection) {
         connectionManager.startHealthChecks();
