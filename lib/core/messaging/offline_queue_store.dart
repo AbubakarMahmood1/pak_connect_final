@@ -16,11 +16,18 @@ class QueueStore {
     required Set<MessageId> deletedMessageIds,
     IMessageQueueRepository? queueRepository,
     IQueuePersistenceManager? queuePersistenceManager,
+    this.allowVolatileStorage = false,
   }) : _directMessageQueue = directMessageQueue,
        _relayMessageQueue = relayMessageQueue,
        _deletedMessageIds = deletedMessageIds,
        _queueRepository = queueRepository,
        _queuePersistenceManager = queuePersistenceManager;
+
+  /// Volatile storage is only for explicitly ephemeral/test queues.
+  ///
+  /// The canonical runtime keeps this false so a storage outage cannot be
+  /// reported to callers as a durable queued-message success.
+  final bool allowVolatileStorage;
 
   final List<QueuedMessage> _directMessageQueue;
   final List<QueuedMessage> _relayMessageQueue;
@@ -35,7 +42,8 @@ class QueueStore {
   }
 
   bool get hasDatabaseProvider {
-    return _databaseProvider != null ||
+    return (_queueRepository != null && _queuePersistenceManager != null) ||
+        _databaseProvider != null ||
         MessageQueueRepository.hasDefaultDatabaseProvider ||
         QueuePersistenceManager.hasDefaultDatabaseProvider;
   }
@@ -64,9 +72,17 @@ class QueueStore {
 
   Future<void> initializePersistence({required Logger logger}) async {
     if (!hasDatabaseProvider) {
+      if (!allowVolatileStorage) {
+        final error = StateError(
+          'Durable offline queue requires a database provider',
+        );
+        logger.severe('Offline queue persistence is required: $error');
+        throw error;
+      }
       _useInMemoryFallback();
       logger.warning(
-        '⚠️ No database provider found; using in-memory queue for this run',
+        '⚠️ Explicit volatile queue has no database provider; using '
+        'in-memory storage for this run',
       );
       return;
     }
@@ -75,9 +91,18 @@ class QueueStore {
       await persistenceManager.createQueueTablesIfNotExist();
       await loadQueueFromStorage();
       await loadDeletedMessageIds();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      if (!allowVolatileStorage) {
+        logger.severe(
+          'Offline queue persistence initialization failed',
+          e,
+          stackTrace,
+        );
+        rethrow;
+      }
       logger.warning(
-        '⚠️ Persistence unavailable, falling back to in-memory queue: $e',
+        '⚠️ Explicit volatile queue persistence is unavailable; '
+        'falling back to in-memory storage: $e',
       );
       _useInMemoryFallback();
     }

@@ -40,6 +40,7 @@ void main() {
  store = QueueStore(directMessageQueue: [],
  relayMessageQueue: [],
  deletedMessageIds: {},
+ allowVolatileStorage: true,
 );
  });
 

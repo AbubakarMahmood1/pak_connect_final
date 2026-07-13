@@ -48,6 +48,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
   final IMessageQueueRepository? _initialQueueRepository;
   final IQueuePersistenceManager? _initialQueuePersistenceManager;
   final IRetryScheduler? _initialRetryScheduler;
+  final bool _allowVolatileStorage;
 
   late final QueueStore _store = QueueStore(
     directMessageQueue: _directMessageQueue,
@@ -55,6 +56,7 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     deletedMessageIds: _deletedMessageIds,
     queueRepository: _initialQueueRepository,
     queuePersistenceManager: _initialQueuePersistenceManager,
+    allowVolatileStorage: _allowVolatileStorage,
   );
 
   late final QueueScheduler _queueScheduler = QueueScheduler(
@@ -112,9 +114,11 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     IMessageQueueRepository? queueRepository,
     IQueuePersistenceManager? queuePersistenceManager,
     IRetryScheduler? retryScheduler,
+    bool allowVolatileStorage = false,
   }) : _initialQueueRepository = queueRepository,
        _initialQueuePersistenceManager = queuePersistenceManager,
-       _initialRetryScheduler = retryScheduler;
+       _initialRetryScheduler = retryScheduler,
+       _allowVolatileStorage = allowVolatileStorage;
 
   static void configureDefaultRepositoryProvider(
     IRepositoryProvider repositoryProvider,
@@ -206,6 +210,12 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
     bool persistToStorage = true,
   }) async {
     try {
+      if (!persistToStorage && !isRelayMessage) {
+        throw const MessageQueueException(
+          'Direct messages require durable queue storage',
+        );
+      }
+
       // Apply favorites-based priority boost
       final boostResult = await _policy.applyFavoritesPriorityBoost(
         recipientPublicKey: recipientPublicKey,
@@ -256,10 +266,8 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
         messageHash: messageHash,
       );
 
-      // Add to queue with priority ordering
-      // PRIORITY 1 FIX: Route to appropriate queue (direct vs relay)
-      _insertMessageByPriority(queuedMessage);
-
+      // Durable admission is persistence-first. A failed write must not leave
+      // a ghost message visible to retry/delivery workers or success callbacks.
       if (persistToStorage) {
         await _saveMessageToStorage(queuedMessage);
       } else {
@@ -267,6 +275,11 @@ class OfflineMessageQueue implements OfflineMessageQueueContract {
           '🧭 Relay message queued without persistence: ${messageId.shortId(8)}...',
         );
       }
+
+      // Publish to the in-memory delivery queue only after durable storage
+      // succeeds (or when the caller explicitly requested a volatile relay).
+      _insertMessageByPriority(queuedMessage);
+      invalidateHashCache();
 
       _totalQueued++;
       onMessageQueued?.call(queuedMessage);

@@ -2,22 +2,21 @@ import 'package:logging/logging.dart';
 import '../repositories/contact_repository.dart';
 import '../repositories/message_repository.dart';
 import 'package:pak_connect/domain/utils/chat_utils.dart';
-import '../../domain/interfaces/i_message_queue_repository.dart';
-import '../../domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 
 /// Cleans up ephemeral contacts with no chat history (called on disconnect)
 class EphemeralContactCleaner {
-  static IMessageQueueRepository? Function()? _queueRepositoryResolver;
+  static OfflineMessageQueueContract? Function()? _queueResolver;
 
-  static void configureQueueRepositoryResolver(
-    IMessageQueueRepository? Function() resolver,
+  static void configureQueueResolver(
+    OfflineMessageQueueContract? Function() resolver,
   ) {
-    _queueRepositoryResolver = resolver;
+    _queueResolver = resolver;
   }
 
-  static void clearQueueRepositoryResolver() {
-    _queueRepositoryResolver = null;
+  static void clearQueueResolver() {
+    _queueResolver = null;
   }
 
   static Future<void> cleanup({
@@ -76,18 +75,21 @@ class EphemeralContactCleaner {
     required Logger logger,
   }) async {
     try {
-      final resolver = _queueRepositoryResolver;
+      final resolver = _queueResolver;
       if (resolver == null) {
-        logger.fine('Queue repository not registered - skipping queue check');
-        return false;
+        logger.warning(
+          'Shared queue unavailable during contact cleanup - keeping contact',
+        );
+        return true;
       }
 
-      final repo = resolver();
-      if (repo == null) {
-        logger.fine('Queue repository not registered - skipping queue check');
-        return false;
+      final queue = resolver();
+      if (queue == null) {
+        logger.warning(
+          'Shared queue unavailable during contact cleanup - keeping contact',
+        );
+        return true;
       }
-      await repo.loadQueueFromStorage();
       final keys = <String>{
         contact.publicKey,
         if (contact.persistentPublicKey?.isNotEmpty == true)
@@ -96,16 +98,16 @@ class EphemeralContactCleaner {
           contact.currentEphemeralId!,
       };
 
-      final queued = repo.getAllMessages().where((m) {
-        final keyMatch = keys.contains(m.recipientPublicKey);
-        final status = m.status;
-        final isPending =
-            status == QueuedMessageStatus.pending ||
-            status == QueuedMessageStatus.sending ||
-            status == QueuedMessageStatus.awaitingAck ||
-            status == QueuedMessageStatus.retrying;
-        return keyMatch && isPending;
-      });
+      final queued =
+          <QueuedMessage>[
+            ...queue.getMessagesByStatus(QueuedMessageStatus.pending),
+            ...queue.getMessagesByStatus(QueuedMessageStatus.sending),
+            ...queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+            ...queue.getMessagesByStatus(QueuedMessageStatus.retrying),
+          ].where((m) {
+            final keyMatch = keys.contains(m.recipientPublicKey);
+            return keyMatch;
+          });
 
       final count = queued.length;
       if (count > 0) {
@@ -115,9 +117,11 @@ class EphemeralContactCleaner {
         return true;
       }
     } catch (e) {
-      logger.fine(
-        'Queue lookup failed while cleaning ${contact.displayName}: $e',
+      logger.warning(
+        'Queue lookup failed while cleaning ${contact.displayName}; '
+        'keeping contact: $e',
       );
+      return true;
     }
     return false;
   }

@@ -67,6 +67,70 @@ Before finishing a multi-step task:
 
 ---
 
+# Fail-closed offline queue durability (Codex, 2026-07-13)
+
+## Goal
+
+Prevent the canonical runtime from reporting a message as queued when its
+durable queue could not initialize, load, or store that message.
+
+## Constraints
+
+- Production direct-message admission must remain persistence-before-delivery.
+- Deliberately volatile relay/test queues may remain available only through an
+  explicit opt-in.
+- Preserve the existing queue contracts and database schema.
+- A failed durable write must not publish a callback, increment statistics, or
+  leave a ghost message in the in-memory retry queue.
+
+## Facts
+
+- Durable queue initialization now fails when storage is missing or cannot be
+  loaded; volatile storage requires an explicit opt-in.
+- `MessageQueueRepository` propagates load/write failures and stages complete
+  queue/tombstone snapshots before replacing live state.
+- New direct and queue-sync admissions persist before memory publication.
+- AppCore retries with a fresh runtime, and router initialization is serialized,
+  reset-cancellable, and published only after its queue is ready.
+- Rebootstrap waits for owned BLE/chat teardown, clears session/topology state,
+  and publishes Noise only after successful initialization; partial Noise key
+  generation is zeroized on failure.
+- Ephemeral-contact cleanup uses the shared queue and keeps contacts whenever
+  queue availability is uncertain.
+
+## Approach
+
+1. Make durable storage the default queue policy and require an explicit flag
+   for volatile fallback.
+2. Propagate queue repository load/write failures after logging.
+3. Persist a durable message before publishing it to the in-memory queue.
+4. Prove missing-provider, initialization-failure, write-failure, explicit
+   volatile-mode, and healthy SQLite restart behavior.
+
+## Verification
+
+- 265 focused queue-store, repository, SQLite restart, sync, cleanup, router,
+  AppCore retry, Noise cleanup, chat lifecycle, and app-tree tests pass.
+- A broader affected-surface run passed 2,357 tests before the final router
+  cancellation/fallback-init hardening; its follow-up regressions are included
+  in the 208-test pass.
+- Targeted `flutter analyze --no-pub` and `git diff --check` pass.
+- Full suite and Android debug APK before promoting a new device baseline.
+
+## Risks
+
+- Existing unit tests that implicitly depended on the production queue's
+  volatile fallback must opt in or use an in-memory test double.
+- Other queue mutation paths have memory/database ordering debt; keep them in
+  the debt inventory unless they are made atomic in this bounded pass.
+
+## Status
+
+- **Implementation complete:** ready for a bounded commit. The historical
+  device baseline remains unchanged until the full suite and APK are rebuilt.
+
+---
+
 # Target-bound BLE reconnect (Codex, 2026-07-13)
 
 ## Goal

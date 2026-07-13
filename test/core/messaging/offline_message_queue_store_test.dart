@@ -302,6 +302,7 @@ void main() {
  final store = QueueStore(directMessageQueue: directQueue,
  relayMessageQueue: relayQueue,
  deletedMessageIds: deletedIds,
+ allowVolatileStorage: true,
 );
  final logger = Logger('test');
  await store.initializePersistence(logger: logger);
@@ -316,6 +317,7 @@ void main() {
  relayMessageQueue: relayQueue,
  deletedMessageIds: deletedIds,
  queuePersistenceManager: fakePersistence,
+ allowVolatileStorage: true,
 );
  store.setDatabaseProvider(_FakeDatabaseProvider());
  final logger = Logger('test');

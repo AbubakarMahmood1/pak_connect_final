@@ -71,9 +71,10 @@ class MessageQueueRepository implements IMessageQueueRepository {
         orderBy: 'priority DESC, queued_at ASC',
       );
 
-      // Load into appropriate queue based on isRelayMessage flag
-      directMessageQueue.clear();
-      relayMessageQueue.clear();
+      // Stage the complete load before replacing live queues. A malformed
+      // later row must not leave a durable prefix published in memory.
+      final loadedDirectMessages = <QueuedMessage>[];
+      final loadedRelayMessages = <QueuedMessage>[];
 
       for (final row in results) {
         try {
@@ -91,14 +92,22 @@ class MessageQueueRepository implements IMessageQueueRepository {
             continue;
           }
           if (message.isRelayMessage) {
-            relayMessageQueue.add(message);
+            loadedRelayMessages.add(message);
           } else {
-            directMessageQueue.add(message);
+            loadedDirectMessages.add(message);
           }
         } catch (e) {
-          _logger.warning('Failed to parse queued message: $e');
+          _logger.severe('Failed to parse queued message: $e');
+          rethrow;
         }
       }
+
+      directMessageQueue
+        ..clear()
+        ..addAll(loadedDirectMessages);
+      relayMessageQueue
+        ..clear()
+        ..addAll(loadedRelayMessages);
 
       final totalLoaded = directMessageQueue.length + relayMessageQueue.length;
       _logger.info(
@@ -106,6 +115,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       );
     } catch (e) {
       _logger.severe('Failed to load message queue: $e');
+      rethrow;
     }
   }
 
@@ -123,6 +133,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       );
     } catch (e) {
       _logger.warning('Failed to save message ${message.id.shortId()}...: $e');
+      rethrow;
     }
   }
 
@@ -140,6 +151,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       );
     } catch (e) {
       _logger.warning('Failed to delete message ${messageId.shortId()}...: $e');
+      rethrow;
     }
   }
 
@@ -166,6 +178,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       });
     } catch (e) {
       _logger.warning('Failed to save message queue: $e');
+      rethrow;
     }
   }
 
@@ -178,15 +191,20 @@ class MessageQueueRepository implements IMessageQueueRepository {
         'deleted_message_ids',
       );
 
-      deletedMessageIds.clear();
+      final loadedDeletedMessageIds = <MessageId>{};
       for (final row in results) {
         final raw = row['message_id'] as String;
-        deletedMessageIds.add(MessageId(raw));
+        loadedDeletedMessageIds.add(MessageId(raw));
       }
+
+      deletedMessageIds
+        ..clear()
+        ..addAll(loadedDeletedMessageIds);
 
       _logger.info('Loaded ${deletedMessageIds.length} deleted message IDs');
     } catch (e) {
       _logger.severe('Failed to load deleted message IDs: $e');
+      rethrow;
     }
   }
 
@@ -209,6 +227,7 @@ class MessageQueueRepository implements IMessageQueueRepository {
       });
     } catch (e) {
       _logger.warning('Failed to save deleted message IDs: $e');
+      rethrow;
     }
   }
 

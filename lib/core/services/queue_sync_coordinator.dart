@@ -177,9 +177,10 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     message.nextRetryAt = null;
     message.lastAttemptAt = null;
 
-    // Add to repository
-    _repository?.insertMessageByPriority(message);
+    // Persist before publishing to the in-memory queue. A failed sync write
+    // must not create a ghost message that can be delivered but not reloaded.
     await _repository?.saveMessageToStorage(message);
+    _repository?.insertMessageByPriority(message);
     invalidateHashCache();
 
     _logger.info('🔄 Synced new message: ${_previewId(message.id)}...');

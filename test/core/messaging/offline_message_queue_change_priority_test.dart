@@ -816,6 +816,7 @@ void main() {
  group('OfflineMessageQueue — initialize edge cases', () {
  test('initialize with databaseProvider sets it up', () async {
  final queue = OfflineMessageQueue(retryScheduler: _FakeRetryScheduler(),
+ queueRepository: _FakeQueueRepository(),
  queuePersistenceManager: _FakePersistenceManager(),
 );
  final dbProvider = _FakeDatabaseProvider();
@@ -833,6 +834,7 @@ void main() {
  bool connectivityChecked = false;
 
  final queue = OfflineMessageQueue(retryScheduler: _FakeRetryScheduler(),
+ queueRepository: _FakeQueueRepository(),
  queuePersistenceManager: _FakePersistenceManager(),
 );
  await queue.initialize(onMessageQueued: (m) => queued = m,
@@ -858,6 +860,7 @@ void main() {
  // Since MessageSecurity.generateSecureMessageId requires crypto,
  // just verify the method signature compiles and types are correct.
  final queue = OfflineMessageQueue(retryScheduler: _FakeRetryScheduler(),
+ queueRepository: _FakeQueueRepository(),
  queuePersistenceManager: _FakePersistenceManager(),
 );
  await queue.initialize();

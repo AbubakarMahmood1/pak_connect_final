@@ -39,7 +39,6 @@ import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
-import 'package:pak_connect/domain/interfaces/i_message_queue_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_handshake_coordinator_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_routing_service.dart';
@@ -121,11 +120,17 @@ Future<void> registerDataLayerServices(
   MeshRelayHandler.configureRelayEngineFactoryResolver(
     () => services.resolve<IMeshRelayEngineFactory>(),
   );
-  EphemeralContactCleaner.configureQueueRepositoryResolver(() {
-    if (services.isRegistered<IMessageQueueRepository>()) {
-      return services.resolve<IMessageQueueRepository>();
+  EphemeralContactCleaner.configureQueueResolver(() {
+    if (!services.isRegistered<ISharedMessageQueueProvider>()) {
+      return null;
     }
-    return null;
+    try {
+      return services.resolve<ISharedMessageQueueProvider>().messageQueue;
+    } catch (_) {
+      // Cleanup treats an unavailable queue as uncertainty and keeps the
+      // contact. The shared queue becomes readable after AppCore queue init.
+      return null;
+    }
   });
 
   // ===========================
