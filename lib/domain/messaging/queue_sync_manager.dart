@@ -247,11 +247,9 @@ class QueueSyncManager {
     List<QueuedMessage> receivedMessages,
     String fromDeviceAddress,
   ) async {
+    String? pendingKey;
     try {
-      final pendingKey = _pendingKeyForResponse(
-        responseMessage,
-        fromDeviceAddress,
-      );
+      pendingKey = _pendingKeyForResponse(responseMessage, fromDeviceAddress);
       if (pendingKey == null) {
         _logger.warning(
           'Rejecting uncorrelated sync response from $fromDeviceAddress',
@@ -337,7 +335,22 @@ class QueueSyncManager {
       return result.copyWithDuration(elapsed);
     } catch (e) {
       _logger.severe('Failed to process sync response: $e');
-      return QueueSyncResult.error('Failed to process response: $e');
+      final failure = QueueSyncResult.error('Failed to process response: $e');
+      final targetNodeId = pendingKey;
+      if (targetNodeId == null) return failure;
+
+      final pending = _pendingSyncs.remove(targetNodeId);
+      final stopwatch = _syncStopwatches.remove(targetNodeId);
+      _activeSyncs.remove(targetNodeId)?.cancel();
+      _removeSyncIdsForTarget(targetNodeId);
+      final result = failure.copyWithDuration(
+        stopwatch?.elapsed ?? Duration.zero,
+      );
+      if (pending != null && !pending.isCompleted) {
+        pending.complete(result);
+      }
+      onSyncFailed?.call(targetNodeId, failure.error!);
+      return result;
     }
   }
 
@@ -485,6 +498,7 @@ class QueueSyncManager {
           ? message.id.shortId()
           : message.id;
       _logger.warning('Failed to add synced message $truncatedId...: $e');
+      rethrow;
     }
   }
 

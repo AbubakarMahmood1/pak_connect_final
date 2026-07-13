@@ -34,6 +34,7 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
   final Set<String> deletedIds = {};
   int statisticsPending = 2;
   bool throwOnCreateSync = false;
+  bool throwOnAddSyncedMessage = false;
 
   @override
   QueueStatistics getStatistics() => QueueStatistics(
@@ -82,6 +83,9 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
 
   @override
   Future<void> addSyncedMessage(QueuedMessage message) async {
+    if (throwOnAddSyncedMessage) {
+      throw StateError('synced message insert failed');
+    }
     addedMessages.add(message);
   }
 
@@ -136,11 +140,15 @@ _beginPendingRound(
   QueueSyncManager manager,
   String target, {
   void Function(List<QueuedMessage>, String)? onSendMessages,
+  void Function(String, QueueSyncResult)? onSyncCompleted,
+  void Function(String, String)? onSyncFailed,
 }) async {
   late QueueSyncMessage request;
   await manager.initialize(
     onSyncRequest: (message, _) => request = message,
     onSendMessages: onSendMessages,
+    onSyncCompleted: onSyncCompleted,
+    onSyncFailed: onSyncFailed,
   );
   final completion = manager.initiateSync(target);
   await Future<void>.delayed(Duration.zero);
@@ -314,8 +322,16 @@ void main() {
   // processSyncResponse — error path
   // -----------------------------------------------------------------------
   group('processSyncResponse — error handling', () {
-    test('handles addSyncedMessage failure gracefully', () async {
-      final round = await _beginPendingRound(manager, 'node-fail');
+    test('fails the correlated round when addSyncedMessage throws', () async {
+      final completed = <(String, QueueSyncResult)>[];
+      final failed = <(String, String)>[];
+      final round = await _beginPendingRound(
+        manager,
+        'node-fail',
+        onSyncCompleted: (nodeId, result) => completed.add((nodeId, result)),
+        onSyncFailed: (nodeId, error) => failed.add((nodeId, error)),
+      );
+      fakeQueue.throwOnAddSyncedMessage = true;
 
       final responseMsg = QueueSyncMessage(
         queueHash: 'h',
@@ -326,13 +342,31 @@ void main() {
         syncId: round.request.syncId,
       );
 
-      // This should still succeed even with messages
       final result = await manager.processSyncResponse(responseMsg, [
         _qm('new-msg'),
       ], 'node-fail');
-      await round.completion;
-      expect(result.success, isTrue);
-      expect(result.messagesReceived, 1);
+      final completion = await round.completion.timeout(
+        const Duration(seconds: 1),
+      );
+
+      expect(result.success, isFalse);
+      expect(result.messagesReceived, 0);
+      expect(completion.success, isFalse);
+      expect(completion.messagesReceived, 0);
+      expect(fakeQueue.addedMessages, isEmpty);
+      expect(manager.hasPendingSyncWith('node-fail'), isFalse);
+      expect(manager.canAcceptSyncResponse(responseMsg, 'node-fail'), isFalse);
+      expect(failed, hasLength(1));
+      expect(failed.single.$1, 'node-fail');
+      expect(completed, hasLength(1));
+      expect(completed.single.$2.success, isFalse);
+
+      final stats = manager.getStats();
+      expect(stats.totalSyncRequests, 1);
+      expect(stats.successfulSyncs, 0);
+      expect(stats.failedSyncs, 1);
+      expect(stats.messagesTransferred, 0);
+      expect(stats.activeSyncs, 0);
     });
   });
 
