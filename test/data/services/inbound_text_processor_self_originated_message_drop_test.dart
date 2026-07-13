@@ -1,6 +1,6 @@
 // InboundTextProcessor supplementary coverage
 // Targets: self-originated drop, routing discard, v2 plaintext rejection,
-// fallback decryption paths, resync paths, missing sender identity,
+// legacy v1 rejection, resync/fallback retirement, missing sender identity,
 // v2 missing crypto header, unsupported crypto mode
 
 import 'package:flutter_test/flutter_test.dart';
@@ -118,14 +118,15 @@ void main() {
 
  // ─── Encrypted message missing sender key ─────────────────────────
 
- group('Missing sender key', () {
- test('returns error when encrypted but no sender key available', () async {
+group('Missing sender key', () {
+ test('returns error when v2 encrypted message has no sender identity available', () async {
  final message = ProtocolMessage(type: ProtocolMessageType.textMessage,
- version: 1,
+ version: 2,
  payload: {
  'messageId': 'msg-no-key',
  'content': 'ciphertext',
  'encrypted': true,
+ 'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
  },
  timestamp: DateTime.now(),
 );
@@ -166,8 +167,8 @@ void main() {
 
  // ─── Decryption failure paths ─────────────────────────────────────
 
- group('Decryption failure paths', () {
- test('v1 decryption failure with "No session found" returns null content', () async {
+group('Decryption failure paths', () {
+ test('legacy v1 encrypted message is rejected before decryption begins', () async {
  securityService.decryptMessageError = Exception('No session found for peer');
 
  final message = ProtocolMessage(type: ProtocolMessageType.textMessage,
@@ -186,9 +187,10 @@ void main() {
 
  expect(result.content, isNull);
  expect(result.shouldAck, isFalse);
+ expect(securityService._decryptCallCount, equals(0));
  });
 
- test('v1 decryption failure with security resync returns resync message', () async {
+ test('legacy v1 security-resync path is rejected before decryption begins', () async {
  securityService.decryptMessageError =
  Exception('security resync requested');
 
@@ -206,8 +208,9 @@ void main() {
  senderPublicKey: 'sender-1',
 );
 
- expect(result.content, contains('Security resync'));
+ expect(result.content, isNull);
  expect(result.shouldAck, isFalse);
+ expect(securityService._decryptCallCount, equals(0));
  });
 
  test('v2 decryption failure returns v2-specific error', () async {
@@ -234,7 +237,7 @@ void main() {
  expect(result.shouldAck, isFalse);
  });
 
- test('v1 fallback to originalSender on primary decrypt failure', () async {
+ test('legacy v1 does not fall back to originalSender after hard rejection', () async {
  securityService.decryptMessageError =
  Exception('generic decrypt error');
  securityService.fallbackDecryptResult = 'fallback-content';
@@ -255,11 +258,12 @@ void main() {
  senderPublicKey: 'relay-node',
 );
 
- expect(result.content, equals('fallback-content'));
- expect(result.shouldAck, isTrue);
+ expect(result.content, isNull);
+ expect(result.shouldAck, isFalse);
+ expect(securityService._decryptCallCount, equals(0));
  });
 
- test('v1 fallback decrypt with resync returns resync message', () async {
+ test('legacy v1 fallback resync path is no longer reachable', () async {
  securityService.decryptMessageError =
  Exception('generic error');
  securityService.fallbackDecryptError =
@@ -281,11 +285,12 @@ void main() {
  senderPublicKey: 'relay-node',
 );
 
- expect(result.content, contains('Security resync'));
+ expect(result.content, isNull);
  expect(result.shouldAck, isFalse);
+ expect(securityService._decryptCallCount, equals(0));
  });
 
- test('v1 fallback decrypt failure returns error message', () async {
+ test('legacy v1 fallback decrypt failure path is no longer reachable', () async {
  securityService.decryptMessageError =
  Exception('generic error');
  securityService.fallbackDecryptError =
@@ -306,8 +311,9 @@ void main() {
  senderPublicKey: 'relay-node',
 );
 
- expect(result.content, contains('Could not decrypt'));
+ expect(result.content, isNull);
  expect(result.shouldAck, isFalse);
+ expect(securityService._decryptCallCount, equals(0));
  });
  });
 
@@ -366,16 +372,18 @@ void main() {
 
  // ─── onMessageIdFound callback ─────────────────────────────────────
 
- group('onMessageIdFound callback', () {
+group('onMessageIdFound callback', () {
  test('invokes callback with messageId', () async {
  String? capturedId;
 
  final message = ProtocolMessage(type: ProtocolMessageType.textMessage,
- version: 1,
+ version: 2,
  payload: {
  'messageId': 'msg-callback',
- 'content': 'hello',
- 'encrypted': false,
+ 'content': 'ciphertext',
+ 'encrypted': true,
+ 'senderId': 'sender',
+ 'crypto': {'mode': 'noise_v1', 'modeVersion': 1},
  },
  timestamp: DateTime.now(),
 );

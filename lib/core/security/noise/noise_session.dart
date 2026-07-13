@@ -11,6 +11,7 @@ import 'package:logging/logging.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:pak_connect/domain/services/performance_metrics.dart';
 import '../secure_key.dart';
+import 'noise_handshake_message_size.dart';
 import 'models/noise_models.dart';
 import 'primitives/handshake_state.dart';
 import 'primitives/handshake_state_kk.dart';
@@ -49,13 +50,13 @@ class NoiseSession {
   static const int _rekeyMessageLimit = 10000; // 10k messages
 
   // XX Pattern Message Sizes (actual sizes, not bitchat-android)
-  static const int _xxMessage1Size = 32; // → e
-  static const int _xxMessage2Size = 80; // ← e, ee, s, es (32 + 48)
-  static const int _xxMessage3Size = 48; // → s, se
+  static const int _xxMessage1Size = NoiseHandshakeMessageSize.xxMessage1;
+  static const int _xxMessage2Size = NoiseHandshakeMessageSize.xxMessage2;
+  static const int _xxMessage3Size = NoiseHandshakeMessageSize.xxMessage3;
 
   // KK Pattern Message Sizes
-  static const int _kkMessage1Size = 96; // → e, es, ss (32 + 32 + 32)
-  static const int _kkMessage2Size = 48; // ← e, ee, se (32 + 16)
+  static const int _kkMessage1Size = NoiseHandshakeMessageSize.kkMessage1;
+  static const int _kkMessage2Size = NoiseHandshakeMessageSize.kkMessage2;
 
   // Replay Protection Constants (matching bitchat-android)
   static const int _nonceSizeBytes = 4;
@@ -152,7 +153,7 @@ class NoiseSession {
   /// Start handshake (initiator only)
   ///
   /// For XX pattern: Returns Message 1 (32 bytes): → e
-  /// For KK pattern: Returns Message 1 (96 bytes): → e, es, ss
+  /// For KK pattern: Returns Message 1 (48 bytes): → e + encrypted empty payload/MAC
   Future<Uint8List> startHandshake() async {
     if (!isInitiator) {
       throw StateError('Only initiator can start handshake');
@@ -566,22 +567,33 @@ class NoiseSession {
     }
   }
 
-  /// Shift replay window right by shift bits
+  /// Age the replay window by [shift] nonces.
+  ///
+  /// Bit `offset o` (byte o/8, bit o%8) records `highest - o` as seen, so
+  /// when the highest nonce advances by [shift], every recorded bit must
+  /// move to offset `o + shift`: a left shift within the byte with carry
+  /// into the next higher byte. (The previous implementation shifted the
+  /// other way, which both erased seen nonces — accepting replays — and
+  /// smeared bits onto unseen offsets — rejecting legitimate out-of-order
+  /// messages as replays.)
   void _shiftReplayWindow(int shift) {
+    final byteShift = shift ~/ 8;
+    final bitShift = shift % 8;
+
     for (int i = _replayWindowBytes - 1; i >= 0; i--) {
-      final sourceByteIndex = i - shift ~/ 8;
+      final sourceByteIndex = i - byteShift;
       int newByte = 0;
 
       if (sourceByteIndex >= 0) {
-        newByte = (_replayWindow[sourceByteIndex] & 0xFF) >> (shift % 8);
-        if (sourceByteIndex > 0 && shift % 8 != 0) {
+        newByte = (_replayWindow[sourceByteIndex] << bitShift) & 0xFF;
+        if (sourceByteIndex > 0 && bitShift != 0) {
           newByte =
               newByte |
-              ((_replayWindow[sourceByteIndex - 1] & 0xFF) << (8 - shift % 8));
+              ((_replayWindow[sourceByteIndex - 1] & 0xFF) >> (8 - bitShift));
         }
       }
 
-      _replayWindow[i] = (newByte & 0xFF);
+      _replayWindow[i] = newByte;
     }
   }
 

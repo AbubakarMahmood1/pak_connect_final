@@ -195,8 +195,10 @@ void main() {
  });
 
  test('clearPairing resets pairing state', () {
+ identityState.claimedPersistentKey = 'claimed-persistent';
  controller.clearPairing();
  expect(controller.currentPairing, isNull);
+ expect(identityState.claimedPersistentKey, isNull);
  });
 
  test('onSendPairingCode setter delegates to PairingService', () {
@@ -300,6 +302,7 @@ void main() {
 
  test('cancelPairing delegates and schedules state clear', () async {
  controller.onSendPairingCancel = (_) {};
+ identityState.claimedPersistentKey = 'claimed-persistent';
  controller.handlePairingRequest(ProtocolMessage(type: ProtocolMessageType.pairingRequest,
  timestamp: DateTime.now(),
  payload: {'ephemeralId': 'peer-eph', 'displayName': 'Peer'},
@@ -307,6 +310,7 @@ void main() {
 );
 
  await controller.cancelPairing(reason: 'test cancel');
+ expect(identityState.claimedPersistentKey, isNull);
  });
  });
 

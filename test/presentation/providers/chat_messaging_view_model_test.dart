@@ -239,7 +239,9 @@ class _FakeOfflineQueue implements OfflineMessageQueueContract {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _FakeSharedMessageQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedMessageQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedMessageQueueProvider(this.queue);
 
   final _FakeOfflineQueue queue;

@@ -699,11 +699,24 @@ class ChatSessionLifecycle {
     required bool Function() disposed,
     required void Function(String message) onSuccessMessage,
     required void Function(String message) onErrorMessage,
+    String? expectedPeerId,
+    Duration identityTimeout = const Duration(seconds: 15),
   }) async {
     if (disposed()) return;
     if (connectionService.isConnected) {
-      onSuccessMessage('Already connected');
-      return;
+      if (expectedPeerId == null ||
+          expectedPeerId.isEmpty ||
+          await _waitForExpectedPeer(
+            expectedPeerId,
+            timeout: identityTimeout,
+          )) {
+        onSuccessMessage('Already connected');
+        return;
+      }
+
+      // The facade's connection state is global. A connection to another peer
+      // must not satisfy a reconnect request made from this chat.
+      await connectionService.disconnect();
     }
 
     onSuccessMessage('Manually searching for device...');
@@ -715,11 +728,39 @@ class ChatSessionLifecycle {
 
       if (foundDevice != null) {
         if (connectionService.connectedDevice?.uuid == foundDevice.uuid) {
-          onSuccessMessage('Already connected to this device');
+          if (expectedPeerId == null ||
+              expectedPeerId.isEmpty ||
+              await _waitForExpectedPeer(
+                expectedPeerId,
+                timeout: identityTimeout,
+              )) {
+            onSuccessMessage('Already connected to this device');
+          } else {
+            onErrorMessage(
+              'Manual reconnection rejected: connected device identity '
+              'does not match this chat',
+            );
+          }
           return;
         }
 
         await connectionService.connectToDevice(foundDevice);
+
+        if (expectedPeerId != null && expectedPeerId.isNotEmpty) {
+          final verified = await _waitForExpectedPeer(
+            expectedPeerId,
+            timeout: identityTimeout,
+          );
+          if (!verified) {
+            await connectionService.disconnect();
+            onErrorMessage(
+              'Manual reconnection rejected: connected device identity '
+              'does not match this chat',
+            );
+            return;
+          }
+        }
+
         onSuccessMessage('Manual reconnection successful!');
       } else {
         onErrorMessage(
@@ -736,6 +777,33 @@ class ChatSessionLifecycle {
         );
       }
     }
+  }
+
+  Future<bool> _waitForExpectedPeer(
+    String expectedPeerId, {
+    required Duration timeout,
+  }) async {
+    final current = connectionService.currentConnectionInfo;
+    if (current.isReady) {
+      return _isExpectedPeer(expectedPeerId);
+    }
+
+    try {
+      final terminalState = await connectionService.connectionInfo
+          .firstWhere((info) => !info.isConnected || info.isReady)
+          .timeout(timeout);
+      return terminalState.isConnected &&
+          terminalState.isReady &&
+          _isExpectedPeer(expectedPeerId);
+    } on TimeoutException {
+      return false;
+    }
+  }
+
+  bool _isExpectedPeer(String expectedPeerId) {
+    return connectionService.currentSessionId == expectedPeerId ||
+        connectionService.theirEphemeralId == expectedPeerId ||
+        connectionService.theirPersistentKey == expectedPeerId;
   }
 
   Future<void> requestPairing({

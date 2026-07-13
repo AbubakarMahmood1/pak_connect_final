@@ -1,126 +1,124 @@
-# Privacy Policy
+# PakConnect Privacy Policy
 
-**Last Updated:** October 9, 2025
+**Last updated:** July 13, 2026
 
-## Your Privacy Matters
+PakConnect is an offline-first Bluetooth messaging application. This policy
+describes the current default runtime and its known limits; it does not turn
+untested security behavior into a guarantee.
 
-PakConnect is designed with **privacy at its core**. This policy explains how we handle your data.
+## Data handling
 
----
+PakConnect does not require an account or a project-operated messaging server.
+The current default runtime does not intentionally upload app analytics,
+advertising identifiers, contacts, or message content to a PakConnect service.
 
-## 📱 Data Collection
+The following data is stored locally:
 
-### We Collect: **NOTHING**
+- messages and delivery state;
+- contacts, trust state, and public identity information;
+- app settings;
+- private key material and the mobile database credential through platform
+  secure storage;
+- user-created exports and locally cached media.
 
-- ✅ **Zero server uploads** - No data leaves your device
-- ✅ **Zero tracking** - We don't track you
-- ✅ **Zero analytics** - We don't collect usage statistics
-- ✅ **Zero third parties** - No external services involved
+Data can leave a device when you explicitly use the product:
 
-### What Stays On Your Device:
+- messages, public/ephemeral identity data, acknowledgements, and routing
+  metadata are exchanged with nearby peers over BLE;
+- encrypted payloads can be forwarded through relay peers;
+- QR/contact exchange shares the information shown by that flow;
+- export, backup, share, file-picker, and notification actions invoke the
+  selected operating-system facilities.
 
-1. **Messages** - Encrypted and stored locally
-2. **Contacts** - Saved only on your device
-3. **Encryption Keys** - Never shared with anyone
-4. **Settings** - Local preferences only
+Android, iOS, device vendors, and installed system components may process
+permission, notification, file, or Bluetooth metadata under their own
+policies. “No PakConnect server” does not mean the operating system collects
+nothing.
 
----
+## Message encryption
 
-## 🔒 Encryption
+Direct connected user-message payloads use the Noise Protocol Framework:
 
-All your communications are protected with **military-grade encryption**:
+- first-contact sessions use Noise XX;
+- paired reconnects can use Noise KK;
+- key agreement uses X25519;
+- payload encryption uses ChaCha20-Poly1305;
+- sessions rekey after the configured time/message limits.
 
-### End-to-End Encryption
-- **AES-256** encryption for all messages
-- **ECDH** (Elliptic Curve Diffie-Hellman) key exchange
-- **Perfect Forward Secrecy** - Each session uses unique keys
+For an offline relay recipient with known static key material, PakConnect can
+instead create a signed encrypted v2 `sealed_v1` inner payload that only the
+final recipient is expected to decrypt. Outbound user content fails closed
+when neither an established direct Noise lane nor the recipient-key sealed
+lane is available. Public keys and rotating ephemeral identifiers are protocol
+identifiers and are necessarily exchanged; private keys are intended to
+remain on the originating device.
 
-### What This Means:
-- ✅ Only you and your contact can read messages
-- ✅ Not even we (the developers) can decrypt your messages
-- ✅ Encryption keys never leave your device
-- ✅ Messages encrypted before leaving your phone
+This payload-confidentiality statement does not cover every byte sent over
+BLE. Discovery advertisements, handshake/control frames, acknowledgements,
+and routing metadata have separate exposure. Content encryption through
+`sealed_v1` is not the same feature as sealed-sender metadata privacy. The
+current relay path does not enable sealed sender or stealth routing by default,
+so intermediate devices may observe routing aliases even though they cannot
+read an encrypted inner payload.
 
----
+## Local database and exports
 
-## 🌐 Offline First
+On Android and iOS, the production database path is designed to use SQLCipher
+with a random 256-bit credential stored in platform secure storage. The app
+fails closed if that mobile credential cannot be obtained. Physical-device
+proof that the database file is unreadable without the credential remains a
+release-validation gate.
 
-PakConnect uses **Bluetooth Low Energy (BLE)** for direct device-to-device communication:
+Desktop and test environments may deliberately use plaintext SQLite when a
+native SQLCipher library is unavailable. A desktop test pass is therefore not
+mobile encryption-at-rest evidence.
 
-- **No internet required** - Works completely offline
-- **No servers** - Direct peer-to-peer connections
-- **No cloud storage** - Everything stays local
-- **No backdoors** - Open-source encryption protocols
+Supported export v2.1 bundles derive a key from the user passphrase with PBKDF2,
+AES-256-GCM encrypt metadata, keys, preferences, and database bytes, and apply
+HMAC-SHA256 to the encrypted fields and restore metadata. Export/import
+passphrases are separate from the random mobile database key. The embedded
+database bytes have independent SQLCipher protection only when exported from
+the Android/iOS SQLCipher path. Anyone who obtains an export file and its
+passphrase may be able to read the exported data.
 
----
+## Relay and metadata limits
 
-## 📊 What We Can't See
+Relay peers are untrusted. PakConnect applies duplicate, hop, size, rate, loop,
+and queue controls and forwards encrypted inner payloads. It does not
+currently guarantee sender/recipient metadata anonymity, trusted relay paths,
+or per-hop re-encryption. Hashcash, sealed-sender, and stealth-addressing
+primitives exist in the codebase but are not enabled as default production
+guarantees.
 
-Because all data stays on your device:
+## Your controls
 
-- ❌ We can't see your messages
-- ❌ We can't see your contacts
-- ❌ We can't see who you talk to
-- ❌ We can't see when you're online
-- ❌ We can't access your encryption keys
+The current app provides controls to:
 
-**We literally have no way to access your data.**
+- inspect and delete local chats/contacts;
+- clear local app data;
+- create and restore supported exports;
+- deny or revoke Bluetooth and notification permissions through the operating
+  system.
 
----
+Deleting the app or its secure-storage credential may make an existing
+encrypted database unrecoverable. Keep any export needed for recovery and
+protect its passphrase.
 
-## 🔐 Data Security
+## Known validation boundaries
 
-### On Your Device:
-- **SQLite database** with SQLCipher encryption
-- **Secure storage** for encryption keys
-- **Auto-archive** for old conversations
-- **Export/Import** with password protection
+Automated desktop tests cover protocol and state-machine behavior. They do not
+prove real-radio interoperability, mobile database bytes at rest, delivery
+while the OS has suspended/killed the process, signed-release behavior, or
+three-device relay operation. Those claims remain gated on physical-device
+evidence.
 
-### Mesh Networking:
-- Messages relayed through trusted contacts only
-- Each hop is re-encrypted
-- No central routing - privacy preserved
+## Licensing and questions
 
----
+PakConnect's source repository is publicly viewable, but the software is
+currently distributed under the proprietary `LICENSE` in the repository root;
+public visibility does not grant open-source reuse rights.
 
-## 👤 Your Rights
+For questions, use the issue/contact channel published with the repository.
 
-You have complete control:
-
-1. **Export Your Data** - Take your data with you anytime
-2. **Delete Your Data** - Clear all data from settings
-3. **No Account** - No registration, no profile on our servers
-4. **Full Ownership** - Your data belongs to you, not us
-
----
-
-## 🔄 Updates to This Policy
-
-If we update this policy:
-- We'll update the "Last Updated" date above
-- Changes will be included in app updates
-- You'll see the new policy in the app
-
----
-
-## 📧 Questions?
-
-PakConnect is **open-source** and **privacy-focused**. 
-
-**Remember:** We can't help you recover lost data because we don't have access to it. Keep backups!
-
----
-
-## 🎯 Summary
-
-- ✅ **Zero data collection**
-- ✅ **End-to-end encryption**
-- ✅ **Offline-first design**
-- ✅ **No servers or cloud**
-- ✅ **Complete privacy**
-
-**Your conversations stay between you and your contacts. Period.**
-
----
-
-*PakConnect - Privacy-First Mesh Messaging*
+This policy should be updated whenever data flow, dependencies, transport,
+storage, telemetry, or licensing changes.

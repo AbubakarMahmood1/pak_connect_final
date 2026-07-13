@@ -125,6 +125,7 @@ Future<void> _pumpScanner(
   required DiscoveryOverlayState state,
   required _StubDiscoveryOverlayController controller,
   required BurstScanningStatus burstStatus,
+  required DiscoveryScannerUiState scannerUiState,
   required ConnectionInfo connectionInfo,
   required _FakeConnectionService connectionService,
   required Future<void> Function() onStartScanning,
@@ -143,6 +144,7 @@ Future<void> _pumpScanner(
         burstScanningStatusProvider.overrideWith(
           (ref) => Stream.value(burstStatus),
         ),
+        discoveryScannerUiStateProvider.overrideWith((ref) => scannerUiState),
       ],
       child: MaterialApp(
         home: Scaffold(
@@ -173,6 +175,7 @@ void main() {
   final defaultStatus = BurstScanningStatus(
     isBurstActive: false,
     secondsUntilNextScan: 12,
+    scheduledCountdownDuration: const Duration(seconds: 12),
     currentScanInterval: 60000,
     powerStats: _powerStats(),
   );
@@ -182,6 +185,34 @@ void main() {
   );
 
   group('DiscoveryScannerView', () {
+    testWidgets('shows preparing scanner state before first burst window exists', (
+      tester,
+    ) async {
+      await _pumpScanner(
+        tester,
+        devicesAsync: const AsyncValue.data(<Peripheral>[]),
+        discoveryDataAsync: const AsyncValue.data({}),
+        deduplicatedDevicesAsync: const AsyncValue.data({}),
+        state: DiscoveryOverlayState.initial(),
+        controller: _StubDiscoveryOverlayController(),
+        burstStatus: defaultStatus,
+        scannerUiState: const DiscoveryScannerUiState(
+          phase: DiscoveryScannerUiPhase.warmingUp,
+          message: 'Preparing scanner...',
+        ),
+        connectionInfo: defaultConnectionInfo,
+        connectionService: _FakeConnectionService(),
+        onStartScanning: () async {},
+        onConnect: (_) async {},
+        onRetry: (_) {},
+        onOpenChat: (_) {},
+        onError: (_) {},
+      );
+
+      expect(find.text('Preparing scanner...'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
     testWidgets('renders loading state with burst-aware status text', (
       tester,
     ) async {
@@ -194,6 +225,12 @@ void main() {
         state: DiscoveryOverlayState.initial(),
         controller: _StubDiscoveryOverlayController(),
         burstStatus: defaultStatus,
+        scannerUiState: DiscoveryScannerUiState(
+          phase: DiscoveryScannerUiPhase.countdown,
+          message: 'Next scan starts soon.',
+          secondsRemaining: 12,
+          burstStatus: defaultStatus,
+        ),
         connectionInfo: defaultConnectionInfo,
         connectionService: _FakeConnectionService(),
         onStartScanning: () async => startCalls++,
@@ -204,7 +241,7 @@ void main() {
       );
 
       expect(
-        find.text('Waiting scan - Tap timer for manual scan'),
+        find.text('Next scan starts soon.'),
         findsOneWidget,
       );
       expect(find.text('1/4 connections'), findsOneWidget);
@@ -212,6 +249,78 @@ void main() {
       await tester.tap(find.text('12').first);
       await tester.pump();
       expect(startCalls, 1);
+    });
+
+    testWidgets(
+      'countdown ring uses actual scheduled wait instead of theoretical scan interval',
+      (tester) async {
+        final scheduledStatus = BurstScanningStatus(
+          isBurstActive: false,
+          secondsUntilNextScan: 12,
+          scheduledCountdownDuration: const Duration(seconds: 15),
+          currentScanInterval: 60000,
+          powerStats: _powerStats(),
+        );
+
+        await _pumpScanner(
+          tester,
+          devicesAsync: const AsyncValue<List<Peripheral>>.loading(),
+          discoveryDataAsync: const AsyncValue.data({}),
+          deduplicatedDevicesAsync: const AsyncValue.data({}),
+          state: DiscoveryOverlayState.initial(),
+          controller: _StubDiscoveryOverlayController(),
+          burstStatus: scheduledStatus,
+          scannerUiState: DiscoveryScannerUiState(
+            phase: DiscoveryScannerUiPhase.countdown,
+            message: 'Next scan starts soon.',
+            secondsRemaining: 12,
+            burstStatus: scheduledStatus,
+          ),
+          connectionInfo: defaultConnectionInfo,
+          connectionService: _FakeConnectionService(),
+          onStartScanning: () async {},
+          onConnect: (_) async {},
+          onRetry: (_) {},
+          onOpenChat: (_) {},
+          onError: (_) {},
+        );
+
+        final countdownIndicator = tester.widget<CircularProgressIndicator>(
+          find.byType(CircularProgressIndicator),
+        );
+        expect(countdownIndicator.value, closeTo(0.2, 0.001));
+      },
+    );
+
+    testWidgets('shows Bluetooth-off recovery state without a blank timer', (
+      tester,
+    ) async {
+      await _pumpScanner(
+        tester,
+        devicesAsync: const AsyncValue.data(<Peripheral>[]),
+        discoveryDataAsync: const AsyncValue.data({}),
+        deduplicatedDevicesAsync: const AsyncValue.data({}),
+        state: DiscoveryOverlayState.initial(),
+        controller: _StubDiscoveryOverlayController(),
+        burstStatus: defaultStatus,
+        scannerUiState: const DiscoveryScannerUiState(
+          phase: DiscoveryScannerUiPhase.bluetoothOff,
+          message: 'Bluetooth is off. Turn it on to resume discovery.',
+        ),
+        connectionInfo: defaultConnectionInfo,
+        connectionService: _FakeConnectionService(),
+        onStartScanning: () async {},
+        onConnect: (_) async {},
+        onRetry: (_) {},
+        onOpenChat: (_) {},
+        onError: (_) {},
+      );
+
+      expect(
+        find.text('Bluetooth is off. Turn it back on to resume nearby discovery.'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
     });
 
     testWidgets('renders error state and retries scanning', (tester) async {
@@ -227,6 +336,10 @@ void main() {
         state: DiscoveryOverlayState.initial(),
         controller: _StubDiscoveryOverlayController(),
         burstStatus: defaultStatus,
+        scannerUiState: const DiscoveryScannerUiState(
+          phase: DiscoveryScannerUiPhase.error,
+          message: 'Scanner unavailable. Retry to recover BLE.',
+        ),
         connectionInfo: defaultConnectionInfo,
         connectionService: _FakeConnectionService(),
         onStartScanning: () async => startCalls++,
@@ -257,6 +370,12 @@ void main() {
           unifiedScanningState: false,
         ),
         burstStatus: defaultStatus,
+        scannerUiState: DiscoveryScannerUiState(
+          phase: DiscoveryScannerUiPhase.countdown,
+          message: 'Next scan starts soon.',
+          secondsRemaining: 12,
+          burstStatus: defaultStatus,
+        ),
         connectionInfo: defaultConnectionInfo,
         connectionService: _FakeConnectionService(),
         onStartScanning: () async {},
@@ -320,6 +439,12 @@ void main() {
           state: state,
           controller: controller,
           burstStatus: defaultStatus,
+          scannerUiState: DiscoveryScannerUiState(
+            phase: DiscoveryScannerUiPhase.countdown,
+            message: 'Next scan starts soon.',
+            secondsRemaining: 12,
+            burstStatus: defaultStatus,
+          ),
           connectionInfo: const ConnectionInfo(
             isConnected: false,
             isReady: true,

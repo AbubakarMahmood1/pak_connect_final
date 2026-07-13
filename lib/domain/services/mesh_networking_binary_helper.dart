@@ -16,7 +16,7 @@ class _MeshNetworkingBinaryHelper {
       metadata: {
         'recipientId': recipientId,
         'originalType': originalType,
-        if (metadata != null) ...metadata,
+        ...?metadata,
       },
     );
 

@@ -115,6 +115,13 @@ coverage/
 # Local/secret-y configs (adjust as needed)
 .claude/*.local.json
 
+# Runtime output directories (regenerated at runtime; never commit)
+binary_payloads/
+logs/
+
+# Scratch benchmark / validation outputs (throwaway analysis artifacts)
+validation_outputs/
+
 # Temporary or throwaway refs
 temp_*.*
 nul

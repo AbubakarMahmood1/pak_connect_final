@@ -150,42 +150,42 @@ User -----> (Search Messages)
 User -----> (Star Message)
 ```
 
-## Use Case Diagram 4: Group Messaging
+## Use Case Diagram 4: Broadcast Lists
 
 ### Actors
 - User (primary)
 
 ### Use Cases
 
-**UC-20: Create Group**
+**UC-20: Create Broadcast List**
 - Actor: User
-- Main Flow: Enter name → Select members → Save to group table
+- Main Flow: Enter name → Select recipients → Save to the local list table
 
-**UC-21: Add Member to Group**
+**UC-21: Add Recipient to List**
 - Actor: User
 - Main Flow: Select contact → Add to group_members table
 
-**UC-22: Remove Member from Group**
+**UC-22: Remove Recipient from List**
 - Actor: User
 - Main Flow: Select member → Remove from junction table
 
-**UC-23: Send Group Message**
+**UC-23: Send Broadcast**
 - Actor: User
 - Main Flow: Type message → Send to each member individually
 - Includes: UC-1 (Send Message) for each member
 
-**UC-24: View Group Delivery Status**
+**UC-24: View Recipient Queue Status**
 - Actor: User
 - Main Flow: Select message → Display per-member status
 
 ### Relationships
 ```
-User -----> (Create Group)
-User -----> (Add Member to Group)
-User -----> (Remove Member from Group)
-User -----> (Send Group Message)
-(Send Group Message) ..includes..> (Send Message) : N times
-User -----> (View Group Delivery Status)
+User -----> (Create Broadcast List)
+User -----> (Add Recipient to List)
+User -----> (Remove Recipient from List)
+User -----> (Send Broadcast)
+(Send Broadcast) ..includes..> (Send Direct Message) : N times
+User -----> (View Recipient Queue Status)
 ```
 
 ## Use Case Diagram 5: Security & Keys
@@ -258,7 +258,7 @@ System -----> (Rotate Ephemeral Keys) : scheduled
 
 **UC-34: Block Duplicate**
 - Actor: System
-- Precondition: Message ID seen in last 5 minutes
+- Precondition: Message ID is present in the persistent delivered-ID set
 - Main Flow: Check SeenMessageStore → Drop message
 
 **UC-35: Prevent Spam**

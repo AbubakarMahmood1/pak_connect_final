@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:async';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_relay_engine_factory.dart';
@@ -106,9 +108,11 @@ class RelayCoordinator implements IRelayCoordinator {
         );
       },
       onDeliverToSelf: (id, content, sender) {
-        final msgId = MessageId(id);
-        _onRelayMessageReceived?.call(id, content, sender);
-        _onRelayMessageReceivedIds?.call(msgId, content, sender);
+        handleRelayDeliveryToSelf(
+          originalMessageId: id,
+          content: content,
+          originalSender: sender,
+        );
       },
       onRelayDecision: _onRelayDecisionMade,
       onStatsUpdated: _onRelayStatsUpdated,
@@ -142,49 +146,57 @@ class RelayCoordinator implements IRelayCoordinator {
     required int? currentHopCount,
   }) async {
     try {
-      final hopCount = currentHopCount ?? 0;
-
-      // Check if we should relay this message
-      if (!shouldAttemptRelay(
-        messageId: originalMessageId,
-        currentHopCount: hopCount,
-      )) {
-        _logger.fine('🚫 Message relay rejected (policy or dedup)');
+      if (_relayEngine == null) {
+        _logger.warning('🚫 Relay engine not initialized');
         return false;
       }
 
-      // Mark as delivered to prevent future duplicate relays
-      // This must happen AFTER we decide to relay but BEFORE any forwarding
-      // Prevents: same message received twice → forwarded twice → loops
-      if (_seenMessageStore != null) {
-        await _seenMessageStore!.markDelivered(originalMessageId);
-        final shortId = originalMessageId.length > 8
-            ? originalMessageId.shortId(8)
-            : originalMessageId;
-        _logger.fine(
-          '✅ Relay marked as delivered for dedup window: $shortId...',
+      final relayPayload = _extractRelayPayload(
+        messageData: messageData,
+        fallbackContent: content,
+      );
+      if (relayPayload == null) {
+        _logger.warning(
+          '🚫 Relay message dropped: missing or invalid encrypted inner payload',
         );
+        return false;
       }
 
-      // Check if message is for us first
-      final isForUs =
-          intendedRecipient == null || intendedRecipient == _currentNodeId;
-      if (isForUs) {
-        _logger.fine('📩 Delivering relay message to self');
-        handleRelayDeliveryToSelf(
-          originalMessageId: originalMessageId,
-          content: content,
-          originalSender: originalSender,
-        );
-      }
+      final hopCount = currentHopCount ?? 0;
+      final metadataTemplate = RelayMetadata.create(
+        originalMessageContent: relayPayload,
+        priority: MessagePriority.normal,
+        originalSender: originalSender,
+        finalRecipient: intendedRecipient ?? SpecialRecipients.broadcast,
+        currentNodeId: _currentNodeId ?? 'unknown',
+      );
+      final relayMessage = MeshRelayMessage.createRelay(
+        originalMessageId: originalMessageId,
+        originalContent: '',
+        metadata: RelayMetadata(
+          ttl: metadataTemplate.ttl,
+          hopCount: hopCount,
+          routingPath: metadataTemplate.routingPath,
+          messageHash: metadataTemplate.messageHash,
+          priority: metadataTemplate.priority,
+          relayTimestamp: metadataTemplate.relayTimestamp,
+          originalSender: metadataTemplate.originalSender,
+          finalRecipient: metadataTemplate.finalRecipient,
+        ),
+        relayNodeId: _currentNodeId ?? 'unknown',
+        encryptedPayload: relayPayload,
+        originalMessageType: ProtocolMessageType.textMessage,
+      );
 
-      // Attempt relay to next hops
-      _logger.fine('🔄 Relaying message to next hops');
-      final msgId = MessageId(originalMessageId);
-      _onRelayMessageReceived?.call(originalMessageId, content, originalSender);
-      _onRelayMessageReceivedIds?.call(msgId, content, originalSender);
+      final result = await _relayEngine!.processIncomingRelay(
+        relayMessage: relayMessage,
+        fromNodeId: originalSender,
+        availableNextHops: getAvailableNextHops(),
+        messageType: ProtocolMessageType.textMessage,
+      );
 
-      return true;
+      return result.type == RelayProcessingType.deliveredToSelf ||
+          result.type == RelayProcessingType.relayed;
     } catch (e) {
       _logger.severe('❌ Relay failed: $e');
       return false;
@@ -201,23 +213,25 @@ class RelayCoordinator implements IRelayCoordinator {
     required int currentHopCount,
   }) async {
     try {
+      if (_relayEngine == null) {
+        _logger.warning('🚫 Relay engine not initialized');
+        return null;
+      }
+      if (!_isValidInnerProtocolPayload(content)) {
+        _logger.warning(
+          '🚫 Rejecting outgoing relay without encrypted inner payload',
+        );
+        return null;
+      }
       _logger.fine('📤 Creating relay message (hop ${currentHopCount + 1})');
 
-      // Build relay metadata with correct factory signature
-      final relayMetadata = RelayMetadata.create(
-        originalMessageContent: content,
-        priority: MessagePriority.normal,
-        originalSender: originalSender,
-        finalRecipient: intendedRecipient ?? SpecialRecipients.broadcast,
-        currentNodeId: _currentNodeId ?? 'unknown',
-      );
-
-      // Use MeshRelayMessage.createRelay() factory with correct parameter names
-      return MeshRelayMessage.createRelay(
+      return await _relayEngine!.createOutgoingRelay(
         originalMessageId: originalMessageId,
-        originalContent: content,
-        metadata: relayMetadata,
-        relayNodeId: _currentNodeId ?? 'unknown',
+        originalContent: '',
+        finalRecipientPublicKey:
+            intendedRecipient ?? SpecialRecipients.broadcast,
+        encryptedPayload: content,
+        originalMessageType: ProtocolMessageType.textMessage,
       );
     } catch (e) {
       _logger.severe('❌ Failed to create relay message: $e');
@@ -232,6 +246,13 @@ class RelayCoordinator implements IRelayCoordinator {
     required String nextHopDeviceId,
   }) async {
     try {
+      final relayPayload = relayMessage.relayPayload;
+      if (relayPayload == null || !_isValidInnerProtocolPayload(relayPayload)) {
+        _logger.warning(
+          '🚫 Refusing to forward relay without encrypted inner payload',
+        );
+        return;
+      }
       _logger.fine('📤 Relaying to next hop: ${nextHopDeviceId.shortId(8)}...');
 
       // Use nextHop() for hop chaining (updates metadata internally)
@@ -247,14 +268,7 @@ class RelayCoordinator implements IRelayCoordinator {
         'routingPath': nextRelayMessage.relayMetadata.routingPath,
         'messageHash': nextRelayMessage.relayMetadata.messageHash,
         'priority': nextRelayMessage.relayMetadata.priority.index,
-        if (nextRelayMessage.relayMetadata.sealedSender)
-          'sealedSender': true,
-      };
-
-      // Convert original payload to Map<String, dynamic>
-      final payloadMap = <String, dynamic>{
-        'content': relayMessage.originalContent,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        if (nextRelayMessage.relayMetadata.sealedSender) 'sealedSender': true,
       };
 
       // Create protocol message wrapper using meshRelay() factory
@@ -263,7 +277,9 @@ class RelayCoordinator implements IRelayCoordinator {
         originalSender: relayMessage.relayMetadata.originalSender,
         finalRecipient: relayMessage.relayMetadata.finalRecipient,
         relayMetadata: metadataMap,
-        originalPayload: payloadMap,
+        originalPayload: {'innerProtocolMessage': relayPayload},
+        originalMessageType:
+            relayMessage.originalMessageType ?? ProtocolMessageType.textMessage,
       );
 
       // Register ACK timeout (5 second wait)
@@ -557,7 +573,7 @@ class RelayCoordinator implements IRelayCoordinator {
       await queueProvider.initialize();
     }
 
-    return queueProvider.messageQueue;
+    return queueProvider.waitForMessageQueue();
   }
 
   ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
@@ -581,6 +597,35 @@ class RelayCoordinator implements IRelayCoordinator {
       'Configure RelayCoordinator.configureDependencyResolvers(...), '
       'or pass relayEngineFactory explicitly.',
     );
+  }
+
+  String? _extractRelayPayload({
+    required Map<String, dynamic>? messageData,
+    required String fallbackContent,
+  }) {
+    final messagePayload = messageData?['innerProtocolMessage'] as String?;
+    if (messagePayload != null &&
+        _isValidInnerProtocolPayload(messagePayload)) {
+      return messagePayload;
+    }
+    if (_isValidInnerProtocolPayload(fallbackContent)) {
+      return fallbackContent;
+    }
+    return null;
+  }
+
+  bool _isValidInnerProtocolPayload(String payload) {
+    if (payload.isEmpty) {
+      return false;
+    }
+
+    try {
+      final decoded = base64.decode(payload);
+      ProtocolMessage.fromBytes(Uint8List.fromList(decoded));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ==================== CLEANUP ====================

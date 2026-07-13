@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/data/services/ble_connection_service.dart';
 import 'package:pak_connect/data/services/ble_facade_lifecycle_coordinator.dart';
+import 'package:pak_connect/domain/constants/ble_constants.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_advertising_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
@@ -54,13 +55,18 @@ class _TestPeripheralManager implements PeripheralManager {
   final bool throwOnStreams;
 
   final StreamController<CentralConnectionStateChangedEventArgs>
-  _connectionController = StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
+  _connectionController =
+      StreamController<CentralConnectionStateChangedEventArgs>.broadcast();
   final StreamController<CentralMTUChangedEventArgs> _mtuController =
       StreamController<CentralMTUChangedEventArgs>.broadcast();
   final StreamController<GATTCharacteristicNotifyStateChangedEventArgs>
-  _notifyController = StreamController<GATTCharacteristicNotifyStateChangedEventArgs>.broadcast();
+  _notifyController =
+      StreamController<
+        GATTCharacteristicNotifyStateChangedEventArgs
+      >.broadcast();
   final StreamController<GATTCharacteristicWriteRequestedEventArgs>
-  _writeController = StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
+  _writeController =
+      StreamController<GATTCharacteristicWriteRequestedEventArgs>.broadcast();
 
   int respondWriteCount = 0;
   int respondWriteErrorCount = 0;
@@ -128,7 +134,8 @@ class _TestCentralManager implements CentralManager {
   final bool throwOnNotifiedStream;
 
   final StreamController<GATTCharacteristicNotifiedEventArgs>
-  _notifiedController = StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
+  _notifiedController =
+      StreamController<GATTCharacteristicNotifiedEventArgs>.broadcast();
 
   void emitNotified(GATTCharacteristicNotifiedEventArgs event) =>
       _notifiedController.add(event);
@@ -193,7 +200,7 @@ class _TestConnectionService implements BLEConnectionService {
 class _TestConnectionManager implements BLEConnectionManager {
   Future<String?> Function()? localHintProvider;
   @override
-  Function()? onConnectionComplete;
+  Function(String address, int? schedulerAttemptId)? onConnectionComplete;
   @override
   Function(GATTCharacteristic?)? onCharacteristicFound;
 
@@ -208,13 +215,16 @@ class _TestConnectionManager implements BLEConnectionManager {
   bool teardownDeferred = false;
   bool collisionResolving = false;
   bool hasServerConnectionValue = true;
+  bool acceptInboundConnection = true;
+  Completer<bool>? inboundAcceptance;
   int _serverConnectionCount = 1;
   @override
   List<BLEServerConnection> serverConnections = <BLEServerConnection>[];
   ChatConnectionState _connectionState = ChatConnectionState.disconnected;
 
   set serverConnectionCountValue(int value) => _serverConnectionCount = value;
-  set connectionStateValue(ChatConnectionState value) => _connectionState = value;
+  set connectionStateValue(ChatConnectionState value) =>
+      _connectionState = value;
 
   @override
   void setLocalHintProvider(Future<String?> Function()? provider) {
@@ -222,8 +232,9 @@ class _TestConnectionManager implements BLEConnectionManager {
   }
 
   @override
-  void handleCentralConnected(Central central) {
+  Future<bool> handleCentralConnected(Central central) async {
     centralConnectedCalls++;
+    return inboundAcceptance?.future ?? acceptInboundConnection;
   }
 
   @override
@@ -327,9 +338,10 @@ class _TestMessagingService implements IBLEMessagingService {
   Uint8List? lastProcessedData;
   String? lastSenderDeviceId;
   String? lastSenderNodeId;
+  InboundProcessStatus nextStatus = InboundProcessStatus.handled;
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
@@ -338,6 +350,7 @@ class _TestMessagingService implements IBLEMessagingService {
     lastProcessedData = data;
     lastSenderDeviceId = senderDeviceId;
     lastSenderNodeId = senderNodeId;
+    return nextStatus;
   }
 
   @override
@@ -364,13 +377,21 @@ class _TestHandshakeService implements IBLEHandshakeService {
   }
 
   @override
-  Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  }) async {
+    if (inProgress) return false;
+    if (onStartAccepted?.call() == false) return false;
     performCalls.add(startAsInitiatorOverride);
+    inProgress = true;
+    return true;
   }
 
   @override
   void disposeHandshakeCoordinator() {
     disposeCalls++;
+    inProgress = false;
   }
 
   @override
@@ -408,6 +429,11 @@ void main() {
   late _TestCentral central;
   late _TestPeripheral peripheral;
   late _TestCharacteristic characteristic;
+  late List<String> inboundEvents;
+  late List<String> notifyEvents;
+  late List<String> handshakeStartEvents;
+  late List<String> disconnectEvents;
+  late List<String> mtuEvents;
 
   setUp(() {
     centralManager = _TestCentralManager();
@@ -422,6 +448,11 @@ void main() {
     advertisingService = _TestAdvertisingService();
     messagingService = _TestMessagingService();
     handshakeService = _TestHandshakeService();
+    inboundEvents = <String>[];
+    notifyEvents = <String>[];
+    handshakeStartEvents = <String>[];
+    disconnectEvents = <String>[];
+    mtuEvents = <String>[];
     coordinator = BleLifecycleCoordinator(
       logger: Logger('test.lifecycle'),
       platformHost: platformHost,
@@ -431,8 +462,22 @@ void main() {
       getAdvertisingService: () => advertisingService,
       getMessagingService: () => messagingService,
       getHandshakeService: () => handshakeService,
+      onInboundConnected: (address) {
+        inboundEvents.add(address);
+        return 7;
+      },
+      onMtuReady: (address, mtu, attemptId) => mtuEvents.add('$address:$mtu'),
+      onNotifySubscribed: (address, attemptId) => notifyEvents.add(address),
+      onHandshakeStarted: (address, attemptId) {
+        handshakeStartEvents.add(address);
+        return true;
+      },
+      onPeerDisconnected: (address, reason, attemptId) =>
+          disconnectEvents.add('$address:$reason'),
     );
-    central = _TestCentral(UUID.fromString('00000000-0000-0000-0000-000000000001'));
+    central = _TestCentral(
+      UUID.fromString('00000000-0000-0000-0000-000000000001'),
+    );
     peripheral = _TestPeripheral(
       UUID.fromString('00000000-0000-0000-0000-000000000002'),
     );
@@ -445,19 +490,22 @@ void main() {
     await peripheralManager.dispose();
   });
 
-  test('ensureConnectionServicePrepared is idempotent and wires callbacks', () async {
-    coordinator.ensureConnectionServicePrepared();
-    coordinator.ensureConnectionServicePrepared();
+  test(
+    'ensureConnectionServicePrepared is idempotent and wires callbacks',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      coordinator.ensureConnectionServicePrepared();
 
-    expect(connectionService.setupCalls, 1);
-    expect(connectionManager.localHintProvider, isNotNull);
-    expect(await connectionManager.localHintProvider!.call(), 'hint-local');
-    expect(handshakeService.buildHintCalls, 1);
+      expect(connectionService.setupCalls, 1);
+      expect(connectionManager.localHintProvider, isNotNull);
+      expect(await connectionManager.localHintProvider!.call(), 'hint-local');
+      expect(handshakeService.buildHintCalls, 1);
 
-    expect(connectionManager.onConnectionComplete, isNotNull);
-    await connectionManager.onConnectionComplete!.call();
-    expect(handshakeService.performCalls, [true]);
-  });
+      expect(connectionManager.onConnectionComplete, isNotNull);
+      await connectionManager.onConnectionComplete!.call('peer-outbound', 11);
+      expect(handshakeService.performCalls, [true]);
+    },
+  );
 
   test('ensureDiscoveryInitialized runs once', () async {
     await coordinator.ensureDiscoveryInitialized();
@@ -465,12 +513,87 @@ void main() {
     expect(discoveryService.initializeCalls, 1);
   });
 
-  test('peripheral connection, mtu, notify, and write events delegate correctly', () async {
+  test(
+    'peripheral connection, mtu, notify, and write events delegate correctly',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionManager.serverConnectionCountValue = 1;
+      connectionManager.hasServerConnectionValue = true;
+      advertisingService.messageCharacteristicValue = characteristic;
+      handshakeService.handleIncomingResult = false;
+
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.connected,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(connectionManager.centralConnectedCalls, 1);
+      expect(connectionService.connectedCentral, central);
+      expect(inboundEvents, [central.uuid.toString()]);
+
+      peripheralManager.emitMtu(CentralMTUChangedEventArgs(central, 185));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(advertisingService.updateMtuCalls, 1);
+      expect(connectionManager.updateServerMtuCalls, 1);
+      expect(advertisingService.lastMtu, 185);
+      expect(mtuEvents, ['${central.uuid}:185']);
+
+      peripheralManager.emitNotifyState(
+        GATTCharacteristicNotifyStateChangedEventArgs(
+          central,
+          characteristic,
+          true,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(connectionManager.subscribedCalls, 1);
+      expect(connectionService.connectedCharacteristic, characteristic);
+      expect(notifyEvents, [central.uuid.toString()]);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(handshakeStartEvents, contains(central.uuid.toString()));
+
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([1, 2, 3]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(handshakeService.handleIncomingCalls, greaterThan(0));
+      expect(messagingService.processCalls, 1);
+      expect(peripheralManager.respondWriteCount, 1);
+    },
+  );
+
+  test(
+    'rejected inbound connection does not create an active attempt',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionManager.acceptInboundConnection = false;
+
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.connected,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      expect(connectionManager.centralConnectedCalls, 1);
+      expect(connectionService.connectedCentral, isNull);
+      expect(inboundEvents, isEmpty);
+      expect(handshakeService.performCalls, isEmpty);
+    },
+  );
+
+  test('serializes rapid inbound connect then disconnect events', () async {
     coordinator.ensureConnectionServicePrepared();
-    connectionManager.serverConnectionCountValue = 1;
-    connectionManager.hasServerConnectionValue = true;
-    advertisingService.messageCharacteristicValue = characteristic;
-    handshakeService.handleIncomingResult = false;
+    final acceptance = Completer<bool>();
+    connectionManager.inboundAcceptance = acceptance;
 
     peripheralManager.emitConnection(
       CentralConnectionStateChangedEventArgs(
@@ -478,40 +601,38 @@ void main() {
         ConnectionState.connected,
       ),
     );
+    peripheralManager.emitConnection(
+      CentralConnectionStateChangedEventArgs(
+        central,
+        ConnectionState.disconnected,
+      ),
+    );
     await Future<void>.delayed(Duration.zero);
+    expect(connectionManager.centralDisconnectedCalls, 0);
+
+    acceptance.complete(true);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+
     expect(connectionManager.centralConnectedCalls, 1);
-    expect(connectionService.connectedCentral, central);
-
-    peripheralManager.emitMtu(CentralMTUChangedEventArgs(central, 185));
-    await Future<void>.delayed(Duration.zero);
-    expect(advertisingService.updateMtuCalls, 1);
-    expect(connectionManager.updateServerMtuCalls, 1);
-    expect(advertisingService.lastMtu, 185);
-
-    peripheralManager.emitNotifyState(
-      GATTCharacteristicNotifyStateChangedEventArgs(
-        central,
-        characteristic,
-        true,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.subscribedCalls, 1);
-    expect(connectionService.connectedCharacteristic, characteristic);
-
-    final writeRequest = _TestWriteRequest(Uint8List.fromList([1, 2, 3]));
-    peripheralManager.emitWrite(
-      GATTCharacteristicWriteRequestedEventArgs(
-        central,
-        characteristic,
-        writeRequest,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(handshakeService.handleIncomingCalls, greaterThan(0));
-    expect(messagingService.processCalls, 1);
-    expect(peripheralManager.respondWriteCount, 1);
+    expect(connectionManager.centralDisconnectedCalls, 1);
+    expect(connectionService.connectedCentral, isNull);
+    expect(disconnectEvents, hasLength(1));
   });
+
+  test(
+    'duplicate outbound handshake start cannot overwrite accepted binding',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+
+      connectionManager.onConnectionComplete!.call('peer-a', 11);
+      await Future<void>.delayed(Duration.zero);
+      connectionManager.onConnectionComplete!.call('peer-b', 12);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(handshakeStartEvents, ['peer-a']);
+      expect(handshakeService.performCalls, [true]);
+    },
+  );
 
   test('write handler returns protocol error when processing throws', () async {
     coordinator.ensureConnectionServicePrepared();
@@ -529,87 +650,163 @@ void main() {
     expect(peripheralManager.respondWriteErrorCount, 1);
   });
 
-  test('disconnect events reset session and promote replacement server link', () async {
-    coordinator.ensureConnectionServicePrepared();
-    connectionService.connectedCentral = central;
-    connectionService.connectedCharacteristic = characteristic;
+  test(
+    'write handler NACKs (GATT error) when inbound processing reports failed '
+    '(PC-GATT-002)',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      messagingService.nextStatus = InboundProcessStatus.failed;
 
-    connectionManager.serverConnectionCountValue = 0;
-    peripheralManager.emitConnection(
-      CentralConnectionStateChangedEventArgs(
-        central,
-        ConnectionState.disconnected,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.centralDisconnectedCalls, 1);
-    expect(handshakeService.disposeCalls, 1);
-    expect(advertisingService.resetCalls, 1);
-    expect(connectionService.connectedCentral, isNull);
-    expect(connectionService.connectedCharacteristic, isNull);
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([9, 9, 9]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
 
-    final replacement = _TestCentral(
-      UUID.fromString('00000000-0000-0000-0000-0000000000AA'),
-    );
-    connectionService.connectedCentral = replacement;
-    connectionManager.serverConnectionCountValue = 1;
-    connectionManager.serverConnections = [
-      BLEServerConnection(
-        address: replacement.uuid.toString(),
-        central: replacement,
-        connectedAt: DateTime.now(),
-        subscribedCharacteristic: characteristic,
-      ),
-    ];
-    peripheralManager.emitConnection(
-      CentralConnectionStateChangedEventArgs(
-        replacement,
-        ConnectionState.disconnected,
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionService.connectedCentral, replacement);
-    expect(connectionService.connectedCharacteristic, characteristic);
-  });
+      expect(messagingService.processCalls, 1);
+      expect(
+        peripheralManager.respondWriteErrorCount,
+        1,
+        reason: 'a corrupt frame must be NACKed, not silently ACKed',
+      );
+      expect(peripheralManager.respondWriteCount, 0);
+    },
+  );
 
-  test('central notifications handle service-changed, handshake, and relay payloads', () async {
-    coordinator.ensureConnectionServicePrepared();
+  test(
+    'write handler ACKs when inbound processing reports handled/ignored',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      messagingService.nextStatus = InboundProcessStatus.ignored;
 
-    final serviceChanged = _TestCharacteristic(UUID.fromAddress(0x2A05));
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        serviceChanged,
-        Uint8List.fromList([0]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(connectionManager.disconnectClientCalls, [peripheral.uuid.toString()]);
+      final writeRequest = _TestWriteRequest(Uint8List.fromList([4, 5, 6]));
+      peripheralManager.emitWrite(
+        GATTCharacteristicWriteRequestedEventArgs(
+          central,
+          characteristic,
+          writeRequest,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
 
-    final normal = _TestCharacteristic(UUID.fromAddress(0x2A19));
-    handshakeService.handleIncomingResult = true;
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        normal,
-        Uint8List.fromList([1]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(messagingService.processCalls, 0);
+      expect(peripheralManager.respondWriteCount, 1);
+      expect(peripheralManager.respondWriteErrorCount, 0);
+    },
+  );
 
-    handshakeService.handleIncomingResult = false;
-    centralManager.emitNotified(
-      GATTCharacteristicNotifiedEventArgs(
-        peripheral,
-        normal,
-        Uint8List.fromList([2]),
-      ),
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(messagingService.processCalls, 1);
-    expect(messagingService.lastSenderDeviceId, peripheral.uuid.toString());
-  });
+  test(
+    'disconnect events reset session and promote replacement server link',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+      connectionService.connectedCentral = central;
+      connectionService.connectedCharacteristic = characteristic;
+
+      connectionManager.serverConnectionCountValue = 0;
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          central,
+          ConnectionState.disconnected,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionManager.centralDisconnectedCalls, 1);
+      expect(handshakeService.disposeCalls, 1);
+      expect(advertisingService.resetCalls, 1);
+      expect(connectionService.connectedCentral, isNull);
+      expect(connectionService.connectedCharacteristic, isNull);
+      expect(
+        disconnectEvents,
+        contains('${central.uuid}:peripheral-connection-state-disconnected'),
+      );
+
+      final replacement = _TestCentral(
+        UUID.fromString('00000000-0000-0000-0000-0000000000AA'),
+      );
+      connectionService.connectedCentral = replacement;
+      connectionManager.serverConnectionCountValue = 1;
+      connectionManager.serverConnections = [
+        BLEServerConnection(
+          address: replacement.uuid.toString(),
+          central: replacement,
+          connectedAt: DateTime.now(),
+          subscribedCharacteristic: characteristic,
+        ),
+      ];
+      peripheralManager.emitConnection(
+        CentralConnectionStateChangedEventArgs(
+          replacement,
+          ConnectionState.disconnected,
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionService.connectedCentral, replacement);
+      expect(connectionService.connectedCharacteristic, characteristic);
+    },
+  );
+
+  test(
+    'central notifications handle service-changed, handshake, and relay payloads',
+    () async {
+      coordinator.ensureConnectionServicePrepared();
+
+      final serviceChanged = _TestCharacteristic(UUID.fromAddress(0x2A05));
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          serviceChanged,
+          Uint8List.fromList([0]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(connectionManager.disconnectClientCalls, [
+        peripheral.uuid.toString(),
+      ]);
+
+      // Foreign characteristics (e.g. Battery Level 0x2A19) must be ignored
+      // entirely — neither handshake nor message processing may see them.
+      final foreign = _TestCharacteristic(UUID.fromAddress(0x2A19));
+      handshakeService.handleIncomingResult = false;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          foreign,
+          Uint8List.fromList([9]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 0);
+
+      final normal = _TestCharacteristic(
+        BLEConstants.messageCharacteristicUUID,
+      );
+      handshakeService.handleIncomingResult = true;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          normal,
+          Uint8List.fromList([1]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 0);
+
+      handshakeService.handleIncomingResult = false;
+      centralManager.emitNotified(
+        GATTCharacteristicNotifiedEventArgs(
+          peripheral,
+          normal,
+          Uint8List.fromList([2]),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(messagingService.processCalls, 1);
+      expect(messagingService.lastSenderDeviceId, peripheral.uuid.toString());
+    },
+  );
 
   test('unsupported platform stream bindings are tolerated', () async {
     final unsupportedCoordinator = BleLifecycleCoordinator(
@@ -627,6 +824,9 @@ void main() {
     );
     addTearDown(unsupportedCoordinator.dispose);
 
-    expect(unsupportedCoordinator.ensureConnectionServicePrepared, returnsNormally);
+    expect(
+      unsupportedCoordinator.ensureConnectionServicePrepared,
+      returnsNormally,
+    );
   });
 }

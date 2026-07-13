@@ -43,20 +43,22 @@ class _MockMessageRouter extends Mock implements MessageRouter {
     required String recipientId,
     String? messageId,
     String? recipientName,
-  }) => super.noSuchMethod(
-    Invocation.method(#sendMessage, [], {
-      #content: content,
-      #recipientId: recipientId,
-      #messageId: messageId,
-      #recipientName: recipientName,
-    }),
-    returnValue: Future<MessageRouteResult>.value(
-      MessageRouteResult.failed(messageId ?? 'mock-id', 'not-stubbed'),
-    ),
-    returnValueForMissingStub: Future<MessageRouteResult>.value(
-      MessageRouteResult.failed(messageId ?? 'mock-id', 'not-stubbed'),
-    ),
-  ) as Future<MessageRouteResult>;
+  }) =>
+      super.noSuchMethod(
+            Invocation.method(#sendMessage, [], {
+              #content: content,
+              #recipientId: recipientId,
+              #messageId: messageId,
+              #recipientName: recipientName,
+            }),
+            returnValue: Future<MessageRouteResult>.value(
+              MessageRouteResult.failed(messageId ?? 'mock-id', 'not-stubbed'),
+            ),
+            returnValueForMissingStub: Future<MessageRouteResult>.value(
+              MessageRouteResult.failed(messageId ?? 'mock-id', 'not-stubbed'),
+            ),
+          )
+          as Future<MessageRouteResult>;
 }
 
 class _ConfigurableConnectionService extends MockConnectionService {
@@ -67,6 +69,7 @@ class _ConfigurableConnectionService extends MockConnectionService {
   Object? scanError;
   Object? connectError;
   Peripheral? forcedConnectedDevice;
+  String? identityAfterConnect;
 
   @override
   Future<bool> sendMessage(
@@ -111,10 +114,24 @@ class _ConfigurableConnectionService extends MockConnectionService {
     }
     await super.connectToDevice(device);
     forcedConnectedDevice = device;
+    final identity = identityAfterConnect;
+    if (identity != null) {
+      currentSessionId = identity;
+      emitConnectionInfo(
+        const ConnectionInfo(isConnected: true, isReady: true),
+      );
+    }
   }
 
   @override
-  Peripheral? get connectedDevice => forcedConnectedDevice ?? super.connectedDevice;
+  Future<void> disconnect() async {
+    await super.disconnect();
+    forcedConnectedDevice = null;
+  }
+
+  @override
+  Peripheral? get connectedDevice =>
+      forcedConnectedDevice ?? super.connectedDevice;
 }
 
 class _FakeMeshService implements IMeshNetworkingService {
@@ -225,22 +242,23 @@ class _ThrowingQueue extends InMemoryOfflineMessageQueue {
   }
 }
 
-MeshNetworkStatus _readyStatus({bool isInitialized = true}) => MeshNetworkStatus(
-  isInitialized: isInitialized,
-  currentNodeId: 'node-a',
-  isConnected: true,
-  statistics: const MeshNetworkStatistics(
-    nodeId: 'node-a',
-    isInitialized: true,
-    relayStatistics: null,
-    queueStatistics: null,
-    syncStatistics: null,
-    spamStatistics: null,
-    spamPreventionActive: false,
-    queueSyncActive: false,
-  ),
-  queueMessages: const <QueuedMessage>[],
-);
+MeshNetworkStatus _readyStatus({bool isInitialized = true}) =>
+    MeshNetworkStatus(
+      isInitialized: isInitialized,
+      currentNodeId: 'node-a',
+      isConnected: true,
+      statistics: const MeshNetworkStatistics(
+        nodeId: 'node-a',
+        isInitialized: true,
+        relayStatistics: null,
+        queueStatistics: null,
+        syncStatistics: null,
+        spamStatistics: null,
+        spamPreventionActive: false,
+        queueSyncActive: false,
+      ),
+      queueMessages: const <QueuedMessage>[],
+    );
 
 Message _message(String id, {String content = 'hello'}) => Message(
   id: MessageId(id),
@@ -312,40 +330,46 @@ void main() {
       await controller.close();
     });
 
-    test('attachMessageStream dispatches live events and buffers disposed events', () async {
-      final stream = StreamController<String>.broadcast();
-      final handled = <String>[];
-      var disposed = false;
+    test(
+      'attachMessageStream dispatches live events and buffers disposed events',
+      () async {
+        final stream = StreamController<String>.broadcast();
+        final handled = <String>[];
+        var disposed = false;
 
-      lifecycle.attachMessageStream(
-        stream: stream.stream,
-        disposed: () => disposed,
-        isActive: () => true,
-        onMessage: (content) async => handled.add(content),
-      );
+        lifecycle.attachMessageStream(
+          stream: stream.stream,
+          disposed: () => disposed,
+          isActive: () => true,
+          onMessage: (content) async => handled.add(content),
+        );
 
-      stream.add('live');
-      await Future<void>.delayed(Duration.zero);
-      disposed = true;
-      stream.add('buffered');
-      await Future<void>.delayed(Duration.zero);
+        stream.add('live');
+        await Future<void>.delayed(Duration.zero);
+        disposed = true;
+        stream.add('buffered');
+        await Future<void>.delayed(Duration.zero);
 
-      expect(handled, ['live']);
-      expect(lifecycle.messageBuffer, ['buffered']);
-      await stream.close();
-    });
+        expect(handled, ['live']);
+        expect(lifecycle.messageBuffer, ['buffered']);
+        await stream.close();
+      },
+    );
 
-    test('processBufferedMessages flushes and clears buffer in order', () async {
-      lifecycle.messageBuffer.addAll(['a', 'b']);
-      final processed = <String>[];
+    test(
+      'processBufferedMessages flushes and clears buffer in order',
+      () async {
+        lifecycle.messageBuffer.addAll(['a', 'b']);
+        final processed = <String>[];
 
-      await lifecycle.processBufferedMessages((content) async {
-        processed.add(content);
-      });
+        await lifecycle.processBufferedMessages((content) async {
+          processed.add(content);
+        });
 
-      expect(processed, ['a', 'b']);
-      expect(lifecycle.messageBuffer, isEmpty);
-    });
+        expect(processed, ['a', 'b']);
+        expect(lifecycle.messageBuffer, isEmpty);
+      },
+    );
 
     test('handleMeshStatus updates state for data/loading/error branches', () {
       ChatUIState current = const ChatUIState(meshInitializing: true);
@@ -428,388 +452,465 @@ void main() {
       expect(retries, 1);
     });
 
-    test('hasMessagesQueuedForRelay and getQueuedMessagesForChat use queue', () async {
-      expect(lifecycle.hasMessagesQueuedForRelay(null), isFalse);
-      expect(lifecycle.hasMessagesQueuedForRelay('peer-a'), isFalse);
+    test(
+      'hasMessagesQueuedForRelay and getQueuedMessagesForChat use queue',
+      () async {
+        expect(lifecycle.hasMessagesQueuedForRelay(null), isFalse);
+        expect(lifecycle.hasMessagesQueuedForRelay('peer-a'), isFalse);
 
-      offlineQueue.setOffline();
-      await offlineQueue.queueMessage(
-        chatId: 'chat-a',
-        content: 'queued',
-        recipientPublicKey: 'peer-a',
-        senderPublicKey: 'me',
-      );
-
-      expect(lifecycle.hasMessagesQueuedForRelay('peer-a'), isTrue);
-      expect(lifecycle.getQueuedMessagesForChat(), isNotEmpty);
-    });
-
-    test('sendRepositoryMessage returns direct success and queued info from router', () async {
-      final router = _MockMessageRouter();
-      lifecycle = ChatSessionLifecycle(
-        viewModel: viewModel,
-        connectionService: connectionService,
-        meshService: meshService,
-        messageRouter: router,
-        messageSecurity: messageSecurity,
-        messageRepository: messageRepository,
-        offlineQueue: offlineQueue,
-      );
-
-      when(
-        router.sendMessage(
-          content: 'hello',
-          recipientId: 'peer-a',
-          messageId: 'm1',
-          recipientName: 'Peer',
-        ),
-      ).thenAnswer((_) async => MessageRouteResult.sentDirectly('m1'));
-
-      final direct = await lifecycle.sendRepositoryMessage(
-        message: _message('m1', content: 'hello'),
-        fallbackRecipientId: 'peer-a',
-        displayContactName: 'Peer',
-        contactPublicKey: 'peer-a',
-      );
-      expect(direct, isTrue);
-
-      when(
-        router.sendMessage(
+        offlineQueue.setOffline();
+        await offlineQueue.queueMessage(
+          chatId: 'chat-a',
           content: 'queued',
-          recipientId: 'peer-a',
-          messageId: 'm2',
-          recipientName: 'Peer',
-        ),
-      ).thenAnswer((_) async => MessageRouteResult.queued('m2'));
+          recipientPublicKey: 'peer-a',
+          senderPublicKey: 'me',
+        );
 
-      String? info;
-      final queued = await lifecycle.sendRepositoryMessage(
-        message: _message('m2', content: 'queued'),
-        fallbackRecipientId: 'peer-a',
-        displayContactName: 'Peer',
-        contactPublicKey: null,
-        onInfoMessage: (msg) => info = msg,
-      );
-      expect(queued, isFalse);
-      expect(info, contains('queued'));
-    });
+        expect(lifecycle.hasMessagesQueuedForRelay('peer-a'), isTrue);
+        expect(lifecycle.getQueuedMessagesForChat(), isNotEmpty);
+      },
+    );
 
-    test('sendRepositoryMessage falls back to direct/peripheral and mesh send', () async {
-      final router = _MockMessageRouter();
-      lifecycle = ChatSessionLifecycle(
-        viewModel: viewModel,
-        connectionService: connectionService,
-        meshService: meshService,
-        messageRouter: router,
-        messageSecurity: messageSecurity,
-        messageRepository: messageRepository,
-        offlineQueue: offlineQueue,
-      );
+    test(
+      'sendRepositoryMessage returns direct success and queued info from router',
+      () async {
+        final router = _MockMessageRouter();
+        lifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageRouter: router,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: offlineQueue,
+        );
 
-      when(
-        router.sendMessage(
-          content: 'direct',
-          recipientId: 'peer-a',
-          messageId: 'm3',
-          recipientName: 'Peer',
-        ),
-      ).thenAnswer((_) async => MessageRouteResult.failed('m3', 'router fail'));
+        when(
+          router.sendMessage(
+            content: 'hello',
+            recipientId: 'peer-a',
+            messageId: 'm1',
+            recipientName: 'Peer',
+          ),
+        ).thenAnswer((_) async => MessageRouteResult.sentDirectly('m1'));
 
-      connectionService.emitConnectionInfo(
-        const ConnectionInfo(isConnected: true, isReady: true, statusMessage: 'ready'),
-      );
-      connectionService.nextSendMessageResult = true;
-      final direct = await lifecycle.sendRepositoryMessage(
-        message: _message('m3', content: 'direct'),
-        fallbackRecipientId: 'peer-a',
-        displayContactName: 'Peer',
-        contactPublicKey: 'peer-a',
-      );
-      expect(direct, isTrue);
-      expect(connectionService.sentMessages, isNotEmpty);
+        final direct = await lifecycle.sendRepositoryMessage(
+          message: _message('m1', content: 'hello'),
+          fallbackRecipientId: 'peer-a',
+          displayContactName: 'Peer',
+          contactPublicKey: 'peer-a',
+        );
+        expect(direct, isTrue);
 
-      when(
-        router.sendMessage(
-          content: 'peripheral',
-          recipientId: 'peer-b',
-          messageId: 'm4',
-          recipientName: 'PeerB',
-        ),
-      ).thenAnswer((_) async => MessageRouteResult.failed('m4', 'router fail'));
+        when(
+          router.sendMessage(
+            content: 'queued',
+            recipientId: 'peer-a',
+            messageId: 'm2',
+            recipientName: 'Peer',
+          ),
+        ).thenAnswer((_) async => MessageRouteResult.queued('m2'));
 
-      connectionService.isPeripheralMode = true;
-      connectionService.nextSendMessageResult = false;
-      connectionService.nextSendPeripheralMessageResult = true;
-      final peripheral = await lifecycle.sendRepositoryMessage(
-        message: _message('m4', content: 'peripheral'),
-        fallbackRecipientId: 'peer-b',
-        displayContactName: 'PeerB',
-        contactPublicKey: 'peer-b',
-      );
-      expect(peripheral, isTrue);
-      expect(connectionService.sentPeripheralMessages, isNotEmpty);
+        String? info;
+        final queued = await lifecycle.sendRepositoryMessage(
+          message: _message('m2', content: 'queued'),
+          fallbackRecipientId: 'peer-a',
+          displayContactName: 'Peer',
+          contactPublicKey: null,
+          onInfoMessage: (msg) => info = msg,
+        );
+        expect(queued, isFalse);
+        expect(info, contains('queued'));
+      },
+    );
 
-      when(
-        router.sendMessage(
-          content: 'mesh',
-          recipientId: 'peer-c',
-          messageId: 'm5',
-          recipientName: 'PeerC',
-        ),
-      ).thenAnswer((_) async => MessageRouteResult.failed('m5', 'router fail'));
-      connectionService.nextSendPeripheralMessageResult = false;
-      meshService.nextSendResult = MeshSendResult.direct('mesh-ok');
+    test(
+      'sendRepositoryMessage falls back to direct/peripheral and mesh send',
+      () async {
+        final router = _MockMessageRouter();
+        lifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageRouter: router,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: offlineQueue,
+        );
 
-      final mesh = await lifecycle.sendRepositoryMessage(
-        message: _message('m5', content: 'mesh'),
-        fallbackRecipientId: 'peer-c',
-        displayContactName: 'PeerC',
-        contactPublicKey: 'peer-c',
-      );
-      expect(mesh, isTrue);
-    });
+        when(
+          router.sendMessage(
+            content: 'direct',
+            recipientId: 'peer-a',
+            messageId: 'm3',
+            recipientName: 'Peer',
+          ),
+        ).thenAnswer(
+          (_) async => MessageRouteResult.failed('m3', 'router fail'),
+        );
 
-    test('handleConnectionChange emits lifecycle messages and monitoring behavior', () async {
-      final success = <String>[];
-      final error = <String>[];
-      final info = <String>[];
-      var identityRefreshes = 0;
+        connectionService.emitConnectionInfo(
+          const ConnectionInfo(
+            isConnected: true,
+            isReady: true,
+            statusMessage: 'ready',
+          ),
+        );
+        connectionService.nextSendMessageResult = true;
+        final direct = await lifecycle.sendRepositoryMessage(
+          message: _message('m3', content: 'direct'),
+          fallbackRecipientId: 'peer-a',
+          displayContactName: 'Peer',
+          contactPublicKey: 'peer-a',
+        );
+        expect(direct, isTrue);
+        expect(connectionService.sentMessages, isNotEmpty);
 
-      offlineQueue.setOffline();
-      await offlineQueue.queueMessage(
-        chatId: 'chat-a',
-        content: 'queued',
-        recipientPublicKey: 'peer-a',
-        senderPublicKey: 'me',
-      );
+        when(
+          router.sendMessage(
+            content: 'peripheral',
+            recipientId: 'peer-b',
+            messageId: 'm4',
+            recipientName: 'PeerB',
+          ),
+        ).thenAnswer(
+          (_) async => MessageRouteResult.failed('m4', 'router fail'),
+        );
 
-      lifecycle.handleConnectionChange(
-        previous: const ConnectionInfo(isConnected: false, isReady: false),
-        current: const ConnectionInfo(isConnected: true, isReady: false),
-        disposed: () => false,
-        onIdentityReceived: () async => identityRefreshes++,
-        onSuccessMessage: success.add,
-        onErrorMessage: error.add,
-        contactPublicKey: 'peer-a',
-        onInfoMessage: info.add,
-      );
-      expect(success.last, contains('Connected'));
+        connectionService.isPeripheralMode = true;
+        connectionService.nextSendMessageResult = false;
+        connectionService.nextSendPeripheralMessageResult = true;
+        final peripheral = await lifecycle.sendRepositoryMessage(
+          message: _message('m4', content: 'peripheral'),
+          fallbackRecipientId: 'peer-b',
+          displayContactName: 'PeerB',
+          contactPublicKey: 'peer-b',
+        );
+        expect(peripheral, isTrue);
+        expect(connectionService.sentPeripheralMessages, isNotEmpty);
 
-      lifecycle.handleConnectionChange(
-        previous: const ConnectionInfo(isConnected: true, isReady: false),
-        current: const ConnectionInfo(
-          isConnected: true,
-          isReady: true,
-          otherUserName: 'Peer',
-        ),
-        disposed: () => false,
-        onIdentityReceived: () async => identityRefreshes++,
-        onSuccessMessage: success.add,
-        onErrorMessage: error.add,
-        contactPublicKey: 'peer-a',
-        onInfoMessage: info.add,
-      );
-      expect(success.last, contains('Identity exchange complete'));
-      expect(identityRefreshes, 1);
+        when(
+          router.sendMessage(
+            content: 'mesh',
+            recipientId: 'peer-c',
+            messageId: 'm5',
+            recipientName: 'PeerC',
+          ),
+        ).thenAnswer(
+          (_) async => MessageRouteResult.failed('m5', 'router fail'),
+        );
+        connectionService.nextSendPeripheralMessageResult = false;
+        meshService.nextSendResult = MeshSendResult.direct('mesh-ok');
 
-      connectionService.isPeripheralMode = false;
-      lifecycle.handleConnectionChange(
-        previous: const ConnectionInfo(isConnected: true, isReady: true),
-        current: const ConnectionInfo(isConnected: false, isReady: false),
-        disposed: () => false,
-        onIdentityReceived: () async => identityRefreshes++,
-        onSuccessMessage: success.add,
-        onErrorMessage: error.add,
-        contactPublicKey: 'peer-a',
-        onInfoMessage: info.add,
-      );
-      expect(error.last, contains('disconnected'));
-      expect(info.last, contains('queued for relay'));
+        final mesh = await lifecycle.sendRepositoryMessage(
+          message: _message('m5', content: 'mesh'),
+          fallbackRecipientId: 'peer-c',
+          displayContactName: 'PeerC',
+          contactPublicKey: 'peer-c',
+        );
+        expect(mesh, isTrue);
+      },
+    );
 
-      final emptyQueue = InMemoryOfflineMessageQueue();
-      await emptyQueue.initialize();
-      lifecycle = ChatSessionLifecycle(
-        viewModel: viewModel,
-        connectionService: connectionService,
-        meshService: meshService,
-        messageSecurity: messageSecurity,
-        messageRepository: messageRepository,
-        offlineQueue: emptyQueue,
-      );
+    test(
+      'handleConnectionChange emits lifecycle messages and monitoring behavior',
+      () async {
+        final success = <String>[];
+        final error = <String>[];
+        final info = <String>[];
+        var identityRefreshes = 0;
 
-      lifecycle.handleConnectionChange(
-        previous: const ConnectionInfo(isConnected: true, isReady: true),
-        current: const ConnectionInfo(isConnected: false, isReady: false),
-        disposed: () => false,
-        onIdentityReceived: () async => identityRefreshes++,
-        onSuccessMessage: success.add,
-        onErrorMessage: error.add,
-        contactPublicKey: 'peer-a',
-      );
-      expect(connectionService.startMonitoringCalled, isTrue);
-    });
+        offlineQueue.setOffline();
+        await offlineQueue.queueMessage(
+          chatId: 'chat-a',
+          content: 'queued',
+          recipientPublicKey: 'peer-a',
+          senderPublicKey: 'me',
+        );
 
-    test('manualReconnection handles already-connected, found/missing device, and errors', () async {
+        lifecycle.handleConnectionChange(
+          previous: const ConnectionInfo(isConnected: false, isReady: false),
+          current: const ConnectionInfo(isConnected: true, isReady: false),
+          disposed: () => false,
+          onIdentityReceived: () async => identityRefreshes++,
+          onSuccessMessage: success.add,
+          onErrorMessage: error.add,
+          contactPublicKey: 'peer-a',
+          onInfoMessage: info.add,
+        );
+        expect(success.last, contains('Connected'));
+
+        lifecycle.handleConnectionChange(
+          previous: const ConnectionInfo(isConnected: true, isReady: false),
+          current: const ConnectionInfo(
+            isConnected: true,
+            isReady: true,
+            otherUserName: 'Peer',
+          ),
+          disposed: () => false,
+          onIdentityReceived: () async => identityRefreshes++,
+          onSuccessMessage: success.add,
+          onErrorMessage: error.add,
+          contactPublicKey: 'peer-a',
+          onInfoMessage: info.add,
+        );
+        expect(success.last, contains('Identity exchange complete'));
+        expect(identityRefreshes, 1);
+
+        connectionService.isPeripheralMode = false;
+        lifecycle.handleConnectionChange(
+          previous: const ConnectionInfo(isConnected: true, isReady: true),
+          current: const ConnectionInfo(isConnected: false, isReady: false),
+          disposed: () => false,
+          onIdentityReceived: () async => identityRefreshes++,
+          onSuccessMessage: success.add,
+          onErrorMessage: error.add,
+          contactPublicKey: 'peer-a',
+          onInfoMessage: info.add,
+        );
+        expect(error.last, contains('disconnected'));
+        expect(info.last, contains('queued for relay'));
+
+        final emptyQueue = InMemoryOfflineMessageQueue();
+        await emptyQueue.initialize();
+        lifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: emptyQueue,
+        );
+
+        lifecycle.handleConnectionChange(
+          previous: const ConnectionInfo(isConnected: true, isReady: true),
+          current: const ConnectionInfo(isConnected: false, isReady: false),
+          disposed: () => false,
+          onIdentityReceived: () async => identityRefreshes++,
+          onSuccessMessage: success.add,
+          onErrorMessage: error.add,
+          contactPublicKey: 'peer-a',
+        );
+        expect(connectionService.startMonitoringCalled, isTrue);
+      },
+    );
+
+    test(
+      'manualReconnection handles already-connected, found/missing device, and errors',
+      () async {
+        final success = <String>[];
+        final errors = <String>[];
+
+        connectionService.scanResult = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000001',
+        );
+        await connectionService.connectToDevice(connectionService.scanResult!);
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(success.last, contains('Already connected'));
+
+        await connectionService.disconnect();
+        connectionService.forcedConnectedDevice = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000002',
+        );
+        connectionService.scanResult = connectionService.forcedConnectedDevice;
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(success.last, contains('Already connected to this device'));
+
+        connectionService.scanResult = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000003',
+        );
+        connectionService.forcedConnectedDevice = null;
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(success.last, contains('successful'));
+
+        await connectionService.disconnect();
+        connectionService.scanResult = null;
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(errors.last, contains('not found'));
+
+        connectionService.scanResult = fakePeripheralFromString(
+          '00000000-0000-0000-0000-000000000004',
+        );
+        await connectionService.disconnect();
+        connectionService.connectError = Exception('1049 already connected');
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(success.last, contains('Already connected'));
+
+        connectionService.connectError = Exception('transport failure');
+        await connectionService.disconnect();
+        await lifecycle.manualReconnection(
+          disposed: () => false,
+          onSuccessMessage: success.add,
+          onErrorMessage: errors.add,
+        );
+        expect(errors.last, contains('transport failure'));
+      },
+    );
+
+    test('manualReconnection verifies the connected peer identity', () async {
       final success = <String>[];
       final errors = <String>[];
-
-      connectionService.scanResult = fakePeripheralFromString('00000000-0000-0000-0000-000000000001');
-      await connectionService.connectToDevice(connectionService.scanResult!);
-      await lifecycle.manualReconnection(
-        disposed: () => false,
-        onSuccessMessage: success.add,
-        onErrorMessage: errors.add,
-      );
-      expect(success.last, contains('Already connected'));
-
-      await connectionService.disconnect();
-      connectionService.forcedConnectedDevice = fakePeripheralFromString(
-        '00000000-0000-0000-0000-000000000002',
-      );
-      connectionService.scanResult = connectionService.forcedConnectedDevice;
-      await lifecycle.manualReconnection(
-        disposed: () => false,
-        onSuccessMessage: success.add,
-        onErrorMessage: errors.add,
-      );
-      expect(success.last, contains('Already connected to this device'));
-
       connectionService.scanResult = fakePeripheralFromString(
-        '00000000-0000-0000-0000-000000000003',
+        '00000000-0000-0000-0000-000000000005',
       );
-      connectionService.forcedConnectedDevice = null;
+      connectionService.identityAfterConnect = 'peer-b';
+
       await lifecycle.manualReconnection(
         disposed: () => false,
         onSuccessMessage: success.add,
         onErrorMessage: errors.add,
+        expectedPeerId: 'peer-a',
+        identityTimeout: const Duration(milliseconds: 50),
       );
+
+      expect(errors.last, contains('does not match this chat'));
+      expect(connectionService.isConnected, isFalse);
+      expect(success, isNot(contains('Manual reconnection successful!')));
+
+      connectionService.identityAfterConnect = 'peer-a';
+      await lifecycle.manualReconnection(
+        disposed: () => false,
+        onSuccessMessage: success.add,
+        onErrorMessage: errors.add,
+        expectedPeerId: 'peer-a',
+        identityTimeout: const Duration(milliseconds: 50),
+      );
+
       expect(success.last, contains('successful'));
-
-      await connectionService.disconnect();
-      connectionService.scanResult = null;
-      await lifecycle.manualReconnection(
-        disposed: () => false,
-        onSuccessMessage: success.add,
-        onErrorMessage: errors.add,
-      );
-      expect(errors.last, contains('not found'));
-
-      connectionService.scanResult = fakePeripheralFromString(
-        '00000000-0000-0000-0000-000000000004',
-      );
-      await connectionService.disconnect();
-      connectionService.connectError = Exception('1049 already connected');
-      await lifecycle.manualReconnection(
-        disposed: () => false,
-        onSuccessMessage: success.add,
-        onErrorMessage: errors.add,
-      );
-      expect(success.last, contains('Already connected'));
-
-      connectionService.connectError = Exception('transport failure');
-      await connectionService.disconnect();
-      await lifecycle.manualReconnection(
-        disposed: () => false,
-        onSuccessMessage: success.add,
-        onErrorMessage: errors.add,
-      );
-      expect(errors.last, contains('transport failure'));
+      expect(connectionService.isConnected, isTrue);
     });
 
-    test('requestPairing validates connection and controller availability', () async {
-      String? error;
+    test(
+      'requestPairing validates connection and controller availability',
+      () async {
+        String? error;
 
-      await lifecycle.requestPairing(
-        connectionInfo: null,
-        onErrorMessage: (msg) => error = msg,
-      );
-      expect(error, contains('Not connected'));
+        await lifecycle.requestPairing(
+          connectionInfo: null,
+          onErrorMessage: (msg) => error = msg,
+        );
+        expect(error, contains('Not connected'));
 
-      await lifecycle.requestPairing(
-        connectionInfo: const ConnectionInfo(isConnected: false, isReady: false),
-        onErrorMessage: (msg) => error = msg,
-      );
-      expect(error, contains('Not connected'));
-
-      await lifecycle.requestPairing(
-        connectionInfo: const ConnectionInfo(isConnected: true, isReady: true),
-        onErrorMessage: (msg) => error = msg,
-      );
-      expect(error, contains('controller not attached'));
-    });
-
-    test('resolveOfflineQueue and buildFallbackOfflineQueue provide a usable fallback', () async {
-      final fallbackLifecycle = ChatSessionLifecycle(
-        viewModel: viewModel,
-        connectionService: connectionService,
-        meshService: meshService,
-        messageSecurity: messageSecurity,
-        messageRepository: messageRepository,
-        offlineQueue: null,
-      );
-
-      final queue = fallbackLifecycle.resolveOfflineQueue();
-      expect(queue, isNotNull);
-
-      final initializedQueue = await fallbackLifecycle.buildFallbackOfflineQueue();
-      expect(initializedQueue, isA<OfflineMessageQueueContract>());
-      fallbackLifecycle.dispose();
-    });
-
-    test('hasMessagesQueuedForRelay returns false when queue lookup throws', () {
-      final throwingLifecycle = ChatSessionLifecycle(
-        viewModel: viewModel,
-        connectionService: connectionService,
-        meshService: meshService,
-        messageSecurity: messageSecurity,
-        messageRepository: messageRepository,
-        offlineQueue: _ThrowingQueue(),
-      );
-
-      expect(throwingLifecycle.hasMessagesQueuedForRelay('peer-z'), isFalse);
-      expect(throwingLifecycle.getQueuedMessagesForChat(), isEmpty);
-      throwingLifecycle.dispose();
-    });
-
-    testWidgets('setupContactRequestHandling shows dialog and executes accept/reject actions', (
-      tester,
-    ) async {
-      var invalidations = 0;
-      late BuildContext context;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (ctx) {
-              context = ctx;
-              lifecycle.setupContactRequestHandling(
-                context: context,
-                onSecurityStateInvalidate: () => invalidations++,
-                mounted: () => true,
-              );
-              return const Scaffold(body: SizedBox.shrink());
-            },
+        await lifecycle.requestPairing(
+          connectionInfo: const ConnectionInfo(
+            isConnected: false,
+            isReady: false,
           ),
-        ),
-      );
+          onErrorMessage: (msg) => error = msg,
+        );
+        expect(error, contains('Not connected'));
 
-      connectionService.emitContactRequest('pk-1', 'Alice');
-      await tester.pumpAndSettle();
-      expect(find.text('Contact Request'), findsOneWidget);
+        await lifecycle.requestPairing(
+          connectionInfo: const ConnectionInfo(
+            isConnected: true,
+            isReady: true,
+          ),
+          onErrorMessage: (msg) => error = msg,
+        );
+        expect(error, contains('controller not attached'));
+      },
+    );
 
-      await tester.tap(find.text('Accept'));
-      await tester.pumpAndSettle();
-      expect(invalidations, greaterThanOrEqualTo(1));
+    test(
+      'resolveOfflineQueue and buildFallbackOfflineQueue provide a usable fallback',
+      () async {
+        final fallbackLifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: null,
+        );
 
-      connectionService.emitContactRequest('pk-2', 'Bob');
-      await tester.pumpAndSettle();
-      expect(find.text('Contact Request'), findsOneWidget);
+        final queue = fallbackLifecycle.resolveOfflineQueue();
+        expect(queue, isNotNull);
 
-      await tester.tap(find.text('Reject'));
-      await tester.pumpAndSettle();
+        final initializedQueue = await fallbackLifecycle
+            .buildFallbackOfflineQueue();
+        expect(initializedQueue, isA<OfflineMessageQueueContract>());
+        fallbackLifecycle.dispose();
+      },
+    );
 
-      connectionService.emitAsymmetricContact('pk-3', 'Carol');
-      await tester.pump();
-    });
+    test(
+      'hasMessagesQueuedForRelay returns false when queue lookup throws',
+      () {
+        final throwingLifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: _ThrowingQueue(),
+        );
+
+        expect(throwingLifecycle.hasMessagesQueuedForRelay('peer-z'), isFalse);
+        expect(throwingLifecycle.getQueuedMessagesForChat(), isEmpty);
+        throwingLifecycle.dispose();
+      },
+    );
+
+    testWidgets(
+      'setupContactRequestHandling shows dialog and executes accept/reject actions',
+      (tester) async {
+        var invalidations = 0;
+        late BuildContext context;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (ctx) {
+                context = ctx;
+                lifecycle.setupContactRequestHandling(
+                  context: context,
+                  onSecurityStateInvalidate: () => invalidations++,
+                  mounted: () => true,
+                );
+                return const Scaffold(body: SizedBox.shrink());
+              },
+            ),
+          ),
+        );
+
+        connectionService.emitContactRequest('pk-1', 'Alice');
+        await tester.pumpAndSettle();
+        expect(find.text('Contact Request'), findsOneWidget);
+
+        await tester.tap(find.text('Accept'));
+        await tester.pumpAndSettle();
+        expect(invalidations, greaterThanOrEqualTo(1));
+
+        connectionService.emitContactRequest('pk-2', 'Bob');
+        await tester.pumpAndSettle();
+        expect(find.text('Contact Request'), findsOneWidget);
+
+        await tester.tap(find.text('Reject'));
+        await tester.pumpAndSettle();
+
+        connectionService.emitAsymmetricContact('pk-3', 'Carol');
+        await tester.pump();
+      },
+    );
   });
 }

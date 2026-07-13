@@ -2,6 +2,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/screens/permission_screen.dart';
 
@@ -19,6 +20,7 @@ class _SafePermissionTimeoutNotifier extends PermissionTimeoutStateNotifier {
 Future<void> _pumpPermissionScreen(
   WidgetTester tester, {
   required BluetoothLowEnergyState state,
+  bool hasBlePermissions = true,
 }) async {
   tester.view.physicalSize = const Size(1200, 2000);
   tester.view.devicePixelRatio = 1.0;
@@ -29,6 +31,9 @@ Future<void> _pumpPermissionScreen(
     ProviderScope(
       overrides: [
         bleStateProvider.overrideWith((ref) => AsyncValue.data(state)),
+        blePermissionsGrantedProvider.overrideWith(
+          (ref) async => hasBlePermissions,
+        ),
         permissionTimeoutProvider.overrideWith(
           (ref) => _SafePermissionTimeoutNotifier(),
         ),
@@ -47,9 +52,9 @@ void main() {
         state: BluetoothLowEnergyState.poweredOn,
       );
 
-      expect(find.text('All set! Ready to chat'), findsOneWidget);
-      expect(find.text('Start Anew'), findsOneWidget);
-      expect(find.text('Import Existing Data'), findsOneWidget);
+      expect(find.text('Setup complete'), findsOneWidget);
+      expect(find.text('Open Home'), findsOneWidget);
+      expect(find.text('Restore Backup'), findsOneWidget);
     });
 
     testWidgets('shows permission request UI when BLE is unauthorized', (
@@ -58,6 +63,7 @@ void main() {
       await _pumpPermissionScreen(
         tester,
         state: BluetoothLowEnergyState.unauthorized,
+        hasBlePermissions: false,
       );
 
       expect(find.text('Bluetooth Permission Required'), findsOneWidget);
@@ -65,12 +71,31 @@ void main() {
       expect(find.text('Open Settings'), findsOneWidget);
     });
 
+    testWidgets(
+      'shows background re-check UI when plugin says unauthorized but permissions are already granted',
+      (tester) async {
+        await _pumpPermissionScreen(
+          tester,
+          state: BluetoothLowEnergyState.unauthorized,
+          hasBlePermissions: true,
+        );
+
+        expect(find.text('Finalizing Bluetooth access...'), findsOneWidget);
+        expect(
+          find.textContaining('Android permissions are granted'),
+          findsOneWidget,
+        );
+        expect(find.text('Grant Permission'), findsNothing);
+      },
+    );
+
     testWidgets('shows powered off guidance when BLE is disabled', (
       tester,
     ) async {
       await _pumpPermissionScreen(
         tester,
         state: BluetoothLowEnergyState.poweredOff,
+        hasBlePermissions: false,
       );
 
       expect(find.text('Bluetooth is turned off'), findsOneWidget);
@@ -81,6 +106,7 @@ void main() {
       await _pumpPermissionScreen(
         tester,
         state: BluetoothLowEnergyState.unknown,
+        hasBlePermissions: false,
       );
 
       expect(find.text('Checking Bluetooth status...'), findsOneWidget);
@@ -98,10 +124,10 @@ void main() {
         state: BluetoothLowEnergyState.poweredOn,
       );
 
-      await tester.tap(find.text('Why is this needed?'));
+      await tester.tap(find.text('Why does mesh need this?'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Why Bluetooth Permission?'), findsOneWidget);
+      expect(find.text('Why Mesh Permissions?'), findsOneWidget);
       expect(
         find.text('Your messages never leave your devices'),
         findsOneWidget,
@@ -110,7 +136,20 @@ void main() {
       await tester.tap(find.text('Got it'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Why Bluetooth Permission?'), findsNothing);
+      expect(find.text('Why Mesh Permissions?'), findsNothing);
+    });
+
+    testWidgets('shows permission UI when Bluetooth is on but permission is missing', (
+      tester,
+    ) async {
+      await _pumpPermissionScreen(
+        tester,
+        state: BluetoothLowEnergyState.poweredOn,
+        hasBlePermissions: false,
+      );
+
+      expect(find.text('Nearby Devices Permission Required'), findsOneWidget);
+      expect(find.text('Grant Permission'), findsOneWidget);
     });
   });
 }

@@ -30,6 +30,7 @@ import 'package:pak_connect/domain/interfaces/i_import_service.dart';
 import 'package:pak_connect/domain/interfaces/i_intro_hint_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_panic_wipe_service.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
@@ -510,6 +511,7 @@ class TestSetup {
       meshNetworkingService: meshNetworkingService,
       meshNetworkHealthMonitor: meshHealthMonitor,
       securityService: securityService,
+      panicWipeService: _NoopPanicWipeService(),
       contactManagementService: contactManagementService,
       chatManagementService: chatManagementService,
       archiveManagementService: archiveManagementService,
@@ -935,4 +937,10 @@ class _ContactRepositoryAdapter extends ContactRepository {
   @override
   Future<bool> isContactFavorite(String publicKey) =>
       _delegate.isContactFavorite(publicKey);
+}
+
+class _NoopPanicWipeService implements IPanicWipeService {
+  @override
+  Future<PanicWipeResult> execute({required PanicWipeOrigin origin}) async =>
+      PanicWipeResult(success: true);
 }

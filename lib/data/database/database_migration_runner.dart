@@ -478,10 +478,11 @@ class DatabaseMigrationRunner {
       );
     }
 
-    // Migration from version 11 to 12: Add per-peer change_log sync cursor
+    // Migration from version 11 to 12: reserve a per-peer change_log cursor.
+    // The column remains for schema compatibility; live replay is disabled.
     if (oldVersion < 12 && newVersion >= 12) {
       logger.info(
-        '🔧 Adding last_synced_changelog_id to queue_sync_state for live P2P sync...',
+        '🔧 Adding reserved last_synced_changelog_id to queue_sync_state...',
       );
 
       await db.execute('''

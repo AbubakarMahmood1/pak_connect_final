@@ -640,6 +640,8 @@ class _FakeConnectionService implements IConnectionService {
     String? messageId,
     String? originalIntendedRecipient,
   }) async => true;
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async => true;
 
   @override
   Future<String> sendBinaryMedia({
@@ -657,7 +659,10 @@ class _FakeConnectionService implements IConnectionService {
     int? originalType,
   }) async => true;
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async => true;
   @override
   Future<void> startScanning({
     ScanningSource source = ScanningSource.system,

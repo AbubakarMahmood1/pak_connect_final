@@ -6,10 +6,11 @@
 /// Reference: bitchat-android/noise/NoiseEncryptionService.kt (496 lines)
 library;
 
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logging/logging.dart';
+import '../secure_key.dart';
 import 'primitives/dh_state.dart';
 import 'models/noise_models.dart';
 import 'noise_session.dart';
@@ -30,7 +31,7 @@ class NoiseEncryptionService {
   final FlutterSecureStorage _secureStorage;
 
   /// Static identity keys (persistent across app restarts)
-  late final Uint8List _staticIdentityPrivateKey;
+  late final SecureKey _staticIdentityPrivateKey;
   late final Uint8List _staticIdentityPublicKey;
 
   /// Session manager
@@ -65,7 +66,7 @@ class NoiseEncryptionService {
 
     // Initialize session manager
     _sessionManager = NoiseSessionManager(
-      localStaticPrivateKey: _staticIdentityPrivateKey,
+      localStaticPrivateKey: _staticIdentityPrivateKey.copyData(),
       localStaticPublicKey: _staticIdentityPublicKey,
     );
 
@@ -86,7 +87,7 @@ class NoiseEncryptionService {
 
     if (privateKeyStr != null && publicKeyStr != null) {
       // Load existing keys
-      _staticIdentityPrivateKey = _hexToBytes(privateKeyStr);
+      _staticIdentityPrivateKey = SecureKey(_hexToBytes(privateKeyStr));
       _staticIdentityPublicKey = _hexToBytes(publicKeyStr);
       _logger.info('Loaded existing static identity key');
     } else {
@@ -94,14 +95,13 @@ class NoiseEncryptionService {
       final dhState = DHState();
       dhState.generateKeyPair();
 
-      _staticIdentityPrivateKey = dhState.getPrivateKey()!;
+      final privateKeyBytes = Uint8List.fromList(dhState.getPrivateKey()!);
+      final privateKeyHex = _bytesToHex(privateKeyBytes);
+      _staticIdentityPrivateKey = SecureKey(privateKeyBytes);
       _staticIdentityPublicKey = dhState.getPublicKey()!;
 
       // Save to secure storage
-      await _secureStorage.write(
-        key: _keyStaticPrivate,
-        value: _bytesToHex(_staticIdentityPrivateKey),
-      );
+      await _secureStorage.write(key: _keyStaticPrivate, value: privateKeyHex);
       await _secureStorage.write(
         key: _keyStaticPublic,
         value: _bytesToHex(_staticIdentityPublicKey),
@@ -135,7 +135,7 @@ class NoiseEncryptionService {
   /// material (for example sealed/offline decrypt).
   Uint8List getStaticPrivateKeyData() {
     _checkInitialized();
-    return Uint8List.fromList(_staticIdentityPrivateKey);
+    return _staticIdentityPrivateKey.copyData();
   }
 
   /// Get our identity fingerprint
@@ -195,7 +195,7 @@ class NoiseEncryptionService {
   /// [remoteStaticPublicKey] Remote's static public key (REQUIRED for KK pattern)
   ///
   /// For XX pattern: Returns first handshake message (32 bytes)
-  /// For KK pattern: Returns first handshake message (96 bytes)
+  /// For KK pattern: Returns first handshake message (48 bytes)
   Future<Uint8List?> initiateHandshake(
     String peerID, {
     NoisePattern pattern = NoisePattern.xx,
@@ -377,6 +377,11 @@ class NoiseEncryptionService {
   Future<void> clearPersistentIdentity() async {
     _logger.warning('Clearing persistent identity!');
 
+    if (_initialized) {
+      _sessionManager.shutdown();
+      _zeroizeStaticIdentityPrivateKey();
+    }
+
     await _secureStorage.delete(key: _keyStaticPrivate);
     await _secureStorage.delete(key: _keyStaticPublic);
 
@@ -390,9 +395,18 @@ class NoiseEncryptionService {
     if (_initialized) {
       _logger.info('Shutting down Noise encryption service');
       _sessionManager.shutdown();
+      _zeroizeStaticIdentityPrivateKey();
       _initialized = false;
     }
   }
+
+  void _zeroizeStaticIdentityPrivateKey() {
+    _staticIdentityPrivateKey.destroy();
+  }
+
+  @visibleForTesting
+  bool get debugIsStaticPrivateKeyZeroized =>
+      _staticIdentityPrivateKey.isDestroyed;
 
   // ========== UTILITIES ==========
 

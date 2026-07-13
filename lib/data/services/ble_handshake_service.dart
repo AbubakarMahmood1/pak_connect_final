@@ -88,6 +88,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
   IHandshakeCoordinator? _handshakeCoordinator;
   StreamSubscription<ConnectionPhase>? _handshakePhaseSubscription;
   final Set<void Function(ConnectionPhase)> _handshakePhaseListeners = {};
+  bool _handshakeStartInFlight = false;
 
   @override
   Stream<ConnectionPhase> get handshakePhaseStream =>
@@ -161,20 +162,25 @@ class BLEHandshakeService implements IBLEHandshakeService {
   }
 
   @override
-  Future<void> performHandshake({bool? startAsInitiatorOverride}) async {
+  Future<bool> performHandshake({
+    bool? startAsInitiatorOverride,
+    bool Function()? onStartAccepted,
+  }) async {
     _logger.info(
       '🤝 Starting handshake protocol @${DateTime.now().toIso8601String()}...',
     );
 
-    try {
-      if (_handshakeCoordinator != null && !_handshakeCoordinator!.isComplete) {
-        _logger.warning(
-          '⚠️ Handshake already in progress '
-          '(phase: ${_handshakeCoordinator!.currentPhase}) - ignoring duplicate performHandshake call',
-        );
-        return;
-      }
+    if (_handshakeStartInFlight ||
+        (_handshakeCoordinator != null && !_handshakeCoordinator!.isComplete)) {
+      _logger.warning(
+        '⚠️ Handshake already in progress '
+        '(phase: ${_handshakeCoordinator?.currentPhase}) - ignoring duplicate performHandshake call',
+      );
+      return false;
+    }
 
+    _handshakeStartInFlight = true;
+    try {
       // Clean up old handshake coordinator if it exists
       disposeHandshakeCoordinator();
 
@@ -229,6 +235,10 @@ class BLEHandshakeService implements IBLEHandshakeService {
         },
         startAsInitiator: startAsInitiator,
       );
+      if (onStartAccepted?.call() == false) {
+        disposeHandshakeCoordinator();
+        return false;
+      }
 
       // Listen to phase changes for UI feedback
       _handshakePhaseSubscription = _handshakeCoordinator!.phaseStream.listen((
@@ -298,6 +308,7 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
       // Start the handshake
       await _handshakeCoordinator!.startHandshake();
+      return true;
     } catch (e, stack) {
       _logger.severe('🚨 Handshake failed: $e', e, stack);
       _updateConnectionInfo(
@@ -305,6 +316,9 @@ class BLEHandshakeService implements IBLEHandshakeService {
         isReady: false,
         statusMessage: 'Connection failed',
       );
+      return false;
+    } finally {
+      _handshakeStartInFlight = false;
     }
   }
 
@@ -513,7 +527,8 @@ class BLEHandshakeService implements IBLEHandshakeService {
 
   @override
   bool get isHandshakeInProgress {
-    return _handshakeCoordinator != null && !_handshakeCoordinator!.isComplete;
+    return _handshakeStartInFlight ||
+        (_handshakeCoordinator != null && !_handshakeCoordinator!.isComplete);
   }
 
   @override

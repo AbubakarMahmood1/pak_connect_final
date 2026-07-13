@@ -202,7 +202,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
     }
   }
 
-  Future<void> _runtimeHandleCentralConnected(Central central) async {
+  Future<bool> _runtimeHandleCentralConnected(Central central) async {
     final address = central.uuid.toString();
     _trackPeerHintForAddress(address);
     final peerHint = _peerHintForAddress(address);
@@ -211,8 +211,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
     final hasServerForPeer = hasServerLinkForPeer(address);
     final hasHintCollision = hasAnyLinkForPeerHint(peerHint);
 
-    if (connectionState == ChatConnectionState.ready ||
-        hasServerForPeer ||
+    if (hasServerForPeer ||
         hasClientForPeer ||
         pendingClientForPeer ||
         hasHintCollision) {
@@ -237,7 +236,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
           '⚠️ Failed to reject duplicate inbound for ${_formatAddress(address)}: $e',
         );
       }
-      return;
+      return false;
     }
 
     if (_serverConnections.containsKey(address)) {
@@ -251,7 +250,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
           '⚠️ Failed to disconnect duplicate inbound central: $e',
         );
       }
-      return;
+      return false;
     }
 
     final collisionWithClient = _clientConnections.containsKey(address);
@@ -287,6 +286,7 @@ extension _BleConnectionManagerRuntimeServerLinks on BLEConnectionManager {
       await _resolveInboundCollision(address);
       _serverConnectionsController.add(serverConnections);
     }
+    return _serverConnections.containsKey(address);
   }
 
   void _runtimeHandleCentralDisconnected(Central central) {

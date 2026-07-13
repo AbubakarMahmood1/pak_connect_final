@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -166,43 +167,58 @@ class CompressionUtil {
     }
 
     try {
-      // Try primary format (raw deflate or zlib, based on config)
-      try {
-        final codec = ZLibCodec(raw: config.useRawDeflate);
-        final decompressed = codec.decode(compressed);
-        final decompressedBytes = Uint8List.fromList(decompressed);
-
-        if (decompressedBytes.length > limit) return null;
-
-        // Validate size if provided
-        if (originalSize != null && decompressedBytes.length != originalSize) {
-          throw Exception(
-            'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}',
-          );
-        }
-
-        return decompressedBytes;
-      } catch (primaryError) {
-        // Primary format failed, try fallback
-        final fallbackCodec = ZLibCodec(raw: !config.useRawDeflate);
-        final decompressed = fallbackCodec.decode(compressed);
-        final decompressedBytes = Uint8List.fromList(decompressed);
-
-        if (decompressedBytes.length > limit) return null;
-
-        // Validate size if provided
-        if (originalSize != null && decompressedBytes.length != originalSize) {
-          throw Exception(
-            'Decompressed size mismatch: expected $originalSize, got ${decompressedBytes.length}',
-          );
-        }
-
-        return decompressedBytes;
+      final primary = _decompressWithLimit(
+        compressed,
+        raw: config.useRawDeflate,
+        limit: limit,
+      );
+      if (_isValidDecompressedSize(primary, originalSize)) {
+        return primary;
       }
+
+      final fallback = _decompressWithLimit(
+        compressed,
+        raw: !config.useRawDeflate,
+        limit: limit,
+      );
+      if (_isValidDecompressedSize(fallback, originalSize)) {
+        return fallback;
+      }
+
+      return null;
     } catch (e) {
       // Both attempts failed
       return null;
     }
+  }
+
+  static Uint8List? _decompressWithLimit(
+    Uint8List compressed, {
+    required bool raw,
+    required int limit,
+  }) {
+    try {
+      final output = BytesBuilder(copy: false);
+      final sink = _BoundedByteSink(limit: limit, output: output);
+      final converter = ZLibCodec(raw: raw).decoder.startChunkedConversion(
+        sink,
+      );
+      converter.add(compressed);
+      converter.close();
+      return output.takeBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _isValidDecompressedSize(Uint8List? data, int? originalSize) {
+    if (data == null) {
+      return false;
+    }
+    if (originalSize != null && data.length != originalSize) {
+      return false;
+    }
+    return true;
   }
 
   /// Analyze data without compressing (preview)
@@ -321,4 +337,28 @@ class CompressionUtil {
       return false;
     }
   }
+}
+
+class _BoundedByteSink extends ByteConversionSinkBase {
+  _BoundedByteSink({
+    required this.limit,
+    required this.output,
+  });
+
+  final int limit;
+  final BytesBuilder output;
+  int _written = 0;
+
+  @override
+  void add(List<int> chunk) {
+    final nextLength = _written + chunk.length;
+    if (nextLength > limit) {
+      throw const FormatException('Decompressed payload exceeds size limit');
+    }
+    output.add(chunk);
+    _written = nextLength;
+  }
+
+  @override
+  void close() {}
 }

@@ -101,7 +101,9 @@ class BLEConnectionManager {
   Function(Peripheral?)? onConnectionChanged;
   Function(GATTCharacteristic?)? onCharacteristicFound;
   Function(int?)? onMtuDetected;
-  Function()? onConnectionComplete;
+  Function(String address, int mtu, int? schedulerAttemptId)? onClientMtuReady;
+  Function(String address, int? schedulerAttemptId)? onClientNotifySubscribed;
+  Function(String address, int? schedulerAttemptId)? onConnectionComplete;
   Function(bool)? onMonitoringChanged;
   Function(ConnectionInfo)? onConnectionInfoChanged;
 
@@ -113,6 +115,10 @@ class BLEConnectionManager {
       StreamController<List<BLEServerConnection>>.broadcast();
   Stream<List<BLEServerConnection>> get serverConnectionsStream =>
       _serverConnectionsController.stream;
+  Future<void> Function(Peripheral device)? outboundConnectCoordinator;
+  void Function(String? peerId)? onReconnectAttemptStarted;
+  void Function(String? peerId, bool success)? onReconnectAttemptFinished;
+  bool _bypassingOutboundConnectCoordinator = false;
 
   BLEConnectionManager({
     required this.centralManager,
@@ -147,6 +153,10 @@ class BLEConnectionManager {
       hasViableRelayConnection: _hasViableRelayConnection,
       onMonitoringChanged: onMonitoringChanged,
       onReconnectionFlagChanged: (value) => _isReconnection = value,
+      onReconnectionAttemptStarted: (peerId) =>
+          onReconnectAttemptStarted?.call(peerId),
+      onReconnectionAttemptFinished: (peerId, success) =>
+          onReconnectAttemptFinished?.call(peerId, success),
       // Treat any active link (client or server) as connected so reconnection
       // suppression works during inbound-only sessions.
       hasActiveClientLink: () =>
@@ -364,6 +374,16 @@ class BLEConnectionManager {
   bool hasPendingClientForPeer(String peerAddress) =>
       _matchPendingClientAddressByPeer(peerAddress) != null;
 
+  BLEClientConnection? clientConnectionForPeer(String peerAddress) {
+    final address = _matchClientAddressByPeer(peerAddress);
+    return address == null ? null : _clientConnections[address];
+  }
+
+  BLEServerConnection? serverConnectionForPeer(String peerAddress) {
+    final address = _matchServerAddressByPeer(peerAddress);
+    return address == null ? null : _serverConnections[address];
+  }
+
   void _notifyInboundRejected(String address) {
     _healthMonitor.setAwaitingHandshake(false);
     _healthMonitor.setHandshakeInProgress(false);
@@ -545,9 +565,8 @@ class BLEConnectionManager {
   /// 📥 Handle incoming connection (we're peripheral, they're central)
   ///
   /// Called when a remote central connects to our advertising peripheral
-  void handleCentralConnected(Central central) async {
-    await _runtimeHandleCentralConnected(central);
-  }
+  Future<bool> handleCentralConnected(Central central) =>
+      _runtimeHandleCentralConnected(central);
 
   /// 📤 Handle incoming disconnection (central disconnected from us)
   ///
@@ -595,8 +614,31 @@ class BLEConnectionManager {
   /// Phase 4: RSSI-based connection filtering
   /// - Optional [rssi] parameter allows filtering weak signals in low power modes
   /// - Threshold varies by power mode: -95 (performance) to -65 (ultra low)
-  Future<void> connectToDevice(Peripheral device, {int? rssi}) =>
-      _runtimeConnectToDevice(device, rssi: rssi);
+  Future<void> connectToDevice(Peripheral device, {int? rssi}) {
+    final coordinator = outboundConnectCoordinator;
+    if (coordinator != null && !_bypassingOutboundConnectCoordinator) {
+      return coordinator(device);
+    }
+    return _runtimeConnectToDevice(device, rssi: rssi);
+  }
+
+  Future<void> connectToDeviceDirect(
+    Peripheral device, {
+    int? rssi,
+    int? schedulerAttemptId,
+  }) async {
+    final previousValue = _bypassingOutboundConnectCoordinator;
+    _bypassingOutboundConnectCoordinator = true;
+    try {
+      await _runtimeConnectToDevice(
+        device,
+        rssi: rssi,
+        schedulerAttemptId: schedulerAttemptId,
+      );
+    } finally {
+      _bypassingOutboundConnectCoordinator = previousValue;
+    }
+  }
 
   void setMessageOperationInProgress(bool inProgress) {
     _healthMonitor.setMessageOperationInProgress(inProgress);

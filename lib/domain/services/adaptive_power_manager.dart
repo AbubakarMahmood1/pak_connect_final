@@ -347,6 +347,12 @@ class AdaptivePowerManager {
     if (!_isBurstMode) return;
 
     _burstTimer?.cancel();
+    if (remaining <= Duration.zero) {
+      _stopBurstScan();
+      _logger.info('Manual override: active burst ended immediately');
+      return;
+    }
+
     _burstTimer = Timer(remaining, () {
       _stopBurstScan();
     });
@@ -445,6 +451,8 @@ class AdaptivePowerManager {
       }
       _scheduleNextScan();
     });
+
+    onStatsUpdate?.call(getCurrentStats());
 
     _logger.fine(
       'Next scan scheduled in ${actualInterval}ms (base: ${baseInterval}ms, mode: ${_currentPowerMode.name}) at $_nextScheduledScanTime',
@@ -657,6 +665,7 @@ class AdaptivePowerManager {
     _healthCheckTimer?.cancel();
     _burstTimer?.cancel();
     _dutyCycleTimer?.cancel(); // Phase 1: Stop duty cycle timer
+    _nextScheduledScanTime = null;
 
     if (_isBurstMode) {
       onStopScan?.call();
@@ -668,6 +677,8 @@ class AdaptivePowerManager {
       onStopScan?.call();
       _isDutyCycleScanning = false;
     }
+
+    onStatsUpdate?.call(getCurrentStats());
   }
 
   /// Load settings from persistent storage

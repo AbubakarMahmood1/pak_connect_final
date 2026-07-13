@@ -181,34 +181,7 @@ final archivedChatProvider = FutureProvider.family<ArchivedChat?, ArchiveId>((
   final managementService = ref.watch(archiveManagementServiceProvider);
 
   try {
-    // Get archived chat through service API
-    final summaries = await managementService.getEnhancedArchiveSummaries();
-    final summary = summaries
-        .where((s) => s.summary.id == archiveId)
-        .firstOrNull;
-
-    if (summary == null) return null;
-
-    // For now, return a basic implementation - this would need proper API extension
-    return ArchivedChat.fromJson({
-      'id': summary.summary.id.value,
-      'originalChatId': summary.summary.originalChatId.value,
-      'contactName': summary.summary.contactName,
-      'archivedAt': summary.summary.archivedAt.millisecondsSinceEpoch,
-      'messageCount': summary.summary.messageCount,
-      'metadata': {
-        'version': '1.0',
-        'reason': 'User archived',
-        'originalUnreadCount': 0,
-        'wasOnline': false,
-        'hadUnsentMessages': false,
-        'estimatedStorageSize': summary.summary.estimatedSize,
-        'archiveSource': 'ArchiveProvider',
-        'tags': summary.summary.tags,
-        'hasSearchIndex': summary.summary.isSearchable,
-      },
-      'messages': [], // Would need proper message loading
-    });
+    return await managementService.getArchivedChat(archiveId);
   } catch (e) {
     _logger.severe('Failed to get archived chat: $e');
     return null;

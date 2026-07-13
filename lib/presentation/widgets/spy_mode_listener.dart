@@ -7,13 +7,21 @@ import 'package:logging/logging.dart';
 import '../providers/ble_providers.dart';
 import '../dialogs/spy_mode_reveal_dialog.dart';
 import '../../domain/models/spy_mode_info.dart';
+import '../../domain/models/identity_reveal_info.dart';
+import '../screens/chat_screen.dart';
 
 final _logger = Logger('SpyModeListener');
 
 class SpyModeListener extends ConsumerStatefulWidget {
   final Widget child;
+  final Widget Function(BuildContext context, IdentityRevealInfo reveal)?
+  identityRevealDestinationBuilder;
 
-  const SpyModeListener({super.key, required this.child});
+  const SpyModeListener({
+    super.key,
+    required this.child,
+    this.identityRevealDestinationBuilder,
+  });
 
   @override
   ConsumerState<SpyModeListener> createState() => _SpyModeListenerState();
@@ -33,9 +41,12 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
     });
 
     // Listen to identity revealed events
-    ref.listen<AsyncValue<String>>(identityRevealedProvider, (previous, next) {
-      next.whenData((contactName) {
-        _showIdentityRevealedNotification(context, contactName);
+    ref.listen<AsyncValue<IdentityRevealInfo>>(identityRevealedProvider, (
+      previous,
+      next,
+    ) {
+      next.whenData((reveal) {
+        _showIdentityRevealedNotification(context, reveal);
       });
     });
 
@@ -55,10 +66,10 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
       final revealMessage = await connectionService.revealIdentityToFriend();
 
       if (revealMessage != null) {
-        // Send the reveal message
         try {
-          // Note: The reveal message will be sent via the protocol message handler
-          _logger.fine('🕵️ Reveal message created: $revealMessage');
+          // The connection service returns the frame only after it has been
+          // written to one unambiguous BLE route.
+          _logger.fine('🕵️ Reveal message sent: $revealMessage');
 
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -117,7 +128,7 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
   /// Show identity revealed notification
   void _showIdentityRevealedNotification(
     BuildContext context,
-    String contactName,
+    IdentityRevealInfo reveal,
   ) {
     if (!context.mounted) return;
 
@@ -127,7 +138,9 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
           children: [
             Icon(Icons.person, color: Colors.white),
             SizedBox(width: 12),
-            Expanded(child: Text('$contactName revealed their identity!')),
+            Expanded(
+              child: Text('${reveal.contactName} revealed their identity!'),
+            ),
           ],
         ),
         backgroundColor: Colors.blue.shade700,
@@ -136,8 +149,20 @@ class _SpyModeListenerState extends ConsumerState<SpyModeListener> {
           label: 'VIEW',
           textColor: Colors.white,
           onPressed: () {
-            // Navigate to chat with this contact
-            // TODO: Implement navigation to contact's chat
+            Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (routeContext) =>
+                    widget.identityRevealDestinationBuilder?.call(
+                      routeContext,
+                      reveal,
+                    ) ??
+                    ChatScreen.fromChatData(
+                      chatId: reveal.chatId.value,
+                      contactName: reveal.contactName,
+                      contactPublicKey: reveal.contactPublicKey,
+                    ),
+              ),
+            );
           },
         ),
       ),

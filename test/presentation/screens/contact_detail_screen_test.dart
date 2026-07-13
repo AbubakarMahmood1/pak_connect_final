@@ -163,7 +163,7 @@ void main() {
       expect(find.text('Alice'), findsOneWidget);
       expect(find.text('Security'), findsOneWidget);
       expect(find.text('Activity'), findsOneWidget);
-      expect(find.text('Groups'), findsOneWidget);
+      expect(find.text('Broadcast lists'), findsOneWidget);
       expect(find.text('Family'), findsOneWidget);
       expect(find.text('Send Message'), findsOneWidget);
       expect(find.text('Verify Contact'), findsOneWidget);

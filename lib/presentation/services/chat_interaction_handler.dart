@@ -604,7 +604,7 @@ class ChatInteractionHandler implements IChatInteractionHandler {
             await markChatAsRead(chat.chatId);
             break;
           case 'mark_unread':
-            // TODO: Implement mark as unread in repository
+            await markChatAsUnread(chat.chatId);
             break;
           case 'pin':
           case 'unpin':
@@ -638,10 +638,31 @@ class ChatInteractionHandler implements IChatInteractionHandler {
   @override
   Future<void> markChatAsRead(ChatId chatId) async {
     try {
-      await _chatsRepository?.markChatAsRead(chatId);
+      final repository = _chatsRepository;
+      if (repository == null) return;
+
+      await repository.markChatAsRead(chatId);
+      _emitIntent(ChatReadStatusChangedIntent(chatId.value, isUnread: false));
       _logger.info('✅ Chat marked as read: ${chatId.value}');
     } catch (e) {
       _logger.severe('❌ Error marking chat as read: $e');
+    }
+  }
+
+  @override
+  Future<void> markChatAsUnread(ChatId chatId) async {
+    try {
+      final repository = _chatsRepository;
+      if (repository == null) return;
+
+      // The menu offers this action only when unreadCount is zero, so one
+      // increment creates the conventional manual unread marker without
+      // inflating an existing count.
+      await repository.incrementUnreadCount(chatId);
+      _emitIntent(ChatReadStatusChangedIntent(chatId.value, isUnread: true));
+      _logger.info('✅ Chat marked as unread: ${chatId.value}');
+    } catch (e) {
+      _logger.severe('❌ Error marking chat as unread: $e');
     }
   }
 

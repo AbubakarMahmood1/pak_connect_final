@@ -1,13 +1,15 @@
 # Contributing to PakConnect
 
-PakConnect is a proprietary internal repository. External contributions are not accepted at this time. This guide is intended for authorized team members only.
+PakConnect is a publicly visible proprietary repository. External contributions
+are not accepted at this time. This guide is intended for authorized team
+members only.
 
 ---
 
 ## Development Environment Setup
 
-- Flutter 3.9 or higher
-- Dart 3.9 or higher
+- Flutter 3.38.4 or higher (CI is pinned to 3.44.4)
+- Dart 3.10.3 or higher
 - Android or iOS physical hardware for Bluetooth Low Energy (BLE) testing — emulators do not support BLE
 - Ensure `flutter doctor` reports no critical issues before beginning work
 
@@ -26,7 +28,10 @@ The project follows a layered architecture. Keep boundaries intact:
 - `lib/domain/` — entities, use cases, and repository interfaces
 - `lib/presentation/` — UI, view models, and state management
 
-Do not import from `presentation/` into `domain/` or `data/`. Do not import from `data/` into `domain/`. When in doubt, consult the existing structure before adding new dependencies across layers.
+Keep `domain/` independent of `core/`, `data/`, and `presentation/`. `core/`
+may consume domain contracts but must not import `data/` or `presentation/`;
+`data/` must not import `presentation/`. When in doubt, consult the existing
+import graph before adding a cross-layer dependency.
 
 ### General
 
@@ -41,10 +46,23 @@ Do not import from `presentation/` into `domain/` or `data/`. Do not import from
 All functional changes must be accompanied by new or updated tests. Run the full test suite locally before pushing:
 
 ```
+flutter analyze --no-pub
 flutter test
 ```
 
-CI enforces coverage thresholds. A pull request that causes coverage to drop will not be approved. If you are adding code that is genuinely untestable (e.g., platform channel wrappers), document the reason clearly in the PR description.
+The `flutter_coverage.yml` workflow runs repository audit gates, a strict BLE
+singleton test, and the full VM-friendly suite with coverage. It uploads LCOV
+and test/analyzer logs, but it does not currently enforce a numeric coverage
+threshold. Static analysis and the reachability review are fatal on every
+workflow run. Physical-device tests under `integration_test/` are a separate
+manual gate and are not run by CI.
+
+The separate `codeql.yml` workflow runs for pull requests targeting `main` and
+on its weekly schedule. It analyzes Android Java/Kotlin and GitHub Actions
+definitions; it does not analyze Dart code.
+
+If code is genuinely device-bound (for example, a platform-channel wrapper),
+document the limitation and the required device evidence in the pull request.
 
 ---
 

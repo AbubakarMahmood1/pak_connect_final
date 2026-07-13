@@ -3,7 +3,7 @@
 # Real Device Testing Script for Phase 2B.1
 # This script automates APK building, deployment, and log collection
 
-set -e
+set -euo pipefail
 
 # Color codes
 RED='\033[0;31m'
@@ -17,10 +17,29 @@ PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TEST_DIR="$PROJECT_ROOT/testing_logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 TEST_SESSION_DIR="$TEST_DIR/$TIMESTAMP"
+BUILD_MODE="${PAKCONNECT_BUILD_MODE:-debug}"
+
+case "${1:-}" in
+    --debug) BUILD_MODE="debug" ;;
+    --release) BUILD_MODE="release" ;;
+    "") ;;
+    *)
+        echo "Usage: $0 [--debug|--release]"
+        exit 2
+        ;;
+esac
+
+if [[ "$BUILD_MODE" != "debug" && "$BUILD_MODE" != "release" ]]; then
+    echo "PAKCONNECT_BUILD_MODE must be 'debug' or 'release'"
+    exit 2
+fi
+
+APK_PATH="$PROJECT_ROOT/build/app/outputs/flutter-apk/app-${BUILD_MODE}.apk"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Phase 2B.1 Real Device Testing Script${NC}"
 echo -e "${BLUE}========================================${NC}"
+echo "Build mode: $BUILD_MODE"
 echo ""
 
 # Functions
@@ -60,19 +79,34 @@ build_apk() {
     echo -e "${YELLOW}Building APK for testing...${NC}"
     cd "$PROJECT_ROOT"
 
+    if [[ "$BUILD_MODE" == "release" && ! -f "$PROJECT_ROOT/android/key.properties" ]]; then
+        if [[ -z "${ANDROID_STORE_FILE:-}" ||
+              -z "${ANDROID_STORE_PASSWORD:-}" ||
+              -z "${ANDROID_KEY_ALIAS:-}" ||
+              -z "${ANDROID_KEY_PASSWORD:-}" ]]; then
+            echo -e "${RED}❌ Release signing is not configured.${NC}"
+            echo "   Add android/key.properties (see android/key.properties.example)"
+            echo "   or set all four ANDROID_STORE_FILE, ANDROID_STORE_PASSWORD,"
+            echo "   ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD variables."
+            exit 1
+        fi
+    fi
+
     # Clean
     echo "  Cleaning build artifacts..."
     flutter clean > /dev/null 2>&1
 
     # Build
-    echo "  Building APK (this may take 3-5 minutes)..."
-    flutter build apk --release
+    echo "  Building $BUILD_MODE APK (this may take 3-5 minutes)..."
+    flutter build apk "--$BUILD_MODE"
 
-    if [ -f "build/app/outputs/flutter-app.apk" ]; then
-        SIZE=$(du -h "build/app/outputs/flutter-app.apk" | cut -f1)
+    if [ -f "$APK_PATH" ]; then
+        SIZE=$(du -h "$APK_PATH" | cut -f1)
         echo -e "${GREEN}✅ APK built successfully (${SIZE})${NC}"
+        echo "   $APK_PATH"
     else
-        echo -e "${RED}❌ APK build failed${NC}"
+        echo -e "${RED}❌ APK build did not produce the expected file:${NC}"
+        echo "   $APK_PATH"
         exit 1
     fi
     echo ""
@@ -85,7 +119,7 @@ deploy_apk() {
         if [[ $device == *"device"* ]]; then
             DEVICE_ID=$(echo $device | awk '{print $1}')
             echo "  Installing on $DEVICE_ID..."
-            adb -s "$DEVICE_ID" install -r "$PROJECT_ROOT/build/app/outputs/flutter-app.apk" > /dev/null 2>&1
+            adb -s "$DEVICE_ID" install -r "$APK_PATH" > /dev/null 2>&1
             echo -e "${GREEN}  ✅ Installed on $DEVICE_ID${NC}"
         fi
     done < <(adb devices)

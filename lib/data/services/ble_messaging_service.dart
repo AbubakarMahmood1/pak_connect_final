@@ -117,12 +117,6 @@ class BLEMessagingService implements IBLEMessagingService {
        _getPeripheralMessageCharacteristic = getPeripheralMessageCharacteristic,
        _getPeripheralMtuReady = getPeripheralMtuReady,
        _getPeripheralNegotiatedMtu = getPeripheralNegotiatedMtu {
-    // Relay messages from handler into internal listeners.
-    _messageHandler.onRelayMessageReceived =
-        (String originalMessageId, String content, String originalSender) {
-          _emitReceivedMessage(content);
-        };
-
     // Forward binary fragments hop-by-hop; reassembly happens only at recipient.
     _messageHandler.onForwardBinaryFragment =
         (
@@ -298,31 +292,73 @@ class BLEMessagingService implements IBLEMessagingService {
   }
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage) async {
-    final hasCentralLink =
-        _connectionManager.hasBleConnection &&
-        _connectionManager.messageCharacteristic != null;
-    final hasPeripheralLink =
-        _stateManager.isPeripheralMode &&
-        _getConnectedCentral() != null &&
-        _getPeripheralMessageCharacteristic() != null;
-
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  }) async {
     if (_connectionManager.isHandshakeInProgress ||
         _connectionManager.awaitingHandshake) {
       _logger.fine(
         '🔄 QUEUE SYNC: Skipping send while handshake is in progress',
       );
-      return;
+      return false;
     }
+
+    final targetPeerAddress = peerId?.trim();
+    if (targetPeerAddress == null || targetPeerAddress.isEmpty) {
+      _logger.warning('🔄 QUEUE SYNC: concrete BLE device address is required');
+      return false;
+    }
+
+    // Queue sync is correlated to an exact transport address. The connection
+    // manager can also resolve identity hints, so reject a candidate unless its
+    // concrete address exactly matches the requested route.
+    final clientCandidate = _connectionManager.clientConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetClient = clientCandidate?.address == targetPeerAddress
+        ? clientCandidate
+        : null;
+    final serverCandidate = _connectionManager.serverConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetServer = serverCandidate?.address == targetPeerAddress
+        ? serverCandidate
+        : null;
+    final hasCentralLink = targetClient?.messageCharacteristic != null;
+    final hasPeripheralLink = targetServer?.subscribedCharacteristic != null;
+
     if (!hasCentralLink && !hasPeripheralLink) {
-      _logger.fine('🔄 QUEUE SYNC: No active BLE link, skipping send');
-      return;
+      _logger.fine(
+        '🔄 QUEUE SYNC: No exact BLE route for $targetPeerAddress; '
+        'skipping send',
+      );
+      return false;
     }
 
     final protocolMessage = ProtocolMessage.queueSync(
       queueMessage: queueMessage,
     );
-    await _sendProtocolMessage(protocolMessage);
+    try {
+      await _sendProtocolMessage(protocolMessage, peerId: targetPeerAddress);
+      return true;
+    } catch (e) {
+      // Callers fire-and-forget; surface failure as a result, not as an
+      // unhandled async exception.
+      _logger.warning('🔄 QUEUE SYNC: send failed: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    try {
+      await _sendProtocolMessage(message);
+      return true;
+    } catch (e) {
+      _logger.warning('Failed to send protocol message directly: $e');
+      return false;
+    }
   }
 
   // ============================================================================
@@ -533,7 +569,7 @@ class BLEMessagingService implements IBLEMessagingService {
       metadata: {
         'recipientId': recipientId,
         'originalType': originalType,
-        if (metadata != null) ...metadata,
+        ...?metadata,
       },
     );
     unawaited(_mediaStore.cleanupStaleTransfers());
@@ -582,15 +618,17 @@ class BLEMessagingService implements IBLEMessagingService {
     return true;
   }
 
-  Future<void> _sendProtocolMessage(ProtocolMessage message) =>
-      _transportHelper.sendProtocolMessage(message);
+  Future<void> _sendProtocolMessage(
+    ProtocolMessage message, {
+    String? peerId,
+  }) => _transportHelper.sendProtocolMessage(message, peerId: peerId);
 
   // ============================================================================
   // MESSAGE RECEPTION & STREAM
   // ============================================================================
 
   @override
-  Future<void> processIncomingPeripheralData(
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
@@ -600,13 +638,30 @@ class BLEMessagingService implements IBLEMessagingService {
         senderDeviceId,
         providedNodeId: senderNodeId,
       );
-      await _messageHandler.processReceivedData(
+      // Retain the identity/address mapping for binary relay echo suppression.
+      // Queue sync deliberately does not use this mutable alias map; it routes
+      // and correlates with senderDeviceId directly.
+      if (inferredNodeId.isNotEmpty) {
+        _nodeIdToAddress[inferredNodeId] = senderDeviceId;
+      }
+      final result = await _messageHandler.processReceivedData(
         data: data,
         fromDeviceId: senderDeviceId,
         fromNodeId: inferredNodeId,
       );
+      // Non-null marker → something was produced/handled; null → legitimately
+      // nothing to surface (buffered fragment, ping, not-for-us). Both ACK.
+      return result != null
+          ? InboundProcessStatus.handled
+          : InboundProcessStatus.ignored;
+    } on InboundMessageProcessingException catch (e) {
+      _logger.warning(
+        '⚠️ Inbound payload from $senderDeviceId failed to process; NACKing: $e',
+      );
+      return InboundProcessStatus.failed;
     } catch (e) {
       _logger.warning('⚠️ Failed to process inbound peripheral data: $e');
+      return InboundProcessStatus.failed;
     }
   }
 

@@ -8,6 +8,7 @@ import 'package:pak_connect/domain/models/connection_phase.dart';
 import 'package:pak_connect/core/services/security_manager.dart';
 import 'package:pak_connect/core/security/noise/noise_encryption_service.dart';
 import 'package:pak_connect/core/security/noise/models/noise_models.dart';
+import 'package:pak_connect/core/security/noise/noise_handshake_message_size.dart';
 import 'package:pak_connect/core/security/noise/noise_session.dart';
 import 'package:pak_connect/domain/routing/topology_manager.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
@@ -458,7 +459,7 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       _peerState.markAttemptedPattern(plan.pattern);
       _logger.info('  Selected pattern: ${plan.pattern}');
 
-      // Send message 1 (size indicates pattern: 32=XX, 96=KK)
+      // Send message 1 (size indicates pattern: 32=XX, 48=KK)
       final message = ProtocolMessage.noiseHandshake1(
         handshakeData: plan.message1,
         peerId: _myEphemeralId,
@@ -488,8 +489,8 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
       }
 
       // PATTERN DETECTION: Check message size to determine pattern
-      final isKK = data.length == 96; // KK message 1 is 96 bytes (e, es, ss)
-      final isXX = data.length == 32; // XX message 1 is 32 bytes (e)
+      final isKK = data.length == NoiseHandshakeMessageSize.kkMessage1;
+      final isXX = data.length == NoiseHandshakeMessageSize.xxMessage1;
 
       _logger.info(
         '  Received ${data.length} bytes (pattern: ${isKK
@@ -573,7 +574,7 @@ class HandshakeCoordinator implements IHandshakeCoordinator {
 
       // Check if this is a KK rejection scenario
       final data = message.noiseHandshakeData;
-      if (data != null && data.length == 96) {
+      if (data != null && data.length == NoiseHandshakeMessageSize.kkMessage1) {
         // This was a KK attempt that failed
         _logger.warning('⚠️ KK handshake failed - sending rejection');
 

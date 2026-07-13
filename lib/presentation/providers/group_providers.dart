@@ -1,4 +1,5 @@
-// Riverpod providers for contact groups and group messaging
+// Riverpod providers for locally persisted broadcast lists. The Group* names
+// remain for schema compatibility; recipients receive ordinary direct chats.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
@@ -7,6 +8,7 @@ import '../../domain/models/contact_group.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_group_repository.dart';
 import '../../domain/interfaces/i_shared_message_queue_provider.dart';
+import '../../domain/interfaces/i_user_preferences.dart';
 import '../../domain/services/group_messaging_service.dart';
 import '../../domain/values/id_types.dart';
 
@@ -29,7 +31,7 @@ final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
   if (!sharedQueueProvider.isInitialized) {
     throw StateError(
       'Shared message queue is not initialized. '
-      'Ensure app bootstrap completes before using group messaging.',
+      'Ensure app bootstrap completes before using broadcast lists.',
     );
   }
   final messageQueue = sharedQueueProvider.messageQueue;
@@ -42,6 +44,13 @@ final groupMessagingServiceProvider = Provider<GroupMessagingService>((ref) {
 });
 
 // ==================== STATE PROVIDERS ====================
+
+/// Local public key used to classify persisted group messages as outgoing.
+final currentGroupUserPublicKeyProvider = FutureProvider.autoDispose<String>((
+  ref,
+) {
+  return _resolveUserPreferences().getPublicKey();
+});
 
 /// Provider for all groups (refreshable)
 ///
@@ -211,6 +220,13 @@ ISharedMessageQueueProvider _resolveSharedQueueProvider() {
   return resolveFromAppServicesOrServiceLocator<ISharedMessageQueueProvider>(
     fromServices: (services) => services.sharedMessageQueueProvider,
     dependencyName: 'ISharedMessageQueueProvider',
+  );
+}
+
+IUserPreferences _resolveUserPreferences() {
+  return resolveFromAppServicesOrServiceLocator<IUserPreferences>(
+    fromServices: (services) => services.userPreferences,
+    dependencyName: 'IUserPreferences',
   );
 }
 

@@ -5,7 +5,6 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart';
-import 'package:sqflite_common/sqflite.dart' as sqflite_common;
 import 'package:logging/logging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'database_helper.dart';
@@ -445,15 +444,12 @@ class DatabaseBackupService {
   }
 
   static Future<String> _getDatabasePath() async {
-    final factory = sqflite_common.databaseFactory;
-    final databasesPath = await factory.getDatabasesPath();
-    return join(databasesPath, 'pak_connect.db');
+    return DatabaseHelper.getDatabasePath();
   }
 
   static Future<String> _getDefaultBackupDirectory() async {
-    final factory = sqflite_common.databaseFactory;
-    final databasesPath = await factory.getDatabasesPath();
-    return join(databasesPath, 'backups');
+    final dbPath = await _getDatabasePath();
+    return join(dirname(dbPath), 'backups');
   }
 
   static Future<void> _updateLastBackupTimestamp() async {

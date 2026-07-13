@@ -41,14 +41,17 @@ class PairingFailureHandler {
     required PairingInfo? previousPairing,
     required String? currentSessionId,
     required String? theirPersistentKey,
+    required String? claimedPersistentKey,
     required void Function(PairingInfo?) setPairingState,
     required void Function(String?) setTheirPersistentKey,
+    required void Function(String?) setClaimedPersistentKey,
     required void Function()? onPairingCancelled,
     required IdentitySessionState identityState,
     required PairingService pairingService,
     String? reason,
   }) async {
-    final contactId = currentSessionId ?? theirPersistentKey;
+    final contactId =
+        currentSessionId ?? theirPersistentKey ?? identityState.theirEphemeralId;
     final idsToClear = <String>{};
     if (contactId != null) idsToClear.add(contactId);
     if (theirPersistentKey != null) idsToClear.add(theirPersistentKey);
@@ -83,10 +86,20 @@ class PairingFailureHandler {
       }
       setTheirPersistentKey(null);
     }
+    setClaimedPersistentKey(null);
     identityState.theirPersistentKey = null;
+    identityState.claimedPersistentKey = null;
+    identityState.setCurrentSessionId(identityState.theirEphemeralId);
 
-    if (contactId != null) {
-      final contact = await _contactRepository.getContactByAnyId(contactId);
+    final downgradeLookupId =
+        theirPersistentKey ??
+        claimedPersistentKey ??
+        currentSessionId ??
+        identityState.theirEphemeralId;
+    if (downgradeLookupId != null) {
+      final contact = await _contactRepository.getContactByAnyId(
+        downgradeLookupId,
+      );
       if (contact != null && contact.securityLevel != SecurityLevel.low) {
         await _contactRepository.saveContactWithSecurity(
           contact.publicKey,

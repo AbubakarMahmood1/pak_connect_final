@@ -313,9 +313,16 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
         senderPublicKey: fromNodeId,
         contactRepository: _contactRepository,
       );
+    } on InboundMessageProcessingException {
+      rethrow;
     } catch (e) {
       _logger.warning('⚠️ processReceivedData failed: $e');
-      return null;
+      // Surface genuine processing failures through a typed channel so valid
+      // plaintext can never collide with a reserved failure string.
+      throw InboundMessageProcessingException(
+        'BLE message facade processing failed',
+        e,
+      );
     }
   }
 
@@ -560,7 +567,6 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
   @override
   set onIdentityRevealed(Function(String contactName)? callback) {
     _handler.onIdentityRevealed = callback;
-    _splitFacade.onIdentityRevealed = callback;
   }
 
   @override
@@ -580,6 +586,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       stateManagerProvider: () => legacyStateManager,
       onMessageOperationChanged: _onMessageOperationChanged,
       logger: Logger('BleWriteAdapter'),
+      ackTracker: _handler.messageAckTracker,
     );
     if (_currentNodeId != null) {
       adapter.setCurrentNodeId(_currentNodeId!);
@@ -649,7 +656,7 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     }
 
     _logger.fine('📦 Using shared message queue provider');
-    return queueProvider.messageQueue;
+    return queueProvider.waitForMessageQueue();
   }
 
   ISharedMessageQueueProvider? _resolveSharedQueueProvider() {
@@ -710,6 +717,35 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
     } catch (e) {
       _logger.warning('⚠️ sendMessage failed via facade: $e');
       return false;
+    }
+  }
+
+  @override
+  Future<domain_models.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) async {
+    try {
+      final stateManager = _resolveLegacyStateManager();
+      if (stateManager == null) {
+        _logger.warning(
+          '⚠️ buildSecureTextProtocolMessage skipped - missing BLEStateManager',
+        );
+        return null;
+      }
+
+      return await _handler.buildSecureTextProtocolMessage(
+        recipientKey: recipientKey,
+        content: content,
+        messageId: messageId,
+        originalIntendedRecipient: originalIntendedRecipient,
+        stateManager: stateManager,
+      );
+    } catch (e) {
+      _logger.warning('⚠️ buildSecureTextProtocolMessage failed: $e');
+      return null;
     }
   }
 

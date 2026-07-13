@@ -321,7 +321,13 @@ class _FakeConnectionService implements IConnectionService {
   }) async => true;
 
   @override
-  Future<void> sendQueueSyncMessage(QueueSyncMessage message) async {}
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async => true;
+
+  @override
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage message, {
+    String? peerId,
+  }) async => true;
 
   @override
   void registerQueueSyncHandler(
@@ -467,7 +473,9 @@ class _FakeConnectionService implements IConnectionService {
   }
 }
 
-class _StubSharedQueueProvider implements ISharedMessageQueueProvider {
+class _StubSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   final InMemoryOfflineMessageQueue _queue = InMemoryOfflineMessageQueue();
 
   @override

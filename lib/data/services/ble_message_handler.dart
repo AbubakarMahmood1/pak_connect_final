@@ -149,6 +149,13 @@ class BLEMessageHandler {
       _meshRelayHandler.onSendAckMessage;
   set onSendAckMessage(Function(ProtocolMessage message)? callback) =>
       _meshRelayHandler.onSendAckMessage = callback;
+
+  /// ACK tracker used by both inbound protocol dispatch and outbound writes.
+  ///
+  /// A write adapter with a separate tracker can never observe the ACK that
+  /// [ProtocolMessageDispatcher] completes, causing every central send to time
+  /// out even after the peer acknowledged it.
+  MessageAckTracker get messageAckTracker => _ackTracker;
   Function(ProtocolMessage relayMessage, String nextHopId)?
   get onSendRelayMessage => _meshRelayHandler.onSendRelayMessage;
   set onSendRelayMessage(
@@ -162,7 +169,10 @@ class BLEMessageHandler {
   onTextMessageReceived;
 
   // Spy mode callbacks
-  Function(String contactName)? onIdentityRevealed;
+  /// Emits the cryptographically verified persistent key. Callers resolve the
+  /// display name and chat identity from the contact repository; a display
+  /// name is never used as an identity token.
+  Function(String verifiedPersistentKey)? onIdentityRevealed;
 
   late final ProtocolMessageDispatcher _protocolDispatcher;
 
@@ -274,6 +284,7 @@ class BLEMessageHandler {
         currentNodeId: currentNodeId,
         messageQueue: messageQueue,
         onRelayMessageReceived: onRelayMessageReceived,
+        onProcessRelayDelivery: _processDeliveredRelayPayload,
         onRelayDecisionMade: onRelayDecisionMade,
         onRelayStatsUpdated: onRelayStatsUpdated,
       );
@@ -366,6 +377,32 @@ class BLEMessageHandler {
     );
   }
 
+  Future<ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+    required BLEStateManager stateManager,
+  }) async {
+    try {
+      _outboundSender.setCurrentNodeId(_currentNodeId);
+      final isPaired = stateManager.isPaired;
+      return await _outboundSender.buildSecureTextProtocolMessage(
+        message: content,
+        messageId: messageId,
+        contactPublicKey: isPaired ? recipientKey : null,
+        recipientId: recipientKey,
+        useEphemeralAddressing: !isPaired,
+        originalIntendedRecipient: originalIntendedRecipient,
+        contactRepository: _contactRepository,
+        stateManager: stateManager,
+      );
+    } catch (e) {
+      _logger.warning('Failed to build secure text protocol message: $e');
+      return null;
+    }
+  }
+
   bool _looksLikeChunkString(Uint8List bytes) {
     final max = bytes.length < 128 ? bytes.length : 128;
     int pipes = 0;
@@ -388,12 +425,6 @@ class BLEMessageHandler {
   }) async {
     try {
       _trace('📥 RECEIVE STEP 1: Received ${data.length} bytes from BLE');
-      _trace(
-        '📥 RECEIVE STEP 1a: First 50 bytes: ${data.sublist(0, data.length > 50 ? 50 : data.length)}',
-      );
-      _trace(
-        '📥 RECEIVE STEP 1b: First 50 chars as string: ${String.fromCharCodes(data.sublist(0, data.length > 50 ? 50 : data.length))}',
-      );
 
       // Skip single-byte pings
       if (data.length == 1 && data[0] == 0x00) {
@@ -512,33 +543,12 @@ class BLEMessageHandler {
     try {
       switch (protocolMessage.type) {
         case ProtocolMessageType.textMessage:
-          final inboundResult = await _inboundTextProcessor.process(
+          return _processInboundTextProtocolMessage(
             protocolMessage: protocolMessage,
             senderPublicKey: senderPublicKey,
             onMessageIdFound: onMessageIdFound,
+            sendDirectAck: true,
           );
-
-          final inboundMessageId = protocolMessage.textMessageId;
-          if (inboundResult.shouldAck && inboundMessageId != null) {
-            await _sendAckForMessage(
-              inboundMessageId,
-              senderPublicKey: senderPublicKey,
-            );
-          }
-
-          if (inboundResult.content != null && onTextMessageReceived != null) {
-            try {
-              await onTextMessageReceived!(
-                inboundResult.content!,
-                protocolMessage.textMessageId,
-                inboundResult.resolvedSenderKey ?? senderPublicKey,
-              );
-            } catch (e, stack) {
-              _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
-            }
-          }
-
-          return inboundResult.content;
 
         case ProtocolMessageType.ack:
           // ACKs are handled in ProtocolMessageDispatcher; ignore here.
@@ -567,10 +577,11 @@ class BLEMessageHandler {
           );
 
         case ProtocolMessageType.meshRelay:
-          return await _meshRelayHandler.handleIncomingRelay(
+          await _meshRelayHandler.handleIncomingRelay(
             protocolMessage: protocolMessage,
             senderPublicKey: senderPublicKey,
           );
+          return null;
 
         case ProtocolMessageType.friendReveal:
           // Handle friend identity reveal in spy mode
@@ -583,6 +594,106 @@ class BLEMessageHandler {
       _logger.severe('Failed to process protocol message: $e');
       return null;
     }
+  }
+
+  Future<void> _processDeliveredRelayPayload(
+    String originalMessageId,
+    String encodedInnerProtocolMessage,
+    String originalSender,
+  ) async {
+    try {
+      final innerProtocolMessage = ProtocolMessage.fromBytes(
+        base64.decode(encodedInnerProtocolMessage),
+      );
+      if (innerProtocolMessage.type != ProtocolMessageType.textMessage) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Unsupported inner protocol type '
+          '${innerProtocolMessage.type.name}',
+        );
+      }
+      if (innerProtocolMessage.version < 2 ||
+          !innerProtocolMessage.isEncrypted ||
+          innerProtocolMessage.signature == null ||
+          innerProtocolMessage.signature!.trim().isEmpty) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner text must be encrypted and signed v2',
+        );
+      }
+
+      final innerMessageId = innerProtocolMessage.textMessageId;
+      if (innerMessageId != originalMessageId) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner message ID does not match relay envelope',
+        );
+      }
+
+      final inboundResult = await _inboundTextProcessor.process(
+        protocolMessage: innerProtocolMessage,
+        senderPublicKey: originalSender,
+      );
+      if (!inboundResult.shouldAck || inboundResult.content == null) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inner text failed authentication/decryption',
+        );
+      }
+
+      final callback = onTextMessageReceived;
+      if (callback == null) {
+        throw StateError(
+          '🔀 RELAY DELIVERY: Inbound persistence callback is not configured',
+        );
+      }
+
+      // MeshRelayHandler owns the routed relayAck. Calling the normal direct
+      // path here would send a duplicate ACK to the immediate relay hop.
+      await callback(
+        inboundResult.content!,
+        innerMessageId,
+        inboundResult.resolvedSenderKey ?? originalSender,
+      );
+    } catch (e, stack) {
+      _logger.severe(
+        '🔀 RELAY DELIVERY: Invalid encrypted inner protocol payload: $e',
+        e,
+        stack,
+      );
+      rethrow;
+    }
+  }
+
+  Future<String?> _processInboundTextProtocolMessage({
+    required ProtocolMessage protocolMessage,
+    required String? senderPublicKey,
+    required bool sendDirectAck,
+    String? Function(String)? onMessageIdFound,
+  }) async {
+    final inboundResult = await _inboundTextProcessor.process(
+      protocolMessage: protocolMessage,
+      senderPublicKey: senderPublicKey,
+      onMessageIdFound: onMessageIdFound,
+    );
+
+    final inboundMessageId = protocolMessage.textMessageId;
+    if (sendDirectAck && inboundResult.shouldAck && inboundMessageId != null) {
+      await _sendAckForMessage(
+        inboundMessageId,
+        senderPublicKey: senderPublicKey,
+      );
+    }
+
+    if (inboundResult.content != null && onTextMessageReceived != null) {
+      try {
+        await onTextMessageReceived!(
+          inboundResult.content!,
+          protocolMessage.textMessageId,
+          inboundResult.resolvedSenderKey ?? senderPublicKey,
+        );
+      } catch (e, stack) {
+        _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
+      }
+    }
+
+    return inboundResult.content;
   }
 
   Future<void> handleQRIntroductionClaim({
@@ -653,12 +764,13 @@ class BLEMessageHandler {
         return null;
       }
 
-      // Verify timestamp (reject if > 5 minutes old)
+      // Verify timestamp (reject stale frames and clocks implausibly far in
+      // the future; a one-sided age check accepted future-dated proofs).
       final messageAge = DateTime.now().millisecondsSinceEpoch - timestamp;
-      if (messageAge > 300000) {
+      if (messageAge.abs() > 300000) {
         // 5 minutes
         _logger.warning(
-          '🕵️ FRIEND_REVEAL rejected: Timestamp too old ($messageAge ms)',
+          '🕵️ FRIEND_REVEAL rejected: Timestamp outside allowed window ($messageAge ms)',
         );
         return null;
       }
@@ -680,8 +792,9 @@ class BLEMessageHandler {
 
       // Verify cryptographic proof: the sender must sign the challenge
       // '<recipientEphemeralId>_<timestamp>' with the claimed persistent key.
-      final cachedSharedSecret =
-          await _contactRepository.getCachedSharedSecret(theirPersistentKey);
+      final cachedSharedSecret = await _contactRepository.getCachedSharedSecret(
+        theirPersistentKey,
+      );
       final challenge = '${recipientEphemeralId}_$timestamp';
       final hasValidSignature = SigningManager.verifySignature(
         challenge,
@@ -701,9 +814,20 @@ class BLEMessageHandler {
       _logger.info('✅ FRIEND_REVEAL: Cryptographic proof verified');
 
       // Check if this persistent key is in our contacts
-      final contact = await _contactRepository.getContact(theirPersistentKey);
+      final contact = await _contactRepository.getContactByAnyId(
+        theirPersistentKey,
+      );
 
       if (contact != null) {
+        final boundPersistentKey =
+            contact.persistentPublicKey ?? contact.publicKey;
+        if (boundPersistentKey != theirPersistentKey) {
+          _logger.severe(
+            '🕵️ FRIEND_REVEAL rejected: Claimed key is not the contact chat identity',
+          );
+          return null;
+        }
+
         _logger.info(
           '🕵️ FRIEND_REVEAL: Anonymous user is actually ${contact.displayName}!',
         );
@@ -715,7 +839,7 @@ class BLEMessageHandler {
         );
 
         // Notify UI via callback (if set by BLEService)
-        onIdentityRevealed?.call(contact.displayName);
+        onIdentityRevealed?.call(theirPersistentKey);
         _logger.info('✅ Identity revealed: ${contact.displayName}');
 
         return null; // Don't show as a text message
@@ -761,12 +885,14 @@ class BLEMessageHandler {
     required String originalContent,
     required String finalRecipientPublicKey,
     MessagePriority priority = MessagePriority.normal,
+    String? relayPayload,
   }) async {
     return await _meshRelayHandler.createOutgoingRelay(
       originalMessageId: originalMessageId,
       originalContent: originalContent,
       finalRecipientPublicKey: finalRecipientPublicKey,
       priority: priority,
+      relayPayload: relayPayload,
     );
   }
 
@@ -818,7 +944,9 @@ class BLEMessageHandler {
 
   /// Handle inbound ACK by updating message status to delivered.
   Future<void> _handleInboundAck(
-      String messageId, String senderPublicKey) async {
+    String messageId,
+    String senderPublicKey,
+  ) async {
     try {
       final existing = await _messageRepository.getMessageById(
         MessageId(messageId),

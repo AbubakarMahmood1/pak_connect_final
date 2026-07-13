@@ -393,6 +393,11 @@ class ArchiveManagementService {
     }
   }
 
+  /// Get a complete archived chat, including its persisted messages.
+  Future<ArchivedChat?> getArchivedChat(ArchiveId archiveId) {
+    return _archiveRepository.getArchivedChat(archiveId);
+  }
+
   /// Get archive summaries with enhanced business metadata
   Future<List<EnhancedArchiveSummary>> getEnhancedArchiveSummaries({
     ArchiveSearchFilter? filter,

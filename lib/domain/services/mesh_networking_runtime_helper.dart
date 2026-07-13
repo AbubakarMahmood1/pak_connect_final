@@ -60,7 +60,7 @@ class _MeshNetworkingRuntimeHelper {
     if (!_owner._sharedQueueProvider.isInitialized) {
       if (_owner._sharedQueueProvider.isInitializing) {
         MeshNetworkingService._logger.info(
-          'Shared queue host initialization in progress; reusing queue without re-entry',
+          'Shared queue host initialization in progress; waiting for queue readiness',
         );
       } else {
         MeshNetworkingService._logger.warning(
@@ -70,7 +70,7 @@ class _MeshNetworkingRuntimeHelper {
       }
     }
 
-    final sharedQueue = _owner._sharedQueueProvider.messageQueue;
+    final sharedQueue = await _owner._sharedQueueProvider.waitForMessageQueue();
     MeshNetworkingService._logger.info(
       '✅ Connected to shared message queue with ${sharedQueue.getStatistics().pendingMessages} pending messages',
     );
@@ -90,7 +90,12 @@ class _MeshNetworkingRuntimeHelper {
             MeshNetworkingService._logger.fine(
               '📡 Gossip: sending sync to ${peerId.shortId(8)}... (${syncMessage.messageIds.length} ids)',
             );
-            unawaited(_owner._bleService.sendQueueSyncMessage(syncMessage));
+            unawaited(
+              _owner._bleService.sendQueueSyncMessage(
+                syncMessage,
+                peerId: peerId,
+              ),
+            );
           }
           ..onDirectAnnouncement = (peerId) {
             _owner._scheduleInitialSyncForPeer(
@@ -110,7 +115,12 @@ class _MeshNetworkingRuntimeHelper {
               MeshNetworkingService._logger.fine(
                 '📡 Gossip: broadcasting sync request to ${peer.shortId(8)}...',
               );
-              unawaited(_owner._bleService.sendQueueSyncMessage(syncMessage));
+              unawaited(
+                _owner._bleService.sendQueueSyncMessage(
+                  syncMessage,
+                  peerId: peer,
+                ),
+              );
             }
           }
           ..onSendQueuedMessagesToPeer = (messages, peerId) {
@@ -120,9 +130,9 @@ class _MeshNetworkingRuntimeHelper {
             );
             for (final message in messages) {
               unawaited(
-                _owner._queueCoordinator
-                    .retryMessage(message.id)
-                    .catchError((e) {
+                _owner._queueCoordinator.retryMessage(message.id).catchError((
+                  e,
+                ) {
                   MeshNetworkingService._logger.warning(
                     'Gossip sync delivery failed for ${message.id.shortId(8)}...: $e',
                   );
@@ -130,8 +140,7 @@ class _MeshNetworkingRuntimeHelper {
                 }),
               );
             }
-          }
-          ..changeLogSyncService = ChangeLogSyncService();
+          };
 
     _owner._spamPrevention = SpamPreventionManager();
     await _owner._spamPrevention!.initialize();
@@ -274,54 +283,16 @@ class _MeshNetworkingRuntimeHelper {
     return 'fallback_${timestamp}_$random';
   }
 
-  Future<void> waitForBluetoothReady({
-    Duration timeout = const Duration(seconds: 25),
-  }) async {
-    if (_owner._bleService.isBluetoothReady) return;
-
-    final completer = Completer<void>();
-    late StreamSubscription<BluetoothStateInfo> sub;
-    sub = _owner._bleService.bluetoothStateStream.listen((info) {
-      if (info.isReady || info.state == BluetoothLowEnergyState.poweredOn) {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }
-    }, onError: (_) {});
-
-    try {
-      await completer.future.timeout(timeout);
-    } on TimeoutException {
-      MeshNetworkingService._logger.warning(
-        '⚠️ Bluetooth not ready within ${timeout.inSeconds}s; proceeding with fallback',
-      );
-      rethrow;
-    } finally {
-      await sub.cancel();
-    }
-  }
-
   Future<void> setupBleIntegrationWithFallback() async {
     try {
-      await _owner._waitForBluetoothReady();
-
       _owner._integrationCancelled = false;
-      await _owner._setupBLEIntegration().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {
-          _owner._integrationCancelled = true;
-          throw TimeoutException(
-            'BLE integration timeout',
-            Duration(seconds: 25),
-          );
-        },
-      );
+      await _owner._setupBLEIntegration();
       MeshNetworkingService._logger.info(
-        '✅ BLE integration set up successfully',
+        '✅ BLE integration wiring set up successfully',
       );
     } catch (e) {
       MeshNetworkingService._logger.warning(
-        '⚠️ BLE integration failed (${e.toString()}), continuing without BLE integration',
+        '⚠️ BLE integration wiring failed (${e.toString()}), continuing without BLE transport wiring',
       );
       _owner._setupMinimalBLEIntegration();
     }

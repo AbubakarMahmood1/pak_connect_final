@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:path_provider/path_provider.dart';
@@ -25,7 +24,6 @@ import '../../domain/entities/message.dart';
 import '../../domain/services/chat_management_service.dart';
 import '../models/connection_info.dart';
 import '../models/mesh_network_models.dart';
-import '../models/bluetooth_state_models.dart';
 import '../constants/binary_payload_types.dart';
 import '../interfaces/i_shared_message_queue_provider.dart';
 import 'mesh/mesh_network_health_monitor.dart';
@@ -40,8 +38,6 @@ import '../models/mesh_relay_models.dart' show RelayDecision, RelayStatistics;
 
 import 'package:pak_connect/domain/values/id_types.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
-import 'package:pak_connect/domain/models/change_log_entry.dart';
-import 'package:pak_connect/domain/services/change_log_sync_service.dart';
 
 part 'mesh_networking_binary_helper.dart';
 part 'mesh_networking_runtime_helper.dart';
@@ -242,40 +238,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
   Future<void> initialize({String? nodeId}) =>
       _runtimeHelper.initialize(nodeId: nodeId);
 
-  /// Wire change_log sync callbacks after initialization.
-  ///
-  /// Called by app_core once DB access is available. The callbacks bridge
-  /// the domain-layer [ChangeLogSyncService] to the data-layer DB.
-  void configureChangeLogSync({
-    required Future<List<ChangeLogEntry>> Function(int sinceCursorId)
-    onQueryChangeLogSince,
-    required Future<List<ChangeLogEntry>> Function(int sinceMillis)
-    onQueryChangeLogSinceTime,
-    required Future<ChangeLogReplayResult> Function(List<ChangeLogEntry>)
-    onReplayChangeLogEntries,
-    required Future<int?> Function(String peerId) onGetLastSyncedCursorForPeer,
-    required Future<void> Function(String peerId, int cursorId)
-    onSetLastSyncedCursorForPeer,
-    required Future<void> Function(String peerId, List<ChangeLogEntry>)
-    onSendChangeLogToPeer,
-  }) {
-    final service = _gossipSyncManager?.changeLogSyncService;
-    if (service == null) {
-      _logger.warning(
-        'Cannot configure change_log sync: GossipSyncManager not initialized',
-      );
-      return;
-    }
-    service
-      ..onQueryChangeLogSince = onQueryChangeLogSince
-      ..onQueryChangeLogSinceTime = onQueryChangeLogSinceTime
-      ..onReplayChangeLogEntries = onReplayChangeLogEntries
-      ..onGetLastSyncedCursorForPeer = onGetLastSyncedCursorForPeer
-      ..onSetLastSyncedCursorForPeer = onSetLastSyncedCursorForPeer
-      ..onSendChangeLogToPeer = onSendChangeLogToPeer;
-    _logger.info('✅ Change_log sync callbacks configured');
-  }
-
   /// Initialize core mesh networking components
   Future<void> _initializeCoreComponents() =>
       _runtimeHelper.initializeCoreComponents();
@@ -358,10 +320,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// Generate a fallback node ID when BLE service is unavailable
   String _generateFallbackNodeId() => _runtimeHelper.generateFallbackNodeId();
 
-  Future<void> _waitForBluetoothReady({
-    Duration timeout = const Duration(seconds: 25),
-  }) => _runtimeHelper.waitForBluetoothReady(timeout: timeout);
-
   /// Set up BLE integration with fallback handling
   Future<void> _setupBLEIntegrationWithFallback() =>
       _runtimeHelper.setupBleIntegrationWithFallback();
@@ -400,9 +358,20 @@ class MeshNetworkingService implements IMeshNetworkingService {
         // Direct delivery
         return await _sendDirectMessage(content, recipientPublicKey, chatId);
       } else {
+        final innerProtocolMessage = await _messageHandler
+            .buildSecureTextProtocolMessage(
+              recipientKey: recipientPublicKey,
+              content: content,
+            );
+        if (innerProtocolMessage == null) {
+          return MeshSendResult.error(
+            'Unable to create sealed relay payload for recipient',
+          );
+        }
+
         // Mesh relay required
         return await _relayCoordinator.sendRelayMessage(
-          content: content,
+          innerProtocolMessage: innerProtocolMessage,
           recipientPublicKey: recipientPublicKey,
           chatId: chatId,
           priority: priority,
@@ -481,8 +450,13 @@ class MeshNetworkingService implements IMeshNetworkingService {
   /// Sync queues with connected nodes
   @override
   Future<Map<String, QueueSyncResult>> syncQueuesWithPeers() async {
-    final availableNodes = await _relayCoordinator.getAvailableNextHops();
-    return _queueCoordinator.syncWithPeers(availableNodes);
+    // Queue-sync rounds are bound to concrete BLE transports, not logical
+    // identity aliases returned by relay discovery.
+    final activeDeviceAddresses = _bleService.activeConnectionDeviceIds
+        .where((address) => address.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    return _queueCoordinator.syncWithPeers(activeDeviceAddresses);
   }
 
   /// Retry a specific message in the queue
@@ -509,6 +483,14 @@ class MeshNetworkingService implements IMeshNetworkingService {
     return _queueCoordinator.retryAllMessages();
   }
 
+  /// Re-drive delivery of the outbound backlog. Intended for app
+  /// foreground-resume / reconnect, where delivery timers may have been
+  /// suspended (e.g. iOS backgrounding) leaving messages undelivered.
+  Future<void> reprocessQueuedMessages() async {
+    if (!_isInitialized) return;
+    await _queueCoordinator.reprocessPendingDeliveries();
+  }
+
   /// Get queued messages for a specific chat (for UI display)
   /// Returns only in-flight messages (pending, sending, retrying)
   /// Excludes delivered messages (those have moved to MessageRepository)
@@ -523,7 +505,6 @@ class MeshNetworkingService implements IMeshNetworkingService {
     String originalSender,
   ) async {
     try {
-      // 🎯 ENHANCED DEBUG LOGGING for delivery confirmation
       final truncatedMessageId = originalMessageId.length > 16
           ? originalMessageId.shortId()
           : originalMessageId;
@@ -538,27 +519,14 @@ class MeshNetworkingService implements IMeshNetworkingService {
       _logger.fine('🎯 MESH DELIVERY START: Message $truncatedMessageId...');
       _logger.fine('🎯 FROM ORIGINAL SENDER: $truncatedSender...');
       _logger.fine('🎯 TO CURRENT USER: $truncatedCurrentNode...');
-
-      // 🔍 CRITICAL FIX: Generate chat ID using original sender (not relay node)
-      final chatId = ChatUtils.generateChatId(originalSender);
-      _logger.fine(
-        '🎯 CHAT ID GENERATED: ${chatId.length > 16 ? chatId.shortId() : chatId}...',
+      final protocolBytes = Uint8List.fromList(base64.decode(content));
+      await _messageHandler.processReceivedData(
+        data: protocolBytes,
+        fromDeviceId: originalSender,
+        fromNodeId: originalSender,
       );
-
-      // Create message with proper attribution to original sender
-      final message = Message(
-        id: MessageId(originalMessageId),
-        chatId: ChatId(chatId),
-        content: content,
-        timestamp: DateTime.now(),
-        isFromMe: false, // ✅ Message is from original sender, not current user
-        status: MessageStatus.delivered,
-      );
-
-      // Save to repository with confirmation
-      await _messageRepository.saveMessage(message);
       _logger.info(
-        '✅ MESH DELIVERY SUCCESS: Message stored in chat with original sender $truncatedSender...',
+        '✅ MESH DELIVERY SUCCESS: Inner protocol message reinjected from $truncatedSender...',
       );
 
       // Broadcast mesh status update

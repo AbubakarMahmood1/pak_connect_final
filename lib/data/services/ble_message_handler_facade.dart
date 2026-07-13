@@ -49,6 +49,8 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   }
 
   final _logger = Logger('BLEMessageHandlerFacade');
+  static const int _maxLegacyHandoffs = 32;
+  final Map<String, Uint8List> _legacyReassembledHandoffs = {};
   final bool _enableCleanupTimer;
 
   // Lazy-initialized handlers
@@ -345,6 +347,20 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     }
   }
 
+  @override
+  Future<domain_models.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String recipientKey,
+    required String content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) async {
+    _ensureInitialized();
+    _logger.warning(
+      '⚠️ buildSecureTextProtocolMessage is unavailable on the split facade',
+    );
+    return null;
+  }
+
   /// Sends message from peripheral role
   @override
   Future<bool> sendPeripheralMessage({
@@ -403,6 +419,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             return null;
           }
 
+          if (protocolMessage.type == ProtocolMessageType.friendReveal) {
+            _logger.fine(
+              '🔐 Friend reveal requires authenticated legacy-handler verification',
+            );
+            return 'DIRECT_PROTOCOL_MESSAGE';
+          }
+
           return await _protocolHandler.handleDirectProtocolMessage(
             message: protocolMessage,
             fromDeviceId: fromDeviceId,
@@ -412,7 +435,10 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           );
         } catch (e) {
           _logger.warning('Failed to parse direct protocol message: $e');
-          return null;
+          throw InboundMessageProcessingException(
+            'Failed to parse direct protocol message',
+            e,
+          );
         }
       }
 
@@ -438,10 +464,17 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
             return null;
           }
 
-          // Mesh relay still routed through legacy handler (RelayCoordinator)
-          if (protocolMessage.type == ProtocolMessageType.meshRelay) {
-            _logger.fine('🔀 Mesh relay payload - hand off to coordinator');
-            return null;
+          // These types still depend on the legacy handler for authenticated
+          // identity proof / relay coordination. Preserve the completed bytes
+          // for BLEMessageHandlerFacadeImpl instead of falling back to the last
+          // raw fragment.
+          if (protocolMessage.type == ProtocolMessageType.meshRelay ||
+              protocolMessage.type == ProtocolMessageType.friendReveal) {
+            _cacheLegacyHandoff(messageId, payload.bytes);
+            _logger.fine(
+              '🔀 Reassembled ${protocolMessage.type.name} payload - hand off to verified legacy path',
+            );
+            return 'REASSEMBLY_COMPLETE:$messageId';
           }
 
           return await _protocolHandler.processProtocolMessage(
@@ -452,7 +485,10 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
           );
         } catch (e) {
           _logger.warning('Failed to parse reassembled protocol message: $e');
-          return null;
+          throw InboundMessageProcessingException(
+            'Failed to parse reassembled protocol message',
+            e,
+          );
         }
       }
 
@@ -481,11 +517,13 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
                 return null;
               }
 
-              if (protocolMessage.type == ProtocolMessageType.meshRelay) {
+              if (protocolMessage.type == ProtocolMessageType.meshRelay ||
+                  protocolMessage.type == ProtocolMessageType.friendReveal) {
+                _cacheLegacyHandoff(msgId, payload.bytes);
                 _logger.fine(
-                  '🔀 Binary mesh relay payload - coordinator handles forwarding',
+                  '🔀 Binary ${protocolMessage.type.name} payload - hand off to verified legacy path',
                 );
-                return null;
+                return 'REASSEMBLY_COMPLETE:$msgId';
               }
 
               return await _protocolHandler.processProtocolMessage(
@@ -498,7 +536,10 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
               _logger.warning(
                 'Failed to parse binary protocol message (${payload.originalType}): $e',
               );
-              return null;
+              throw InboundMessageProcessingException(
+                'Failed to parse binary protocol message',
+                e,
+              );
             }
           }
 
@@ -590,9 +631,14 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
       }
 
       return fragmentResult;
+    } on InboundMessageProcessingException {
+      rethrow;
     } catch (e) {
       _logger.severe('Error processing received data: $e');
-      return null;
+      throw InboundMessageProcessingException(
+        'Error processing received data',
+        e,
+      );
     }
   }
 
@@ -638,7 +684,15 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   /// Retrieves reassembled message bytes produced during fragment processing.
   Uint8List? takeReassembledMessageBytes(String messageId) {
     _ensureInitialized();
-    return _fragmentationHandler.takeReassembledPayload(messageId)?.bytes;
+    return _legacyReassembledHandoffs.remove(messageId) ??
+        _fragmentationHandler.takeReassembledPayload(messageId)?.bytes;
+  }
+
+  void _cacheLegacyHandoff(String messageId, Uint8List bytes) {
+    if (_legacyReassembledHandoffs.length >= _maxLegacyHandoffs) {
+      _legacyReassembledHandoffs.remove(_legacyReassembledHandoffs.keys.first);
+    }
+    _legacyReassembledHandoffs[messageId] = Uint8List.fromList(bytes);
   }
 
   /// Retrieve fully reassembled binary payload for forwarding (MTU adaptation).
@@ -765,6 +819,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
     Function(QueueSyncMessage syncMessage, String fromNodeId)? callback,
   ) {
     _ensureInitialized();
+    _protocolHandler.onQueueSyncReceived(callback);
     if (callback != null) {
       _relayCoordinator.onQueueSyncReceived(callback);
     }
@@ -872,9 +927,8 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   @override
   set onIdentityRevealed(Function(String contactName)? callback) {
     _ensureInitialized();
-    if (callback != null) {
-      _protocolHandler.onIdentityRevealed(callback);
-    }
+    // The split protocol handler cannot authenticate FRIEND_REVEAL. The
+    // composite facade wires this callback only to BLEMessageHandler.
   }
 
   // ==================== CLEANUP ====================
@@ -882,6 +936,7 @@ class BLEMessageHandlerFacade implements IBLEMessageHandlerFacade {
   @override
   void dispose() {
     if (!_initialized) return;
+    _legacyReassembledHandoffs.clear();
 
     _fragmentationHandler.dispose();
     _relayCoordinator.dispose();

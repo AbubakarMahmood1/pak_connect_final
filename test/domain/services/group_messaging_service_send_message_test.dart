@@ -81,7 +81,7 @@ void main() {
       when(groupRepo.getGroup('grp-1')).thenAnswer((_) async => group);
       when(groupRepo.saveGroupMessage(any)).thenAnswer((_) async {});
       when(
-        contactRepo.getContact('member-1'),
+        contactRepo.getContactByAnyId('member-1'),
       ).thenAnswer((_) async => _contact(key: 'member-1', name: 'Alice'));
       when(
         messageQueue.queueMessage(
@@ -113,7 +113,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       verify(
         messageQueue.queueMessage(
-          chatId: 'chat_member-1',
+          chatId: 'member-1',
           content: 'hello',
           recipientPublicKey: 'member-1',
           senderPublicKey: 'sender-key',
@@ -146,7 +146,7 @@ void main() {
       when(groupRepo.getGroup('grp-1')).thenAnswer((_) async => group);
       when(groupRepo.saveGroupMessage(any)).thenAnswer((_) async {});
       when(
-        contactRepo.getContact('ghost-member'),
+        contactRepo.getContactByAnyId('ghost-member'),
       ).thenAnswer((_) async => null);
       when(
         groupRepo.updateDeliveryStatus(any, any, any),
@@ -185,7 +185,7 @@ void main() {
       when(groupRepo.getGroup('grp-1')).thenAnswer((_) async => group);
       when(groupRepo.saveGroupMessage(any)).thenAnswer((_) async {});
       when(
-        contactRepo.getContact('member-1'),
+        contactRepo.getContactByAnyId('member-1'),
       ).thenAnswer((_) async => _contact(key: 'member-1'));
       when(
         messageQueue.queueMessage(
@@ -223,7 +223,7 @@ void main() {
       );
       when(groupRepo.getGroup('grp-1')).thenAnswer((_) async => group);
       when(groupRepo.saveGroupMessage(any)).thenAnswer((_) async {});
-      when(contactRepo.getContact(any)).thenAnswer(
+      when(contactRepo.getContactByAnyId(any)).thenAnswer(
         (inv) async => _contact(key: inv.positionalArguments[0] as String),
       );
       when(
@@ -265,7 +265,7 @@ void main() {
       // Make saveGroupMessage slow so we can assert ordering
       when(groupRepo.saveGroupMessage(any)).thenAnswer((_) async {});
       when(
-        contactRepo.getContact('member-1'),
+        contactRepo.getContactByAnyId('member-1'),
       ).thenAnswer((_) async => _contact(key: 'member-1'));
       when(
         messageQueue.queueMessage(
@@ -302,18 +302,20 @@ void main() {
 
       // member-ok: normal
       when(
-        contactRepo.getContact('member-ok'),
+        contactRepo.getContactByAnyId('member-ok'),
       ).thenAnswer((_) async => _contact(key: 'member-ok', name: 'OK'));
       // member-gone: not found
-      when(contactRepo.getContact('member-gone')).thenAnswer((_) async => null);
+      when(
+        contactRepo.getContactByAnyId('member-gone'),
+      ).thenAnswer((_) async => null);
       // member-err: contact exists but queue throws
       when(
-        contactRepo.getContact('member-err'),
+        contactRepo.getContactByAnyId('member-err'),
       ).thenAnswer((_) async => _contact(key: 'member-err', name: 'Err'));
 
       when(
         messageQueue.queueMessage(
-          chatId: 'chat_member-ok',
+          chatId: 'member-ok',
           content: anyNamed('content'),
           recipientPublicKey: 'member-ok',
           senderPublicKey: anyNamed('senderPublicKey'),
@@ -322,7 +324,7 @@ void main() {
       ).thenAnswer((_) async => 'q1');
       when(
         messageQueue.queueMessage(
-          chatId: 'chat_member-err',
+          chatId: 'member-err',
           content: anyNamed('content'),
           recipientPublicKey: 'member-err',
           senderPublicKey: anyNamed('senderPublicKey'),

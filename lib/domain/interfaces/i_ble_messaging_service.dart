@@ -6,6 +6,24 @@ import '../models/protocol_message.dart';
 
 export '../models/binary_payload.dart' show BinaryPayload;
 
+/// Outcome of routing an inbound GATT write into the messaging pipeline.
+///
+/// The peripheral write handler uses this to decide the GATT response:
+/// only [failed] triggers a GATT error (NACK); everything else is ACKed so
+/// legitimate not-for-us / fragment / handshake traffic is not rejected.
+enum InboundProcessStatus {
+  /// Payload was recognized and processed (or intentionally consumed).
+  handled,
+
+  /// Payload was accepted but produced nothing to surface (buffered fragment,
+  /// ping, or traffic that is legitimately not addressed to us).
+  ignored,
+
+  /// Payload was structurally corrupt (failed to parse) — the sender should
+  /// not be told the write succeeded.
+  failed,
+}
+
 /// Manages BLE message transmission and reception including:
 /// - Chat message encryption and sending (central & peripheral modes)
 /// - Protocol message fragmentation and write queue serialization
@@ -54,9 +72,16 @@ abstract class IBLEMessagingService {
   ///
   /// Args:
   ///   queueMessage - Queue sync message with routing info
-  /// Throws:
-  ///   StateError if not connected or handshake not complete
-  Future<void> sendQueueSyncMessage(QueueSyncMessage queueMessage);
+  ///   peerId - Exact concrete BLE device address. Identity aliases and null
+  ///   are rejected so a sync cannot be delivered on an ambiguous link.
+  /// Returns false when no usable route exists or the handshake is not complete.
+  Future<bool> sendQueueSyncMessage(
+    QueueSyncMessage queueMessage, {
+    String? peerId,
+  });
+
+  /// Send a prebuilt protocol message without wrapping it as a chat text send.
+  Future<bool> sendProtocolMessage(covariant ProtocolMessage message);
 
   /// Send binary/media payload; returns transferId for retry tracking.
   /// Implementation attempts Noise encryption when a session is available.
@@ -138,7 +163,10 @@ abstract class IBLEMessagingService {
 
   /// Route inbound GATT writes (central → our peripheral) into the messaging
   /// pipeline so protocol/handshake messages are parsed.
-  Future<void> processIncomingPeripheralData(
+  ///
+  /// Returns an [InboundProcessStatus] so the GATT layer can NACK genuinely
+  /// corrupt frames instead of silently ACKing them as delivered.
+  Future<InboundProcessStatus> processIncomingPeripheralData(
     Uint8List data, {
     required String senderDeviceId,
     String? senderNodeId,
@@ -152,8 +180,10 @@ abstract class IBLEMessagingService {
   /// Called by MeshNetworkingService to intercept and process relay messages
   ///
   /// Args:
-  ///   handler - Callback that returns true if message was handled by mesh layer
+  ///   handler - Callback that receives the exact BLE sender address and
+  ///   returns true if the message was handled by the mesh layer.
   void registerQueueSyncMessageHandler(
-    Future<bool> Function(QueueSyncMessage message, String fromNodeId) handler,
+    Future<bool> Function(QueueSyncMessage message, String fromDeviceAddress)
+    handler,
   );
 }

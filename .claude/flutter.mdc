@@ -1,0 +1,25 @@
+---
+description: PakConnect Flutter and Dart guidance
+globs: "**/*.dart"
+alwaysApply: false
+---
+
+# PakConnect Flutter Rules
+
+`AGENTS.md` is the source of truth.
+
+Repo defaults:
+- Use Riverpod 3.0 and existing provider patterns.
+- Do not introduce `provider`, `ChangeNotifier`, `go_router`, or framework
+  rewrites unless explicitly requested.
+- Use the `logging` package, not `print()`.
+- Use `flutter test`, not `dart test`.
+- Keep changes narrow and architecture-aware.
+
+Critical areas:
+- `lib/core/security/noise/**`
+- `lib/core/bluetooth/**`
+- `lib/core/messaging/**`
+- `lib/data/database/**`
+
+For those areas, create or update `PLANS.md` before major edits.

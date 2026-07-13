@@ -47,8 +47,10 @@ SQLite extension for efficient full-text search. Used for searching archived mes
 ### GATT (Generic Attribute Profile)
 BLE protocol defining how data is organized and exchanged. PakConnect implements custom GATT services for messaging.
 
-### Group Message
-Message sent to multiple recipients. Implemented as multi-unicast (individual encrypted messages to each member).
+### Broadcast Dispatch (legacy model name: Group Message)
+Sender-local record for content submitted to several contacts. The app creates
+one ordinary direct-message queue entry per recipient; recipients do not share
+a group ID, membership state, transcript, or reply channel.
 
 ### Handshake
 Protocol exchange to establish encrypted session. PakConnect uses Noise XX (3-message) or KK (2-message) patterns.
@@ -72,13 +74,17 @@ Cryptographic checksum proving message authenticity and integrity. Poly1305 is t
 Decentralized network where nodes relay messages for each other. Extends communication range beyond direct BLE.
 
 ### Message ID
-Unique identifier for message, calculated as SHA-256 hash of (timestamp + sender + content). Deterministic for duplicate detection.
+Opaque stable identifier created once by the originating path and preserved
+through queue/relay handling; its concrete format is not an invariant. The inbound
+receive helper derives SHA-256 only as a fallback when legacy/incomplete data
+has no protocol message ID.
 
 ### MTU (Maximum Transmission Unit)
 Maximum size of single BLE packet. Typically 23-512 bytes. Messages larger than MTU are fragmented.
 
 ### Multi-Unicast
-Sending individual encrypted messages to multiple recipients. Used for group messaging (no shared group key).
+Submitting individual direct messages to multiple recipients. PakConnect uses
+this for local broadcast lists, not as a complete group-conversation protocol.
 
 ### Noise Protocol Framework
 Cryptographic framework for building secure protocols. Defines patterns for handshakes and transport encryption.
@@ -90,7 +96,9 @@ Number used once. Counter incremented for each encrypted message to ensure uniqu
 Persistent storage for messages to offline recipients. Messages retried with exponential backoff until delivered or expired.
 
 ### PBKDF2 (Password-Based Key Derivation Function 2)
-Key derivation function using iterative hash. Used to derive database encryption key from device entropy.
+Password-based key derivation function using an iterative hash. PakConnect uses
+it for export/import passphrases; the mobile SQLCipher credential is generated
+randomly and stored in platform secure storage.
 
 ### Peripheral Mode
 BLE role where device advertises and accepts connections. PakConnect advertises ephemeral ID in peripheral mode.
@@ -120,7 +128,9 @@ Trust tier for contact: LOW (ephemeral), MEDIUM (verified PIN), HIGH (cryptograp
 Established encrypted communication channel between two peers. Contains cipher states for send/receive.
 
 ### SHA-256
-Cryptographic hash function producing 256-bit digest. Used for message IDs, key derivation, and integrity checks.
+Cryptographic hash function producing a 256-bit digest. Used for key
+derivation, integrity operations, and the missing-ID inbound fallback; normal
+originating paths use opaque IDs.
 
 ### SQLCipher
 SQLite extension providing transparent AES-256 database encryption. Used to protect local data at rest.
@@ -203,23 +213,25 @@ Elliptic curve Diffie-Hellman key exchange using Curve25519. Standard DH algorit
 ## Prerequisites
 
 ### Required Software
-- **Flutter SDK**: 3.9.0 or higher
-- **Dart SDK**: 3.9.0 or higher (bundled with Flutter)
+- **Flutter SDK**: 3.38.4 or higher (CI pinned to 3.44.4)
+- **Dart SDK**: 3.10.3 or higher (bundled with Flutter)
 - **Git**: Version control
 
 ### Platform-Specific Tools
 
 #### Android Development
 - **Android Studio**: 2023.1+ (Hedgehog or later)
-- **Android SDK**: API 33 (compileSdk)
-- **Android NDK**: r27 (27.0.12077973)
-- **Java Development Kit (JDK)**: Version 11
-- **Gradle**: 8.0+ (included with Android Studio)
+- **Android SDK**: API 36 compile/target with the locally verified Flutter
+  3.41.5 SDK; recheck against the CI Flutter 3.44.4 pin
+- **Minimum Android SDK**: API 24 (`flutter.minSdkVersion`)
+- **Android NDK**: 28.2.13676358
+- **Java Development Kit (JDK)**: Version 17 (pinned in CI)
+- **Gradle**: 8.11.1 wrapper
 
 #### iOS Development (macOS only)
-- **Xcode**: 14.0 or higher
-- **CocoaPods**: 1.11 or higher
-- **Command Line Tools**: Installed via Xcode
+- **Deployment target**: iOS 12.0
+- **Toolchain**: A compatible Xcode/CocoaPods installation; exact versions are
+  not pinned or verified by the current Windows-only evidence
 
 #### Windows Development
 - **Visual Studio 2022**: Desktop development with C++
@@ -229,7 +241,7 @@ Elliptic curve Diffie-Hellman key exchange using Curve25519. Standard DH algorit
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/yourusername/pak_connect.git
+git clone https://github.com/AbubakarMahmood/pak_connect.git
 cd pak_connect
 ```
 
@@ -251,7 +263,7 @@ Ensure all required components show checkmarks.
 flutter doctor --android-licenses
 
 # Verify NDK installation
-ls $ANDROID_HOME/ndk/27.0.12077973
+ls $ANDROID_HOME/ndk/28.2.13676358
 ```
 
 ### 5. Run Application
@@ -259,7 +271,7 @@ ls $ANDROID_HOME/ndk/27.0.12077973
 # Debug build (development)
 flutter run
 
-# Release build (production)
+# Release run (requires configured Android/iOS signing)
 flutter run --release
 ```
 
@@ -269,7 +281,7 @@ flutter run --release
 flutter test
 
 # Specific test file
-flutter test test/noise_end_to_end_test.dart
+flutter test test/core/security/noise/noise_end_to_end_test.dart
 
 # With coverage
 flutter test --coverage
@@ -280,7 +292,7 @@ flutter test --coverage
 ### Common Issues
 
 **Issue**: `sqflite_sqlcipher` native compilation fails
-**Solution**: Ensure Android NDK r27 is installed at exact version `27.0.12077973`
+**Solution**: Ensure Android NDK `28.2.13676358` is installed
 
 **Issue**: BLE not working in emulator
 **Solution**: Use real physical device (emulators lack BLE hardware)
@@ -417,7 +429,7 @@ When message exceeds MTU:
 ├─────────────────────────────────────────────┤
 │ Fragment Index             [1 byte]         │
 │ Total Fragments            [1 byte]         │
-│ Message ID (SHA-256)       [32 bytes]       │
+│ Opaque transport ID        [variable]       │
 │ Fragment Payload           [MTU - 34 bytes] │
 └─────────────────────────────────────────────┘
 ```
@@ -436,8 +448,8 @@ When message exceeds MTU:
   "originalSender": "AkNOTE9VUCB...",
   "finalRecipient": "BmFLKMNOPQR...",
   "hopCount": 2,
-  "maxHops": 5,
-  "messageId": "sha256_hash_hex",
+  "maxHops": 3,
+  "messageId": "opaque-message-id",
   "timestamp": 1705678901234,
   "ttl": 3600
 }
@@ -458,7 +470,10 @@ When message exceeds MTU:
 | v5 → v6 | 2024-11 | Added `is_favorite` to contacts | No |
 | v6 → v7 | 2024-11 | Added `ephemeral_id` to contacts | No |
 | v7 → v8 | 2024-12 | Added three-ID model (persistent + current ephemeral) | No |
-| v8 → v9 | 2025-01 | Added group messaging tables (4 new tables) | No |
+| v8 → v9 | 2025-01 | Added four legacy Group*-named tables now used for sender-local broadcast lists | No |
+| v9 → v10 | 2025 | Added `seen_messages` mesh deduplication table | No |
+| v10 → v11 | 2025 | Added `change_log` table and 9 triggers | No |
+| v11 → v12 | 2025 | Added per-peer change-log cursor to `queue_sync_state` | No |
 
 ## Migration Code Example (v8 → v9)
 
@@ -512,15 +527,19 @@ SQLite migrations are **one-way** (no automatic rollback). For rollback:
 | ChaCha20-Poly1305 Encrypt (1 KB) | < 5 ms | cryptography package |
 | ChaCha20-Poly1305 Decrypt (1 KB) | < 5 ms | cryptography package |
 | SHA-256 Hash (1 KB) | < 2 ms | crypto package |
-| PBKDF2 (100k iterations) | < 500 ms | Database unlock |
+| PBKDF2-HMAC-SHA256 (600k iterations) | Device-measured target required | Export/import passphrase |
 | Noise XX Handshake (full) | < 100 ms | 3-message exchange |
 | Noise KK Handshake (full) | < 50 ms | 2-message exchange |
 
-**Test Environment**: Tested on mid-range Android device (Snapdragon 660, 4GB RAM)
+**Evidence status**: These are target values from the historical SRS, not a
+current benchmark result. Record device, OS, build, sample count, and raw output
+before claiming them as measured performance.
 
 ## BLE Performance
 
-| Metric | Typical Value | Range |
+These are historical target/example values, not current measured evidence.
+
+| Metric | Historical target | Example range |
 |--------|---------------|-------|
 | Connection Establishment | 2-5 seconds | 1-10s |
 | MTU Negotiation | 200-300 ms | 100-500ms |
@@ -531,12 +550,15 @@ SQLite migrations are **one-way** (no automatic rollback). For rollback:
 
 ## Database Operations
 
+These are targets until a cited benchmark artifact proves them on the stated
+device/build.
+
 | Operation | Target Latency | Query Type |
 |-----------|----------------|------------|
 | Insert Message | < 10 ms | Single INSERT |
 | Query Chat History (50 messages) | < 20 ms | SELECT with LIMIT |
 | Full-Text Search (FTS5) | < 50 ms | FTS5 MATCH query |
-| Database Unlock (PBKDF2) | < 500 ms | Cold start |
+| Mobile database open | Device-measured target required | SQLCipher with secure-storage credential |
 | VACUUM Operation | 1-5 seconds | Maintenance |
 
 ---
@@ -561,13 +583,13 @@ SQLite migrations are **one-way** (no automatic rollback). For rollback:
 - [ ] Delete contact (verify cascade delete)
 - [ ] Search contacts by name
 
-### Group Messaging
-- [ ] Create group with 3+ members
-- [ ] Send group message (verify multi-unicast)
-- [ ] View per-member delivery status
-- [ ] Add member to existing group
-- [ ] Remove member from group
-- [ ] Delete group
+### Broadcast Lists
+- [ ] Create a local list with 3+ recipients
+- [ ] Send a broadcast and verify one ordinary direct message per recipient
+- [ ] Verify sender-local pending/queued/failed status
+- [ ] Verify recipients see only their individual direct chat
+- [ ] Add and remove recipients from the local list
+- [ ] Delete the local list
 
 ### Mesh Networking
 - [ ] Relay message through intermediate node (A → B → C)
@@ -594,17 +616,22 @@ SQLite migrations are **one-way** (no automatic rollback). For rollback:
 
 ### Platform Limitations
 
-1. **Android BLE Connection Limit**: Maximum 7 simultaneous connections per device (hardware/OS limit)
+1. **Android BLE Connection Target**: The configuration permits up to 7, but
+the current user-payload policy is single-link and no device matrix proves a
+seven-link maximum.
 
 2. **iOS Background BLE**: Severely restricted by iOS. App must be in foreground for reliable operation.
 
-3. **BLE Range**: 10-30 meters line-of-sight. Walls, interference reduce range significantly.
+3. **BLE Range**: A historical 10-30 meter line-of-sight figure is a test
+target only; actual range depends on the device and environment.
 
 4. **MTU Variability**: MTU negotiation not guaranteed. Some devices limited to 23-byte MTU (default GATT).
 
 ### Security Limitations
 
-5. **No Group Key**: Group messages use multi-unicast (individual encryption). No shared group secret.
+5. **No Group Protocol**: Broadcast lists use independent direct messages.
+There is no shared group key, authenticated membership state, recipient-side
+group history, or shared reply path.
 
 6. **Ephemeral Session Vulnerability**: LOW security contacts have no authentication beyond first ephemeral exchange.
 
@@ -616,9 +643,13 @@ SQLite migrations are **one-way** (no automatic rollback). For rollback:
 
 9. **Noise Session Not Backed Up**: Session state ephemeral. After restore from backup, all contacts must re-handshake.
 
-10. **Message Size Limit**: Practically limited to ~10 KB due to BLE fragmentation overhead and timeout.
+10. **Message Size Limits**: Relay spam policy limits an individual relayed
+payload to about 10 KiB. Direct fragmented text and binary/media paths have
+different limits; physical MTU, timeout, memory, and byte-equality evidence is
+still required.
 
-11. **Relay Hop Limit**: Messages cannot traverse more than 5 hops. Prevents infinite loops but limits range.
+11. **Relay Hop Limit**: The configured limit defaults to 3 and is capped at
+5. This bounds loops but limits range.
 
 12. **Archive Compression Not Implemented**: Archive system designed for compression but not yet implemented (v1.0).
 
@@ -632,9 +663,11 @@ The following features are **not implemented** in the current version but docume
 **Description**: Record and send encrypted voice messages
 **Complexity**: Medium (requires audio encoding, larger message handling)
 
-### 2. File Attachments
-**Description**: Send encrypted files (images, documents)
-**Complexity**: High (requires chunking, progress tracking, MIME type handling)
+### 2. General File Attachments
+**Description**: Arbitrary encrypted document/file attachments. Image/binary
+media transport exists, but a general document picker/MIME contract is not a
+shipped capability.
+**Complexity**: High (requires broader type handling and device validation)
 
 ### 3. Multi-Device Sync
 **Description**: Sync messages across user's multiple devices
@@ -672,22 +705,22 @@ The following features are **not implemented** in the current version but docume
 
 # Appendix K: Compliance and Legal Notices
 
-## Open Source License
+## Project License
 
-**Project License**: MIT License
+**Project License**: Proprietary and confidential
 
-**Summary**: PakConnect is open-source software. You are free to use, modify, and distribute this software, provided the original copyright notice is retained.
+**Summary**: Public source visibility does not grant permission to use, modify,
+or redistribute PakConnect. The rights and restrictions in the root `LICENSE`
+control.
 
 **Full License**: See `LICENSE` file in project root.
 
 ## Third-Party Licenses
 
-All dependencies are licensed under permissive open-source licenses:
-- **MIT**: flutter_riverpod, bluetooth_low_energy, sqflite_sqlcipher, shared_preferences, and others
-- **Apache 2.0**: pinenacl, cryptography, Dart SDK
-- **BSD**: Flutter SDK
-
-**Compliance**: No copyleft (GPL) licenses used. Safe for commercial/proprietary derivative works.
+Third-party dependencies retain their own licenses and notices. The repository
+does not currently provide a completed release-distribution license audit, so
+do not infer that every dependency is permissive or that every distribution
+scenario is cleared from package names alone.
 
 ## Cryptographic Export Notice
 
@@ -697,18 +730,24 @@ This software includes cryptographic functionality:
 - SHA-256 cryptographic hash
 - PBKDF2 key derivation
 
-**Export Classification**: Publicly available cryptographic software using standard algorithms. Generally exempt from export restrictions under Wassenaar Arrangement.
+**Export Classification**: Cryptographic export/import obligations vary by
+jurisdiction. No Wassenaar or other legal exemption is claimed here; obtain an
+appropriate review before distribution.
 
 **Disclaimer**: Users responsible for compliance with local export/import regulations.
 
 ## Privacy and Data Protection
 
-**Data Collection**: PakConnect collects NO user data. All data stored locally on device.
+**Data Collection**: The default app has no project-operated account,
+messaging, analytics, or advertising server. User payloads, public/ephemeral
+identity data, acknowledgements, and routing metadata still leave the device
+when the user communicates over BLE; OS services may process permission,
+notification, file, or Bluetooth metadata.
 
-**GDPR Compliance**:
+**Privacy design notes (not an independent GDPR compliance audit)**:
 - Data minimization: Only essential data stored
 - User control: Users can export and delete all data
-- No third-party sharing: Zero external data transmission
+- No project-server telemetry in the current default composition
 
 **Privacy Policy**: See `assets/privacy_policy.md` (accessible in-app)
 
@@ -726,11 +765,10 @@ This software includes cryptographic functionality:
 
 ## Code Style
 
-- **Language**: Dart 3.9+ with null safety
+- **Language**: Dart 3.10.3+ with null safety
 - **Formatting**: `dart format` (official formatter)
 - **Linting**: `flutter analyze` must pass with zero errors
-- **Line Length**: 120 characters maximum
-- **Imports**: Organized as: Dart SDK → Flutter SDK → Third-party → Relative
+- **Style authority**: `dart format lib test` and `analysis_options.yaml`
 
 ## Documentation
 
@@ -741,19 +779,19 @@ This software includes cryptographic functionality:
 
 ## Testing Requirements
 
-- **Coverage Target**: >85% for core logic
+- **Coverage Target**: >85% for core logic (policy target; not yet enforced by CI)
 - **Test Organization**: Mirror `lib/` structure in `test/`
 - **Naming**: `test_file_test.dart` for `lib/test_file.dart`
 - **Real Device Testing**: BLE features must be tested on physical devices
 
 ## Pull Request Process
 
-1. Fork repository
-2. Create feature branch (`feature/your-feature-name`)
+1. Create an authorized feature branch (`feature/your-feature-name`)
 3. Write tests first (TDD encouraged)
 4. Implement feature
 5. Run `flutter analyze` and `flutter test`
-6. Update CLAUDE.md if architecture changes
+6. Update `AGENTS.md` or the owning subsystem documentation if architecture or
+   an invariant changes; tool projections should remain thin
 7. Submit PR with clear description
 
 ## Issue Reporting
@@ -767,7 +805,7 @@ This software includes cryptographic functionality:
 ## Document Version
 
 **Appendices Version**: 1.0
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-11
 **Maintained By**: PakConnect Development Team
 
 ---

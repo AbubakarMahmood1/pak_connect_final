@@ -6,9 +6,14 @@ import '../export_dialog.dart';
 import '../import_dialog.dart';
 
 class DataStorageSection extends StatelessWidget {
-  const DataStorageSection({super.key, required this.controller});
+  const DataStorageSection({
+    super.key,
+    required this.controller,
+    required this.onPanicWipeRequested,
+  });
 
   final SettingsController controller;
+  final Future<void> Function() onPanicWipeRequested;
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +86,26 @@ class DataStorageSection extends StatelessWidget {
             subtitle: const Text('Delete all messages, chats, and contacts'),
             trailing: Icon(Icons.chevron_right, color: theme.colorScheme.error),
             onTap: () => _confirmClearData(context),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            tileColor: theme.colorScheme.errorContainer.withValues(alpha: 0.28),
+            leading: Icon(
+              Icons.warning_amber_rounded,
+              color: theme.colorScheme.error,
+            ),
+            title: Text(
+              'Panic Wipe',
+              style: TextStyle(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            subtitle: const Text(
+              'Wipe identity keys, encrypted database, and all local state',
+            ),
+            trailing: Icon(Icons.chevron_right, color: theme.colorScheme.error),
+            onTap: onPanicWipeRequested,
           ),
         ],
       ),

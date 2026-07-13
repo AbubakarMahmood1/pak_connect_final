@@ -167,6 +167,7 @@ void main() {
       final secondRead = service.getStaticPrivateKeyData();
       expect(secondRead.first, equals(originalFirstByte));
       expect(secondRead.first, isNot(equals(firstRead.first)));
+      expect(secondRead.any((byte) => byte != 0), isTrue);
 
       service.shutdown();
     });
@@ -540,6 +541,19 @@ void main() {
         () => service.getStaticPublicKeyData(),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('shutdown zeroizes the in-memory static private key', () async {
+      final service = NoiseEncryptionService(
+        secureStorage: MockSecureStorage(),
+      );
+      await service.initialize();
+
+      expect(service.debugIsStaticPrivateKeyZeroized, isFalse);
+
+      service.shutdown();
+
+      expect(service.debugIsStaticPrivateKeyZeroized, isTrue);
     });
 
     test('can initialize twice (idempotent)', () async {

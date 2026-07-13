@@ -69,7 +69,11 @@ class SealedEncryptionService {
       throw StateError('Failed to generate ephemeral X25519 keypair');
     }
 
-    final sharedSecret = DHState.calculate(ephemeralPrivate, recipientPublicKey);
+    final sharedSecret = DHState.calculateChecked(
+      ephemeralPrivate,
+      recipientPublicKey,
+      contextLabel: 'sealed_encrypt',
+    );
     final keyBytes = _deriveMessageKey(sharedSecret);
 
     try {
@@ -120,7 +124,11 @@ class SealedEncryptionService {
       throw ArgumentError('ciphertext too short (must include MAC)');
     }
 
-    final sharedSecret = DHState.calculate(recipientPrivateKey, ephemeralPublicKey);
+    final sharedSecret = DHState.calculateChecked(
+      recipientPrivateKey,
+      ephemeralPublicKey,
+      contextLabel: 'sealed_decrypt',
+    );
     final keyBytes = _deriveMessageKey(sharedSecret);
 
     try {

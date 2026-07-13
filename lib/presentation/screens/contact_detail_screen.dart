@@ -580,7 +580,7 @@ class _ContactDetailScreenState extends ConsumerState<ContactDetailScreen> {
           if (contact.groupMemberships.isNotEmpty)
             _buildSection(
               context,
-              title: 'Groups',
+              title: 'Broadcast lists',
               icon: Icons.group,
               child: Wrap(
                 spacing: 8,

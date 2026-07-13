@@ -20,6 +20,8 @@ final preferencesRepositoryProvider = Provider<IPreferencesRepository>((ref) {
 
 /// Theme mode notifier with database persistence
 class ThemeModeNotifier extends Notifier<ThemeMode> {
+  bool _retryScheduled = false;
+
   @override
   ThemeMode build() {
     _loadThemeMode();
@@ -29,7 +31,15 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
   /// Load theme mode from database
   Future<void> _loadThemeMode() async {
     try {
-      final preferencesRepo = ref.read(preferencesRepositoryProvider);
+      final preferencesRepo =
+          maybeResolveFromAppServicesOrServiceLocator<IPreferencesRepository>(
+            fromServices: (services) => services.preferencesRepository,
+          );
+      if (preferencesRepo == null) {
+        _scheduleThemeLoadRetry();
+        return;
+      }
+
       final themeModeString = await preferencesRepo.getString(
         PreferenceKeys.themeMode,
         defaultValue: PreferenceDefaults.themeMode,
@@ -46,6 +56,20 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
         state = ThemeMode.system;
       }
     }
+  }
+
+  void _scheduleThemeLoadRetry() {
+    if (_retryScheduled || !ref.mounted) {
+      return;
+    }
+    _retryScheduled = true;
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      _retryScheduled = false;
+      if (!ref.mounted) {
+        return;
+      }
+      _loadThemeMode();
+    });
   }
 
   /// Set theme mode and persist to database

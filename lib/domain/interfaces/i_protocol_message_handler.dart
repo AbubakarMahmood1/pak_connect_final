@@ -1,4 +1,5 @@
 import 'package:pak_connect/domain/models/protocol_message.dart';
+import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 
 /// Interface for protocol message handling
 ///
@@ -141,4 +142,10 @@ abstract interface class IProtocolMessageHandler {
 
   /// Registers callback for friend reveal (spy mode identity disclosure)
   void onIdentityRevealed(Function(String contactName) callback);
+
+  /// Registers queue-sync protocol messages with their concrete BLE sender
+  /// address. The second value must not be replaced with a session alias.
+  void onQueueSyncReceived(
+    Function(QueueSyncMessage syncMessage, String fromDeviceAddress)? callback,
+  );
 }

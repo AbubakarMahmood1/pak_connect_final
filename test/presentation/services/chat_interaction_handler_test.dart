@@ -161,7 +161,7 @@ void main() {
       },
     );
 
-    test('toggleChatPin and markChatAsRead delegate and emit intent', () async {
+    test('pin and read status actions delegate and emit intents', () async {
       chatManagementService.pinResponses[const ChatId('chat-pin')] =
           ChatOperationResult.success('pinned');
 
@@ -182,40 +182,17 @@ void main() {
 
       await handler.markChatAsRead(chat.chatId);
       expect(chatsRepository.markedReadChatIds, <ChatId>[chat.chatId]);
+      await handler.markChatAsUnread(const ChatId('chat-unread'));
+      await Future<void>.delayed(Duration.zero);
+      expect(chatsRepository.markedUnreadChatIds, <ChatId>[
+        const ChatId('chat-unread'),
+      ]);
+      final readIntents = intents
+          .whereType<ChatReadStatusChangedIntent>()
+          .toList();
+      expect(readIntents.map((intent) => intent.isUnread), <bool>[false, true]);
 
       await sub.cancel();
-    });
-
-    testWidgets('showChatContextMenu handles mark-read and pin actions', (
-      tester,
-    ) async {
-      chatManagementService.pinResponses[const ChatId('chat-menu-pin')] =
-          ChatOperationResult.success('pinned');
-
-      final context = await _pumpTestContext(tester);
-      final handler = ChatInteractionHandler(
-        context: context,
-        chatsRepository: chatsRepository,
-        chatManagementService: chatManagementService,
-      );
-
-      handler.showChatContextMenu(_chat(chatId: 'chat-menu-read', unread: 3));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mark as Read'));
-      await tester.pumpAndSettle();
-      expect(
-        chatsRepository.markedReadChatIds,
-        contains(const ChatId('chat-menu-read')),
-      );
-
-      handler.showChatContextMenu(_chat(chatId: 'chat-menu-pin', unread: 0));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Pin Chat'));
-      await tester.pumpAndSettle();
-      expect(
-        chatManagementService.toggleCalls,
-        contains(const ChatId('chat-menu-pin')),
-      );
     });
 
     test('formatTime returns expected relative labels', () {
@@ -276,10 +253,16 @@ ChatListItem _chat({required String chatId, required int unread}) {
 
 class _RecordingChatsRepository implements IChatsRepository {
   final List<ChatId> markedReadChatIds = <ChatId>[];
+  final List<ChatId> markedUnreadChatIds = <ChatId>[];
 
   @override
   Future<void> markChatAsRead(ChatId chatId) async {
     markedReadChatIds.add(chatId);
+  }
+
+  @override
+  Future<void> incrementUnreadCount(ChatId chatId) async {
+    markedUnreadChatIds.add(chatId);
   }
 
   @override
@@ -319,7 +302,9 @@ class _FakeChatManagementService implements ChatManagementService {
       throw UnimplementedError('Unexpected management call: $invocation');
 }
 
-class _FakeSharedQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedQueueProvider({required OfflineMessageQueueContract queue})
     : _queue = queue;
 

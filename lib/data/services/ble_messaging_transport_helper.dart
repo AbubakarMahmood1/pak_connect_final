@@ -264,7 +264,10 @@ class _BleMessagingTransportHelper {
     return false;
   }
 
-  Future<void> sendProtocolMessage(ProtocolMessage message) async {
+  Future<void> sendProtocolMessage(
+    ProtocolMessage message, {
+    String? peerId,
+  }) async {
     // 🔧 CRITICAL FIX: Protocol messages must be fragmented like user messages
     // ProtocolMessage.toBytes() returns binary data (compressed or uncompressed)
     // This CANNOT be sent directly to BLE - it must be:
@@ -317,19 +320,55 @@ class _BleMessagingTransportHelper {
           return peripheralNotifyReady();
         }
 
+        final clientCandidate = peerId == null
+            ? null
+            : _owner._connectionManager.clientConnectionForPeer(peerId);
+        final targetClient = clientCandidate?.address == peerId
+            ? clientCandidate
+            : null;
+        final serverCandidate = peerId == null
+            ? null
+            : _owner._connectionManager.serverConnectionForPeer(peerId);
+        final targetServer = serverCandidate?.address == peerId
+            ? serverCandidate
+            : null;
+
         // Bail out early if neither central nor peripheral link is usable.
         final hasCentralLink =
-            _owner._connectionManager.hasBleConnection &&
-            _owner._connectionManager.messageCharacteristic != null;
+            targetClient?.messageCharacteristic != null ||
+            (peerId == null &&
+                _owner._connectionManager.hasBleConnection &&
+                _owner._connectionManager.messageCharacteristic != null);
         final hasPeripheralLink =
-            _owner._stateManager.isPeripheralMode &&
-            _owner._getConnectedCentral() != null &&
-            _owner._getPeripheralMessageCharacteristic() != null;
+            targetServer?.subscribedCharacteristic != null ||
+            (peerId == null &&
+                _owner._stateManager.isPeripheralMode &&
+                _owner._getConnectedCentral() != null &&
+                _owner._getPeripheralMessageCharacteristic() != null);
 
         // For handshake control frames we must avoid stale handles. If we are in
         // peripheral mode and have a fresh inbound link, prefer that path even
         // if an old client connection still exists.
         Future<void> sendUnfragmented(Uint8List value) async {
+          if (targetClient?.messageCharacteristic != null) {
+            await _owner._getCentralManager().writeCharacteristic(
+              targetClient!.peripheral,
+              targetClient.messageCharacteristic!,
+              value: value,
+              type: GATTCharacteristicWriteType.withResponse,
+            );
+            return;
+          }
+
+          if (targetServer?.subscribedCharacteristic != null) {
+            await _owner._getPeripheralManager().notifyCharacteristic(
+              targetServer!.central,
+              targetServer.subscribedCharacteristic!,
+              value: value,
+            );
+            return;
+          }
+
           if (isHandshakeMessage && hasPeripheralLink) {
             final connectedCentral = _owner._getConnectedCentral() as Central;
             final characteristic =
@@ -371,14 +410,18 @@ class _BleMessagingTransportHelper {
 
         if (!hasCentralLink && !hasPeripheralLink) {
           final msg =
-              'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, state=${_owner._connectionManager.connectionState.name})';
+              'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, peer=${peerId ?? "default"}, state=${_owner._connectionManager.connectionState.name})';
           _owner._logger.warning('⚠️ Protocol message send skipped: $msg');
           if (isHandshakeMessage) {
             _owner._isProcessingWriteQueue = false;
             completer.completeError(HandshakeSendException(msg));
             return;
           }
-          completer.complete();
+          // The route can disappear after sendQueueSyncMessage's preflight but
+          // before this serialized closure executes. Completing normally here
+          // falsely reports the protocol frame as sent and forces the sync
+          // initiator to wait for its full response timeout.
+          completer.completeError(StateError(msg));
           return;
         }
 
@@ -421,15 +464,22 @@ class _BleMessagingTransportHelper {
         // Convert protocol message to bytes (may be compressed binary)
         final messageBytes = message.toBytes();
 
-        // Get MTU size with fallback to safe default
-        final mtuSize =
-            _owner._connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
+        // Fragment for the connection that will actually carry this frame.
+        // The legacy manager getter exposes the first client MTU, which can be
+        // larger than a peer-targeted client/server link and produce oversized
+        // writes on multi-link nodes.
+        final routeMtu = targetClient != null
+            ? (targetClient.mtu ?? BLEConstants.maxMessageLength)
+            : targetServer != null
+            ? (targetServer.mtu ?? BLEConstants.maxMessageLength)
+            : (_owner._connectionManager.mtuSize ??
+                  BLEConstants.maxMessageLength);
 
         // Handshake fast-path: send control frames unfragmented when they fit MTU.
-        if (isHandshakeMessage && messageBytes.length <= mtuSize) {
+        if (isHandshakeMessage && messageBytes.length <= routeMtu) {
           _owner._logger.fine(
             '🤝 Handshake fast path (${message.type}) - sending unfragmented '
-            '(${messageBytes.length} bytes <= MTU $mtuSize)',
+            '(${messageBytes.length} bytes <= MTU $routeMtu)',
           );
 
           await sendUnfragmented(messageBytes);
@@ -442,9 +492,7 @@ class _BleMessagingTransportHelper {
         final msgId =
             'proto_${message.type.name}_${DateTime.now().millisecondsSinceEpoch}';
 
-        // Get MTU size with fallback to safe default (re-read after potential MTU change)
-        final fragmentationMtu =
-            _owner._connectionManager.mtuSize ?? BLEConstants.maxMessageLength;
+        final fragmentationMtu = routeMtu;
 
         List<MessageChunk>? chunks;
         MessageChunk? singleChunk;
@@ -474,7 +522,13 @@ class _BleMessagingTransportHelper {
         );
 
         if (useBinaryEnvelope) {
-          final recipientId = _owner._stateManager.getRecipientId();
+          // A peer-targeted protocol frame already has an exact point-to-point
+          // BLE route. Do not stamp it with the unrelated global session
+          // recipient: the target would treat that envelope as relay traffic
+          // instead of reassembling it locally.
+          final recipientId = peerId == null
+              ? _owner._stateManager.getRecipientId()
+              : null;
           final fragments = BinaryFragmenter.fragment(
             data: messageBytes,
             mtu: fragmentationMtu,
@@ -529,24 +583,12 @@ class _BleMessagingTransportHelper {
 
     _owner._isProcessingWriteQueue = true;
 
+    // No link pre-check here: each queued write validates its own route
+    // (including peer-targeted client/server links the legacy global checks
+    // cannot see) and completes its completer with success or error. A
+    // pre-check that dropped writes left their completers dangling forever.
     while (_owner._writeQueue.isNotEmpty) {
       final write = _owner._writeQueue.removeAt(0);
-      final hasCentralLink =
-          _owner._connectionManager.hasBleConnection &&
-          _owner._connectionManager.messageCharacteristic != null;
-      final hasPeripheralLink =
-          _owner._stateManager.isPeripheralMode &&
-          _owner._getConnectedCentral() != null &&
-          _owner._getPeripheralMessageCharacteristic() != null;
-      if (!hasCentralLink && !hasPeripheralLink) {
-        _owner._logger.warning(
-          '⚠️ Aborting write queue; BLE connection not ready '
-          '(central=$hasCentralLink, peripheral=$hasPeripheralLink, '
-          'state=${_owner._connectionManager.connectionState.name})',
-        );
-        _owner._isProcessingWriteQueue = false;
-        return;
-      }
       try {
         await write();
       } catch (e) {

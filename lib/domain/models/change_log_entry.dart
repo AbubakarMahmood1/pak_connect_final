@@ -1,7 +1,8 @@
 /// A single entry from the `change_log` table, representing one
 /// INSERT / UPDATE / DELETE operation on contacts, chats, or messages.
 ///
-/// Used for live P2P change_log exchange during gossip sync (Phase 2).
+/// Used by local export/import and by a dormant peer-replay prototype. It is
+/// not a complete row payload and is not sent by the production BLE runtime.
 class ChangeLogEntry {
   /// Auto-increment ID in the local database (used as sync cursor).
   final int id;
@@ -37,16 +38,16 @@ class ChangeLogEntry {
     );
   }
 
-  /// Serialize to JSON-compatible map for BLE transport.
+  /// Serialize to a JSON-compatible map for export or prototype transport.
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'table_name': tableName,
-        'operation': operation,
-        'row_key': rowKey,
-        'changed_at': changedAt,
-      };
+    'id': id,
+    'table_name': tableName,
+    'operation': operation,
+    'row_key': rowKey,
+    'changed_at': changedAt,
+  };
 
-  /// Deserialize from JSON map received over BLE.
+  /// Deserialize from an exported or prototype-transport JSON map.
   factory ChangeLogEntry.fromJson(Map<String, dynamic> json) {
     return ChangeLogEntry(
       id: json['id'] as int,

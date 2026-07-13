@@ -142,7 +142,10 @@ abstract interface class IConnectionService implements IMeshBleService {
   /// Trigger identity re-exchange after updating profile data.
   Future<void> triggerIdentityReExchange();
 
-  /// Reveal identity in spy-mode flows.
+  /// Build and send the signed spy-mode reveal on one unambiguous BLE route.
+  ///
+  /// Returns the frame only after transport accepts it; returns `null` when a
+  /// proof cannot be built, the route count is not exactly one, or send fails.
   Future<ProtocolMessage?> revealIdentityToFriend();
 
   /// Update the cached username.

@@ -161,6 +161,9 @@ void main() {
         contactRepository.getContactByAnyId('peer'),
       ).thenAnswer((_) async => contact);
       when(
+        contactRepository.getContactByAnyId('persist'),
+      ).thenAnswer((_) async => contact);
+      when(
         contactRepository.getContactByUserId(const UserId('peer')),
       ).thenAnswer((_) async => contact);
       when(
@@ -266,7 +269,9 @@ void main() {
       ).called(1);
     });
 
-    test('uses persistent IDs for shared secret when available', () async {
+    test(
+      'uses the current session identity for shared secret until persistent binding completes',
+      () async {
       identityState.setTheirEphemeralId('peer-eph');
       identityState.theirPersistentKey = 'persist';
       identityState.currentSessionId = 'peer-eph';
@@ -278,7 +283,7 @@ void main() {
       expect(success, isTrue);
 
       final sortedCodes = [code, code]..sort();
-      final sortedKeys = ['my-id', 'persist']..sort();
+      final sortedKeys = ['my-id', 'peer-eph']..sort();
       final expectedCombined =
           '${sortedCodes[0]}:${sortedCodes[1]}:${sortedKeys[0]}:${sortedKeys[1]}';
       final expectedSecret = sha256

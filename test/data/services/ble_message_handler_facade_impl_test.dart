@@ -453,7 +453,9 @@ class _FakeSeenMessageStore implements ISeenMessageStore {
   Future<void> performMaintenance() async {}
 }
 
-class _FakeSharedQueueProvider implements ISharedMessageQueueProvider {
+class _FakeSharedQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   _FakeSharedQueueProvider({required this.queue, required bool initialized})
     : _initialized = initialized;
 

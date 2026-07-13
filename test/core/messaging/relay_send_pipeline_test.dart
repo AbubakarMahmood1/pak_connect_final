@@ -24,8 +24,9 @@ void main() {
     });
 
     test('only originator hops persist to storage; intermediate relays stay in-memory', () async {
+      final originPayload = _relayPayload('hello');
       final originMeta = RelayMetadata.create(
-        originalMessageContent: 'hello',
+        originalMessageContent: originPayload,
         priority: MessagePriority.normal,
         originalSender: 'origin',
         finalRecipient: 'final',
@@ -33,9 +34,10 @@ void main() {
       );
       final originMessage = MeshRelayMessage.createRelay(
         originalMessageId: 'msg-1',
-        originalContent: 'hello',
+        originalContent: '',
         metadata: originMeta,
         relayNodeId: 'origin',
+        encryptedPayload: originPayload,
       );
 
       await pipeline.relayToNextHop(
@@ -53,11 +55,13 @@ void main() {
       queue.records.clear();
 
       final intermediateMeta = originMeta.nextHop('peer-a');
+      final intermediatePayload = _relayPayload('hello');
       final intermediateMessage = MeshRelayMessage.createRelay(
         originalMessageId: 'msg-1',
-        originalContent: 'hello',
+        originalContent: '',
         metadata: intermediateMeta,
         relayNodeId: 'peer-a',
+        encryptedPayload: intermediatePayload,
       );
 
       await pipeline.relayToNextHop(
@@ -75,6 +79,8 @@ void main() {
     });
   });
 }
+
+String _relayPayload(String content) => 'ciphertext::$content';
 
 class _RecordingQueue extends OfflineMessageQueue {
   final List<_QueueRecord> records = [];

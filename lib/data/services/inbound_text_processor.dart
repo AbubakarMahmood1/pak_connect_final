@@ -52,7 +52,6 @@ class InboundTextProcessor {
   final ISecurityService _securityService;
   final bool _requireV2Signature;
   final Logger _logger;
-  static const bool _allowLegacyV1DecryptFallback = true;
 
   /// Test hook for isolating protocol-floor behavior between test cases.
   static void clearPeerProtocolVersionFloorForTest() {
@@ -69,6 +68,13 @@ class InboundTextProcessor {
     // Drop messages that originated from this node to prevent loops/echo
     if (senderPublicKey != null && senderPublicKey == currentNodeId) {
       _logger.fine('⏭️ ROUTING: Ignoring self-originated message');
+      return const InboundTextResult(content: null, shouldAck: false);
+    }
+
+    if (protocolMessage.version < 2) {
+      _logger.severe(
+        '🔒 Legacy live text message rejected: ${protocolMessage.textMessageId}',
+      );
       return const InboundTextResult(content: null, shouldAck: false);
     }
 
@@ -116,39 +122,37 @@ class InboundTextProcessor {
       }
     }
 
+    if (protocolMessage.version >= 2 &&
+        protocolMessage.signature != null &&
+        protocolMessage.useEphemeralSigning &&
+        protocolMessage.ephemeralSigningKey == null) {
+      _logger.severe(
+        '❌ v2 ephemeral signature missing signing key for message $messageId',
+      );
+      return const InboundTextResult(
+        content: '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]',
+        shouldAck: false,
+      );
+    }
+
     String decryptedContent = content;
     final originalSender = protocolMessage.payload['originalSender'] as String?;
     final declaredSenderId = protocolMessage.senderId ?? originalSender;
-    final preferDeclaredSender = protocolMessage.version >= 2;
     final resolvedSenderForDecrypt = await _resolveSenderKeyForDecrypt(
       senderPublicKey,
-    );
-    final resolvedOriginalSenderForDecrypt = await _resolveSenderKeyForDecrypt(
-      originalSender,
-    );
-    final resolvedDeclaredSenderForDecrypt = await _resolveSenderKeyForDecrypt(
-      declaredSenderId,
     );
     final resolvedSenderForSignature = await _resolveSenderKeyForSignature(
       senderPublicKey,
     );
-    final resolvedOriginalSenderForSignature =
-        await _resolveSenderKeyForSignature(originalSender);
     final resolvedDeclaredSenderForSignature =
         await _resolveSenderKeyForSignature(declaredSenderId);
     final versionPeerKey = _versionPeerKey(
-      signatureSenderKey: preferDeclaredSender
-          ? _firstNonEmpty([
-              resolvedDeclaredSenderForSignature,
-              resolvedSenderForSignature,
-              resolvedOriginalSenderForSignature,
-            ])
-          : _firstNonEmpty([
-              resolvedSenderForSignature,
-              resolvedOriginalSenderForSignature,
-              resolvedDeclaredSenderForSignature,
-            ]),
-      declaredSenderId: preferDeclaredSender ? declaredSenderId : null,
+      signatureSenderKey: _firstNonEmpty([
+        resolvedSenderForSignature,
+        senderPublicKey,
+        resolvedDeclaredSenderForSignature,
+      ]),
+      declaredSenderId: null,
       transportSenderId: senderPublicKey,
     );
     if (_shouldRejectLegacyDowngrade(
@@ -159,19 +163,19 @@ class InboundTextProcessor {
       return const InboundTextResult(content: null, shouldAck: false);
     }
 
-    final decryptKey = preferDeclaredSender
-        ? _firstNonEmpty([
-            resolvedDeclaredSenderForDecrypt,
-            resolvedSenderForDecrypt,
-            resolvedOriginalSenderForDecrypt,
-          ])
-        : _firstNonEmpty([
-            resolvedSenderForDecrypt,
-            resolvedOriginalSenderForDecrypt,
-            resolvedDeclaredSenderForDecrypt,
-          ]);
-    String? decryptKeyUsed = decryptKey;
-    var isV2IdentityAuthenticated = protocolMessage.version < 2;
+    final cryptoHeader = protocolMessage.version >= 2
+        ? protocolMessage.cryptoHeader
+        : null;
+    final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
+    final decryptKey = _firstNonEmpty([
+      resolvedSenderForDecrypt,
+      senderPublicKey,
+    ]);
+    String? resolvedSenderKey = _firstNonEmpty([
+      resolvedSenderForSignature,
+      senderPublicKey,
+    ]);
+    var isV2IdentityAuthenticated = false;
 
     if (protocolMessage.isEncrypted) {
       if (_shouldRequireV2Signature(
@@ -185,10 +189,6 @@ class InboundTextProcessor {
         );
         return const InboundTextResult(content: null, shouldAck: false);
       }
-      final cryptoHeader = protocolMessage.version >= 2
-          ? protocolMessage.cryptoHeader
-          : null;
-      final isSealedV2 = cryptoHeader?.mode == CryptoMode.sealedV1;
 
       if (isSealedV2 &&
           (protocolMessage.signature == null ||
@@ -223,7 +223,8 @@ class InboundTextProcessor {
             return const InboundTextResult(content: null, shouldAck: false);
           }
           if (cryptoHeader.mode == CryptoMode.sealedV1) {
-            final sealedSenderId = declaredSenderId;
+            final sealedSenderId =
+                resolvedDeclaredSenderForSignature ?? declaredSenderId;
             final sealedRecipientId = protocolMessage.recipientId;
             if (sealedSenderId == null ||
                 sealedSenderId.isEmpty ||
@@ -241,6 +242,7 @@ class InboundTextProcessor {
               senderId: sealedSenderId,
               recipientId: sealedRecipientId,
             );
+            resolvedSenderKey = sealedSenderId;
             _logger.info(
               '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
             );
@@ -258,101 +260,21 @@ class InboundTextProcessor {
               _contactRepository,
               encryptionType,
             );
+            resolvedSenderKey = decryptKey;
             _logger.info(
               '🔒 MESSAGE: Decrypted successfully (mode=${cryptoHeader.mode.wireValue})',
             );
           }
-        } else {
-          if (!_allowLegacyV1DecryptFallback) {
-            _logger.warning(
-              '🔒 Legacy v1 decrypt fallback disabled. Rejecting message: $messageId',
-            );
-            return const InboundTextResult(content: null, shouldAck: false);
-          }
-          decryptedContent = await _securityService.decryptMessage(
-            content,
-            decryptKey!,
-            _contactRepository,
-          );
-          _logger.info('🔒 MESSAGE: Decrypted successfully');
         }
       } catch (e) {
-        final errorText = e.toString();
-        final truncatedKey = _safeTruncate(decryptKey);
+        final truncatedKey = _safeTruncate(decryptKey ?? resolvedSenderKey);
         _logger.warning('🔒 MESSAGE: Decryption failed with $truncatedKey: $e');
-
-        if (protocolMessage.version >= 2) {
-          return InboundTextResult(
-            content:
-                '[❌ Could not decrypt v2 message - verify crypto mode/session state]',
-            shouldAck: false,
-            resolvedSenderKey: decryptKey,
-          );
-        }
-
-        if (errorText.contains('No session found') ||
-            errorText.contains('Session not established')) {
-          _logger.warning(
-            '🔒 MESSAGE: Missing Noise session for $truncatedKey - requesting resync and skipping ACK',
-          );
-          return InboundTextResult(
-            content: null,
-            shouldAck: false,
-            resolvedSenderKey: decryptKey,
-          );
-        }
-
-        // Fallback: try originalSender if different from the first key
-        if (originalSender != null &&
-            originalSender.isNotEmpty &&
-            originalSender != decryptKey) {
-          try {
-            decryptedContent = await _securityService.decryptMessage(
-              content,
-              originalSender,
-              _contactRepository,
-            );
-            decryptKeyUsed = originalSender;
-            _logger.info(
-              '🔒 MESSAGE: Decrypted successfully using originalSender fallback',
-            );
-          } catch (fallbackError) {
-            _logger.severe(
-              '🔒 MESSAGE: Fallback decryption failed: $fallbackError',
-            );
-            if (fallbackError.toString().contains(
-              'security resync requested',
-            )) {
-              return InboundTextResult(
-                content:
-                    '[🔄 Security resync in progress - message will be readable after reconnection]',
-                shouldAck: false,
-                resolvedSenderKey: originalSender,
-              );
-            }
-            return InboundTextResult(
-              content:
-                  '[❌ Could not decrypt message - please reconnect to resync security]',
-              shouldAck: false,
-              resolvedSenderKey: originalSender,
-            );
-          }
-        } else {
-          if (e.toString().contains('security resync requested')) {
-            return InboundTextResult(
-              content:
-                  '[🔄 Security resync in progress - message will be readable after reconnection]',
-              shouldAck: false,
-              resolvedSenderKey: decryptKey,
-            );
-          }
-          return InboundTextResult(
-            content:
-                '[❌ Could not decrypt message - please reconnect to resync security]',
-            shouldAck: false,
-            resolvedSenderKey: decryptKey,
-          );
-        }
+        return InboundTextResult(
+          content:
+              '[❌ Could not decrypt v2 message - verify crypto mode/session state]',
+          shouldAck: false,
+          resolvedSenderKey: resolvedSenderKey,
+        );
       }
     }
 
@@ -362,50 +284,24 @@ class InboundTextProcessor {
 
       if (protocolMessage.useEphemeralSigning) {
         if (protocolMessage.ephemeralSigningKey == null) {
-          if (protocolMessage.version >= 2) {
-            _logger.severe(
-              '❌ v2 ephemeral signature missing signing key for message $messageId',
-            );
-            return const InboundTextResult(
-              content: '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]',
-              shouldAck: false,
-            );
-          }
-          _logger.warning(
-            '⚠️ Ephemeral message missing signing key - accepting unsigned (legacy v1)',
+          _logger.severe(
+            '❌ v2 ephemeral signature missing signing key for message $messageId',
           );
-          return InboundTextResult(
-            content: decryptedContent,
-            shouldAck: true,
-            resolvedSenderKey: preferDeclaredSender
-                ? _firstNonEmpty([
-                    decryptKeyUsed,
-                    resolvedDeclaredSenderForDecrypt,
-                    resolvedSenderForDecrypt,
-                    resolvedOriginalSenderForDecrypt,
-                  ])
-                : _firstNonEmpty([
-                    decryptKeyUsed,
-                    resolvedSenderForDecrypt,
-                    resolvedOriginalSenderForDecrypt,
-                    resolvedDeclaredSenderForDecrypt,
-                  ]),
+          return const InboundTextResult(
+            content: '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]',
+            shouldAck: false,
           );
         }
         verifyingKey = protocolMessage.ephemeralSigningKey!;
       } else {
-        final resolvedForSignature = preferDeclaredSender
+        final resolvedForSignature = isSealedV2
             ? _firstNonEmpty([
                 resolvedDeclaredSenderForSignature,
-                resolvedSenderForSignature,
-                senderPublicKey,
-                resolvedOriginalSenderForSignature,
+                declaredSenderId,
               ])
             : _firstNonEmpty([
                 resolvedSenderForSignature,
                 senderPublicKey,
-                resolvedOriginalSenderForSignature,
-                resolvedDeclaredSenderForSignature,
               ]);
         if (resolvedForSignature == null) {
           _logger.severe('❌ Trusted message but no sender identity');
@@ -441,12 +337,39 @@ class InboundTextProcessor {
       } else {
         _logger.info('✅ Real signature verified');
       }
-      if (protocolMessage.version >= 2 && !protocolMessage.useEphemeralSigning) {
+      if (!protocolMessage.useEphemeralSigning) {
         isV2IdentityAuthenticated = true;
       }
     }
 
-    if (protocolMessage.version < 2 || isV2IdentityAuthenticated) {
+    if (isV2IdentityAuthenticated &&
+        !protocolMessage.useEphemeralSigning &&
+        !isSealedV2) {
+      final authenticatedSender = _firstNonEmpty([
+        resolvedSenderForSignature,
+        senderPublicKey,
+      ]);
+      final declaredSender = _firstNonEmpty([
+        resolvedDeclaredSenderForSignature,
+        declaredSenderId,
+      ]);
+      if (declaredSender != null &&
+          declaredSender.isNotEmpty &&
+          authenticatedSender != null &&
+          authenticatedSender.isNotEmpty &&
+          declaredSender != authenticatedSender) {
+        _logger.severe(
+          '🔒 Declared sender does not match authenticated transport sender: '
+          '${_safeTruncate(declaredSender)} != ${_safeTruncate(authenticatedSender)}',
+        );
+        return const InboundTextResult(
+          content: '[❌ UNTRUSTED MESSAGE - Sender mismatch]',
+          shouldAck: false,
+        );
+      }
+    }
+
+    if (isV2IdentityAuthenticated) {
       _trackPeerVersionFloor(
         peerKey: versionPeerKey,
         messageVersion: protocolMessage.version,
@@ -463,24 +386,16 @@ class InboundTextProcessor {
     return InboundTextResult(
       content: decryptedContent,
       shouldAck: true,
-      resolvedSenderKey: preferDeclaredSender
+      resolvedSenderKey: isSealedV2
           ? _firstNonEmpty([
-              decryptKeyUsed,
-              resolvedDeclaredSenderForDecrypt,
-              resolvedSenderForDecrypt,
-              resolvedOriginalSenderForDecrypt,
-              senderPublicKey,
+              resolvedDeclaredSenderForSignature,
               declaredSenderId,
-              originalSender,
+              resolvedSenderKey,
             ])
           : _firstNonEmpty([
-              decryptKeyUsed,
-              resolvedSenderForDecrypt,
-              resolvedOriginalSenderForDecrypt,
-              resolvedDeclaredSenderForDecrypt,
+              resolvedSenderKey,
+              resolvedSenderForSignature,
               senderPublicKey,
-              originalSender,
-              declaredSenderId,
             ]),
     );
   }

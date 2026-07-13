@@ -1,21 +1,17 @@
-import 'dart:async';
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_security_service.dart';
 import 'package:pak_connect/domain/interfaces/i_protocol_message_handler.dart';
 import 'package:pak_connect/domain/interfaces/i_identity_manager.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
-import 'package:pak_connect/domain/models/crypto_header.dart';
-import 'package:pak_connect/domain/models/encryption_method.dart';
 import 'package:pak_connect/domain/models/protocol_message.dart'
     as domain_models;
 import 'package:pak_connect/domain/models/protocol_message_type.dart';
 import '../../domain/services/ephemeral_key_manager.dart';
-import '../../domain/services/signing_manager.dart';
 import 'package:pak_connect/core/security/peer_protocol_version_guard.dart';
-import '../../domain/constants/special_recipients.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
+import 'inbound_text_processor.dart';
 
 /// Handles protocol message parsing and dispatching
 ///
@@ -27,6 +23,10 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Contact request/accept/reject lifecycle
 /// - Crypto verification request/response handling
 class ProtocolMessageHandler implements IProtocolMessageHandler {
+  /// Internal marker used by the split facade to avoid dispatching an already
+  /// handled queue-sync frame through the legacy parser a second time.
+  static const String queueSyncHandledMarker = 'QUEUE_SYNC_HANDLED';
+
   /// V2 signatures are required by default. Override at build time with
   /// -DPAKCONNECT_REQUIRE_V2_SIGNATURE=false to relax during migration.
   static const bool _defaultRequireV2Signature = bool.fromEnvironment(
@@ -49,6 +49,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   final ContactRepository _contactRepository;
   final ISecurityService _securityService;
   final bool _requireV2Signature;
+  late final InboundTextProcessor _inboundTextProcessor;
 
   ProtocolMessageHandler({
     required ISecurityService securityService,
@@ -56,7 +57,16 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     bool? requireV2Signature,
   }) : _securityService = securityService,
        _contactRepository = contactRepository ?? ContactRepository(),
-       _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature;
+       _requireV2Signature = requireV2Signature ?? _defaultRequireV2Signature {
+    _inboundTextProcessor = InboundTextProcessor(
+      contactRepository: _contactRepository,
+      isMessageForMe: isMessageForMe,
+      currentNodeIdProvider: () => _currentNodeId,
+      securityService: _securityService,
+      requireV2Signature: _requireV2Signature,
+      logger: _logger,
+    );
+  }
 
   // Callbacks
   Function(String, String)? _onContactRequestReceived;
@@ -65,7 +75,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Function(String, String)? _onCryptoVerificationReceived;
   Function(String, String, bool, Map<String, dynamic>?)?
   _onCryptoVerificationResponseReceived;
-  Function(String)? _onIdentityRevealed;
 
   // Queue sync callbacks (registered by relay coordinator)
   Function(QueueSyncMessage, String)? _onQueueSyncReceived;
@@ -79,7 +88,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   String? _currentNodeId;
   String _encryptionMethod = 'none';
-  static const bool _allowLegacyV1DecryptFallback = true;
 
   /// Sets current node ID for routing and identity checks
   void setCurrentNodeId(String nodeId) {
@@ -107,6 +115,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         message,
         fromNodeId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to process protocol message: $e');
@@ -131,6 +140,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         protocolMessage,
         fromNodeId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to process complete protocol message: $e');
@@ -150,6 +160,7 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         message,
         fromDeviceId,
         transportMessageId,
+        fromDeviceId: fromDeviceId,
       );
     } catch (e) {
       _logger.severe('Failed to handle direct protocol message: $e');
@@ -161,8 +172,9 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _processProtocolMessage(
     domain_models.ProtocolMessage message,
     String fromNodeId,
-    String? transportMessageId,
-  ) async {
+    String? transportMessageId, {
+    required String fromDeviceId,
+  }) async {
     switch (message.type) {
       case ProtocolMessageType.textMessage:
         return await _handleTextMessage(
@@ -191,7 +203,11 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
         return await _handleCryptoVerificationResponse(message);
 
       case ProtocolMessageType.queueSync:
-        return await _handleQueueSync(message, fromNodeId, transportMessageId);
+        return await _handleQueueSync(
+          message,
+          fromDeviceId,
+          transportMessageId,
+        );
 
       case ProtocolMessageType.friendReveal:
         return await _handleFriendReveal(message);
@@ -217,278 +233,27 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     String? transportMessageId,
   ) async {
     try {
+      final inboundResult = await _inboundTextProcessor.process(
+        protocolMessage: message,
+        senderPublicKey: fromNodeId,
+      );
+      if (inboundResult.content == null) {
+        return null;
+      }
+      if (!inboundResult.shouldAck) {
+        return inboundResult.content;
+      }
+
       final messageId = message.textMessageId!;
-      final content = message.textContent!;
-      final intendedRecipient = message.payload['intendedRecipient'] as String?;
-      final declaredSenderId =
-          message.senderId ??
-          (message.payload['originalSender'] as String?) ??
-          fromNodeId;
-      final preferDeclaredSender = message.version >= 2;
-      final originalSender = message.payload['originalSender'] as String?;
-      final resolvedTransportDecryptSenderId = await _resolveSenderKeyForDecrypt(
-        fromNodeId,
-      );
-      final resolvedOriginalDecryptSenderId = await _resolveSenderKeyForDecrypt(
-        originalSender,
-      );
-      final resolvedDeclaredDecryptSenderId = await _resolveSenderKeyForDecrypt(
-        declaredSenderId,
-      );
-      final resolvedTransportSignatureSenderKey =
-          await _resolveSenderKeyForSignature(fromNodeId);
-      final resolvedOriginalSignatureSenderKey =
-          await _resolveSenderKeyForSignature(originalSender);
-      final resolvedDeclaredSignatureSenderKey =
-          await _resolveSenderKeyForSignature(declaredSenderId);
-      final decryptionPeerId =
-          preferDeclaredSender
-          ? _firstNonEmpty([
-              resolvedDeclaredDecryptSenderId,
-              resolvedTransportDecryptSenderId,
-              resolvedOriginalDecryptSenderId,
-              fromNodeId,
-            ])!
-          : _firstNonEmpty([
-              resolvedTransportDecryptSenderId,
-              resolvedOriginalDecryptSenderId,
-              resolvedDeclaredDecryptSenderId,
-              fromNodeId,
-            ])!;
-      final versionPeerKey = _versionPeerKey(
-        signatureSenderKey: preferDeclaredSender
-            ? _firstNonEmpty([
-                resolvedDeclaredSignatureSenderKey,
-                resolvedTransportSignatureSenderKey,
-                resolvedOriginalSignatureSenderKey,
-              ])
-            : _firstNonEmpty([
-                resolvedTransportSignatureSenderKey,
-                resolvedOriginalSignatureSenderKey,
-                resolvedDeclaredSignatureSenderKey,
-              ]),
-        declaredSenderId: preferDeclaredSender ? declaredSenderId : null,
-        transportSenderId: fromNodeId,
-      );
-      if (_shouldRejectLegacyDowngrade(
-        messageVersion: message.version,
-        peerKey: versionPeerKey,
-        messageId: messageId,
-      )) {
-        return null;
-      }
-
-      // Check if message is for us
-      final isForMe = await isMessageForMe(intendedRecipient);
-      if (!isForMe) {
-        _logger.fine('💬 Message not for us, ignoring');
-        return null;
-      }
-
-      if (message.version >= 2 && !message.isEncrypted) {
-        final isBroadcast = _isBroadcastV2TextMessage(
-          recipientId: message.recipientId,
-          intendedRecipient: intendedRecipient,
-        );
-        if (!isBroadcast) {
-          _logger.severe(
-            '🔒 v2 direct plaintext text message rejected: $messageId',
-          );
-          return null;
-        }
-        if (message.signature == null ||
-            message.signature!.trim().isEmpty) {
-          _logger.severe(
-            '🔒 v2 plaintext broadcast missing signature: $messageId',
-          );
-          return null;
-        }
-      }
-
-      // Decrypt if needed
-      String decryptedContent = content;
-      var isV2IdentityAuthenticated = message.version < 2;
-      if (message.isEncrypted && decryptionPeerId.isNotEmpty) {
-        if (_shouldRequireV2Signature(
-              messageVersion: message.version,
-              peerKey: versionPeerKey,
-            ) &&
-            (message.signature == null ||
-                message.signature!.trim().isEmpty)) {
-          _logger.severe(
-            '🔒 v2 encrypted message missing signature under strict/upgraded-peer policy: $messageId',
-          );
-          return null;
-        }
-        try {
-          if (message.version >= 2) {
-            final cryptoHeader = message.cryptoHeader;
-            final rawCryptoMode = _extractRawCryptoMode(message);
-            if (cryptoHeader == null) {
-              if (rawCryptoMode != null) {
-                _logger.severe(
-                  '🔒 v2 encrypted message has unsupported crypto mode: $rawCryptoMode',
-                );
-                return null;
-              }
-              _logger.severe(
-                '🔒 v2 encrypted message missing crypto header: $messageId',
-              );
-              return null;
-            }
-            if (cryptoHeader.mode == CryptoMode.sealedV1) {
-              if (message.signature == null ||
-                  message.signature!.trim().isEmpty) {
-                _logger.severe(
-                  '🔒 v2 sealed message missing signature: $messageId',
-                );
-                return null;
-              }
-              final sealedSenderId =
-                  message.senderId ??
-                  (message.payload['originalSender'] as String?);
-              final recipientForSealed = message.recipientId;
-              if (sealedSenderId == null || sealedSenderId.isEmpty) {
-                _logger.severe(
-                  '🔒 v2 sealed message missing sender binding: $messageId',
-                );
-                return null;
-              }
-              if (recipientForSealed == null || recipientForSealed.isEmpty) {
-                _logger.severe(
-                  '🔒 v2 sealed message missing recipient binding: $messageId',
-                );
-                return null;
-              }
-              decryptedContent = await _securityService.decryptSealedMessage(
-                encryptedMessage: content,
-                cryptoHeader: cryptoHeader,
-                messageId: messageId,
-                senderId: sealedSenderId,
-                recipientId: recipientForSealed,
-              );
-            } else {
-              final encryptionType = _encryptionTypeForMode(cryptoHeader.mode);
-              if (encryptionType == null) {
-                _logger.severe(
-                  '🔒 v2 encrypted message has unsupported crypto mode: ${cryptoHeader.mode.wireValue}',
-                );
-                return null;
-              }
-              decryptedContent = await _securityService.decryptMessageByType(
-                content,
-                decryptionPeerId,
-                _contactRepository,
-                encryptionType,
-              );
-            }
-          } else {
-            if (!_allowLegacyV1DecryptFallback) {
-              _logger.warning(
-                '🔒 Legacy v1 decrypt fallback disabled. Rejecting message: $messageId',
-              );
-              return null;
-            }
-            decryptedContent = await _securityService.decryptMessage(
-              content,
-              decryptionPeerId,
-              _contactRepository,
-            );
-          }
-          _logger.fine('🔒 Message decrypted successfully');
-        } catch (e) {
-          _logger.warning(
-            '🔒 Decryption failed for ${decryptionPeerId.shortId(8)} (v${message.version}): $e',
-          );
-          return null;
-        }
-      }
-
-      // Verify signature
-      if (message.signature != null) {
-        String verifyingKey;
-        if (message.useEphemeralSigning) {
-          if (message.ephemeralSigningKey == null ||
-              message.ephemeralSigningKey!.isEmpty) {
-            if (message.version >= 2) {
-              _logger.severe(
-                '❌ v2 ephemeral signature missing signing key for message $messageId',
-              );
-              return '[❌ UNTRUSTED MESSAGE - Missing ephemeral signing key]';
-            }
-            verifyingKey = decryptionPeerId;
-          } else {
-            verifyingKey = message.ephemeralSigningKey!;
-          }
-        } else {
-          final signatureKey =
-              preferDeclaredSender
-              ? _firstNonEmpty([
-                  resolvedDeclaredSignatureSenderKey,
-                  resolvedTransportSignatureSenderKey,
-                  resolvedOriginalSignatureSenderKey,
-                  declaredSenderId,
-                ])
-              : _firstNonEmpty([
-                  resolvedTransportSignatureSenderKey,
-                  resolvedOriginalSignatureSenderKey,
-                  fromNodeId,
-                  resolvedDeclaredSignatureSenderKey,
-                ]);
-          if (signatureKey == null || signatureKey.isEmpty) {
-            _logger.severe(
-              '❌ v2 trusted signature missing sender verification key for message $messageId',
-            );
-            return '[❌ UNTRUSTED MESSAGE - Missing sender identity]';
-          }
-          verifyingKey = signatureKey;
-        }
-
-        final signaturePayload = SigningManager.signaturePayloadForMessage(
-          message,
-          fallbackContent: decryptedContent,
-        );
-        final isValid = SigningManager.verifySignature(
-          signaturePayload,
-          message.signature!,
-          verifyingKey,
-          message.useEphemeralSigning,
-        );
-
-        if (!isValid) {
-          _logger.severe('❌ Signature verification failed');
-          return '[❌ UNTRUSTED MESSAGE - Invalid signature]';
-        }
-
-        _logger.fine(
-          '✅ Signature verified (${message.useEphemeralSigning ? "ephemeral" : "real"})',
-        );
-        if (message.version >= 2 && !message.useEphemeralSigning) {
-          isV2IdentityAuthenticated = true;
-        }
-      }
-
+      final decryptedContent = inboundResult.content!;
       _sendAck(messageId, fromNodeId);
-      if (message.version < 2 || isV2IdentityAuthenticated) {
-        _trackPeerVersionFloor(
-          peerKey: versionPeerKey,
-          messageVersion: message.version,
-          messageId: messageId,
-        );
-      } else {
-        _logger.warning(
-          '🔒 Skipping protocol-floor upgrade for unauthenticated '
-          'v${message.version} message from ${versionPeerKey.shortId(8)}... '
-          '(messageId=${messageId.shortId(8)})',
-        );
-      }
       final textCallback = _onTextMessageReceived;
       if (textCallback != null) {
         try {
           await textCallback(
             decryptedContent,
             messageId,
-            decryptionPeerId.isNotEmpty ? decryptionPeerId : null,
+            inboundResult.resolvedSenderKey,
           );
         } catch (e, stack) {
           _logger.warning('⚠️ Inbound text callback failed: $e', e, stack);
@@ -498,75 +263,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     } catch (e) {
       _logger.severe('Failed to handle text message: $e');
       return null;
-    }
-  }
-
-  String _versionPeerKey({
-    required String? signatureSenderKey,
-    required String? declaredSenderId,
-    required String transportSenderId,
-  }) {
-    if (signatureSenderKey != null && signatureSenderKey.isNotEmpty) {
-      return signatureSenderKey;
-    }
-    if (transportSenderId.isNotEmpty) {
-      return transportSenderId;
-    }
-    if (declaredSenderId != null && declaredSenderId.isNotEmpty) {
-      return declaredSenderId;
-    }
-    return '';
-  }
-
-  String? _firstNonEmpty(List<String?> candidates) {
-    for (final candidate in candidates) {
-      if (candidate != null && candidate.isNotEmpty) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  bool _shouldRejectLegacyDowngrade({
-    required int messageVersion,
-    required String peerKey,
-    required String messageId,
-  }) {
-    final shouldReject = PeerProtocolVersionGuard.shouldRejectLegacyMessage(
-      messageVersion: messageVersion,
-      peerKey: peerKey,
-    );
-    if (!shouldReject) {
-      return false;
-    }
-    final floor = PeerProtocolVersionGuard.floorForPeer(peerKey);
-    _logger.warning(
-      '🔒 Downgrade guard rejected v$messageVersion message from '
-      '${peerKey.shortId(8)}... after observing v$floor capability '
-      '(messageId=${messageId.shortId(8)})',
-    );
-    return true;
-  }
-
-  void _trackPeerVersionFloor({
-    required String peerKey,
-    required int messageVersion,
-    required String messageId,
-  }) {
-    final result = PeerProtocolVersionGuard.trackObservedVersion(
-      messageVersion: messageVersion,
-      peerKey: peerKey,
-    );
-    if (result.upgraded) {
-      _logger.fine(
-        '🔒 Protocol floor upgraded for ${peerKey.shortId(8)}... '
-        'to v${result.floor} via ${messageId.shortId(8)}',
-      );
-    }
-    if (result.cacheCleared) {
-      _logger.warning(
-        '🔒 Protocol floor cache exceeded 4096 entries; clearing oldest state',
-      );
     }
   }
 
@@ -669,15 +365,23 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   /// Handles queue sync message
   Future<String?> _handleQueueSync(
     domain_models.ProtocolMessage message,
-    String fromNodeId,
+    String fromDeviceAddress,
     String? transportMessageId,
   ) async {
     try {
       final queueMessage = message.queueSyncMessage;
       if (queueMessage != null) {
-        _onQueueSyncReceived?.call(queueMessage, fromNodeId);
+        final callback = _onQueueSyncReceived;
+        callback?.call(queueMessage, fromDeviceAddress);
         _logger.info('📦 Queue sync received');
-        _sendAck(transportMessageId ?? queueMessage.queueHash, fromNodeId);
+        _sendAck(
+          transportMessageId ?? queueMessage.queueHash,
+          fromDeviceAddress,
+        );
+        // A non-null result prevents BLEMessageHandlerFacadeImpl from sending
+        // the same frame through its legacy fallback, which would replace the
+        // concrete transport address with a mutable identity alias.
+        return callback == null ? null : queueSyncHandledMarker;
       } else {
         _logger.warning('⚠️ Queue sync payload missing expected fields');
       }
@@ -692,19 +396,14 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
   Future<String?> _handleFriendReveal(
     domain_models.ProtocolMessage message,
   ) async {
-    try {
-      final contactName =
-          message.payload['contactName'] as String? ??
-          message.payload['myPersistentKey'] as String?;
-      if (contactName != null) {
-        _logger.warning('👁️ Friend reveal: $contactName');
-        _onIdentityRevealed?.call(contactName);
-      }
-      return null;
-    } catch (e) {
-      _logger.severe('Failed to handle friend reveal: $e');
-      return null;
-    }
+    // This split handler has neither the cached pairing secret nor the exact
+    // challenge context required to authenticate a reveal. Emitting here used
+    // to make an unverified payload actionable before BLEMessageHandler's
+    // signature check ran. The facade hands this type to that verified path.
+    _logger.fine(
+      'Deferring friend reveal to the authenticated BLE message handler',
+    );
+    return null;
   }
 
   /// Checks if message is intended for this device
@@ -770,119 +469,6 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
     } catch (_) {
       return null;
     }
-  }
-
-  Future<String?> _resolveSenderKeyForDecrypt(String? candidateKey) async {
-    if (candidateKey == null || candidateKey.isEmpty) {
-      return candidateKey;
-    }
-    try {
-      final contact = await _contactRepository.getContactByAnyId(candidateKey);
-      if (contact != null) {
-        final sessionId = contact.currentEphemeralId;
-        final persistentKey = contact.persistentPublicKey;
-        if (persistentKey != null &&
-            persistentKey.isNotEmpty &&
-            sessionId != null &&
-            sessionId.isNotEmpty) {
-          _securityService.registerIdentityMapping(
-            persistentPublicKey: persistentKey,
-            ephemeralID: sessionId,
-          );
-        }
-        if (sessionId != null && sessionId.isNotEmpty) {
-          return sessionId;
-        }
-        if (persistentKey != null && persistentKey.isNotEmpty) {
-          return persistentKey;
-        }
-        return contact.publicKey;
-      }
-    } catch (e) {
-      _logger.fine(
-        'Decrypt sender resolution failed for ${candidateKey.shortId(8)}: $e',
-      );
-    }
-    return candidateKey;
-  }
-
-  Future<String?> _resolveSenderKeyForSignature(String? candidateKey) async {
-    if (candidateKey == null || candidateKey.isEmpty) {
-      return null;
-    }
-    try {
-      final contact = await _contactRepository.getContactByAnyId(candidateKey);
-      if (contact != null) {
-        final sessionId = contact.currentEphemeralId;
-        final persistentKey = contact.persistentPublicKey;
-        if (persistentKey != null &&
-            persistentKey.isNotEmpty &&
-            sessionId != null &&
-            sessionId.isNotEmpty) {
-          _securityService.registerIdentityMapping(
-            persistentPublicKey: persistentKey,
-            ephemeralID: sessionId,
-          );
-        }
-        if (persistentKey != null && persistentKey.isNotEmpty) {
-          return persistentKey;
-        }
-        if (contact.publicKey.isNotEmpty) {
-          return contact.publicKey;
-        }
-      }
-    } catch (e) {
-      _logger.fine(
-        'Signature sender resolution failed for ${candidateKey.shortId(8)}: $e',
-      );
-    }
-    return null;
-  }
-
-  bool _shouldRequireV2Signature({
-    required int messageVersion,
-    required String peerKey,
-  }) {
-    if (messageVersion < 2) {
-      return false;
-    }
-    if (_requireV2Signature) {
-      return true;
-    }
-    if (!PeerProtocolVersionGuard.isEnabled || peerKey.isEmpty) {
-      return false;
-    }
-    return PeerProtocolVersionGuard.floorForPeer(peerKey) >= 2;
-  }
-
-  bool _isBroadcastV2TextMessage({
-    required String? recipientId,
-    required String? intendedRecipient,
-  }) {
-    if (recipientId == SpecialRecipients.broadcast ||
-        intendedRecipient == SpecialRecipients.broadcast) {
-      return true;
-    }
-    return recipientId == null && intendedRecipient == null;
-  }
-
-  EncryptionType? _encryptionTypeForMode(CryptoMode mode) {
-    switch (mode) {
-      case CryptoMode.noiseV1:
-        return EncryptionType.noise;
-      case CryptoMode.none:
-      case CryptoMode.sealedV1:
-        return null;
-    }
-  }
-
-  String? _extractRawCryptoMode(domain_models.ProtocolMessage message) {
-    final rawCrypto = message.payload['crypto'];
-    if (rawCrypto is! Map) {
-      return null;
-    }
-    final mode = rawCrypto['mode'];
-    return mode is String && mode.isNotEmpty ? mode : null;
   }
 
   /// Resolves message sender and recipient identities
@@ -981,7 +567,15 @@ class ProtocolMessageHandler implements IProtocolMessageHandler {
 
   @override
   void onIdentityRevealed(Function(String contactName) callback) {
-    _onIdentityRevealed = callback;
+    // Intentionally retained as a migration-compatible no-op registration.
+    // See _handleFriendReveal: only BLEMessageHandler may emit this event.
+  }
+
+  @override
+  void onQueueSyncReceived(
+    Function(QueueSyncMessage syncMessage, String fromDeviceAddress)? callback,
+  ) {
+    _onQueueSyncReceived = callback;
   }
 
   @override

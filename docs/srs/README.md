@@ -2,15 +2,24 @@
 
 **Version**: 1.0
 **Date**: Originally extracted 2025-01-19, last updated 2026-04
-**Status**: Complete - Extracted from Production Code
+**Status**: Living, implementation-derived specification; verification tracked
+separately
 
-> **Note**: This SRS was extracted from production code. Features added after January 2025 (stealth addressing, sealed sender, proof-of-work spam prevention, v2 export/import bundles) are documented in ThreatModel.md and security_guarantees.md but not yet reflected in the functional requirements tables below.
+> **Note**: This SRS is derived from implementation and historical design
+> material. Presence in code is not the same as production composition or
+> device proof. Stealth addressing, sealed sender and proof-of-work include
+> implemented/tested primitives but are not enabled default relay guarantees.
+> Use [READINESS_AUDIT.md](../status/READINESS_AUDIT.md) and
+> [DEVICE_VALIDATION_STATUS.md](../testing/DEVICE_VALIDATION_STATUS.md) for the
+> current evidence state.
 
 ---
 
 ## Document Structure
 
-This SRS is organized into 10 comprehensive documents, all extracted directly from the actual implementation (no assumptions, no future features):
+This SRS is organized into 10 documents. Each requirement must still be checked
+against current composition and the cited verification status; future,
+dormant, and device-gated statements are called out where known.
 
 ### 1. Abstract (`01-abstract.md`)
 High-level overview of PakConnect's capabilities, technology stack, and key design principles.
@@ -41,7 +50,7 @@ Problem statement, project motivation, objectives, scope, and stakeholder analys
 Detailed functional requirements extracted from implemented code.
 
 **Sections**:
-- **FR-1: Messaging** (1-to-1, groups, offline queue, features)
+- **FR-1: Messaging** (1-to-1, sender-local broadcast lists, offline queue, features)
   - 26 requirements
 - **FR-2: Mesh Networking** (relay, topology, queue sync)
   - 15 requirements
@@ -101,7 +110,7 @@ Use case context for diagram generation.
 1. Core Messaging (send, receive, relay)
 2. Contact Management (add, verify, delete, search)
 3. Chat Management (open, archive, pin, export)
-4. Group Messaging (create, add members, send)
+4. Broadcast Lists (create local list, add recipients, multi-unicast into direct chats)
 5. Security & Keys (identity, handshake, upgrade, rekey)
 6. Mesh Networking (relay, sync, spam prevention)
 
@@ -117,7 +126,9 @@ Detailed interaction flows for key scenarios.
 
 **Diagrams**:
 1. **Send Message (Direct Delivery)**: User → ChatScreen → MeshNetworkingService → NoiseSessionManager → BLEService
-2. **Receive Message**: Sender → BLEService → BLEMessageHandler → NoiseSessionManager → MeshRelayEngine → MessageRepository
+2. **Receive Message**: Sender → BLEService → BLEMessageHandler, then either
+   direct authentication/decryption → MessageRepository, or relay-envelope
+   routing → final-recipient authentication/decryption → MessageRepository
 3. **Noise Handshake (XX Pattern)**: 3-message exchange between User A and User B
 4. **Mesh Relay (A→B→C)**: Multi-hop message forwarding with smart routing
 5. **Offline Message Queue**: Queue, retry, backoff, delivery on reconnection
@@ -179,7 +190,9 @@ Process flows and state transitions.
 
 **Activity Diagrams**:
 1. **Send Message Flow**: Validation → Encrypt → Fragment → Send OR Queue → Retry
-2. **Mesh Relay Flow**: Decrypt → Parse → Check duplicate/hop/spam → Route → Re-encrypt → Forward
+2. **Mesh Relay Flow**: Parse the relay envelope → Inspect visible metadata →
+   Check duplicate/hop/spam → Route → Forward the unchanged encrypted inner
+   payload over BLE
 3. **Handshake (XX Pattern)**: 4 phases with 3-message Noise exchange
 
 **State Machines**:
@@ -193,10 +206,10 @@ Process flows and state transitions.
 Complete database documentation.
 
 **Contents**:
-- 17 core tables + 1 FTS5 virtual table
+- 18 ordinary tables + 1 FTS5 virtual table
 - All SQL CREATE statements
 - ER diagram (Mermaid)
-- Migration history (v1 → v9)
+- Migration history (v1 → v12)
 
 **Key Tables**:
 - **contacts**: Three-ID model (publicKey, persistentPublicKey, currentEphemeralId)
@@ -204,10 +217,13 @@ Complete database documentation.
 - **messages**: Enhanced message storage with JSON blobs
 - **offline_message_queue**: Persistent queue with retry logic
 - **archived_chats** + **archived_messages**: Archive system with FTS5
-- **contact_groups** + **group_members** + **group_messages** + **group_message_delivery**: Group messaging (v9)
+- **contact_groups** + **group_members** + **group_messages** + **group_message_delivery**: sender-local broadcast lists/status (legacy v9 names)
+- **seen_messages**: Persistent mesh duplicate detection (v10)
+- **change_log**: Incremental change tracking (v11)
 
 **Features**:
-- SQLCipher encryption (AES-256)
+- SQLCipher-backed mobile database path (Android/iOS); desktop/test may use
+  plaintext SQLite, and device at-rest proof remains pending
 - WAL mode for concurrency
 - Foreign key constraints (11 relationships)
 - 30+ indexes for performance
@@ -238,7 +254,7 @@ Complete database documentation.
 | Class Diagrams | 5 |
 | Activity Diagrams | 3 |
 | State Machines | 3 |
-| Database Tables | 17 + 1 FTS5 |
+| Database Tables | 18 ordinary + 1 FTS5 virtual table |
 | Classes Documented | 25+ |
 | Total Pages (estimated) | 100+ |
 
@@ -246,12 +262,14 @@ Complete database documentation.
 
 ## Document Generation Metadata
 
-**Extraction Method**: Direct code analysis using AST parsing, grep, and file reading
-**Verification**: All claims cross-referenced with actual implementation
-**Codebase Version**: Database Schema v9, Git commit b3aa452
+**Extraction Method**: Direct code analysis and file reading
+**Verification**: Database/toolchain/testing claims were revalidated on
+2026-07-11; feature-status claims elsewhere in the SRS may still require
+runtime or device evidence
+**Codebase Version**: Database Schema v12
 **Excluded**: UI implementation details, test files, future/planned features
 **Included**: Core, Domain, Data layers; all business logic and infrastructure
-**Documentation Date**: Originally extracted 2025-01-19, last updated 2026-04
+**Documentation Date**: Originally extracted 2025-01-19, last updated 2026-07-11
 
 ---
 

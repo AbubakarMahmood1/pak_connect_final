@@ -11,10 +11,12 @@ import 'package:pak_connect/domain/interfaces/i_home_screen_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/connection_status.dart';
+import 'package:pak_connect/domain/models/bluetooth_state_models.dart';
 import 'package:pak_connect/domain/models/mesh_network_models.dart';
 import 'package:pak_connect/domain/services/chat_management_service.dart';
 import 'package:pak_connect/domain/services/device_deduplication_manager.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
+import 'package:pak_connect/presentation/providers/app_permission_providers.dart';
 import 'package:pak_connect/presentation/providers/ble_providers.dart';
 import 'package:pak_connect/presentation/providers/chat_notification_providers.dart';
 import 'package:pak_connect/presentation/providers/home_screen_providers.dart';
@@ -229,6 +231,31 @@ ChatListItem _chat(String id) {
   );
 }
 
+BluetoothStateInfo _bluetoothStateInfoFor(
+  BluetoothLowEnergyState state, {
+  bool? hasBlePermissions,
+}) {
+  final phase = switch (state) {
+    BluetoothLowEnergyState.poweredOn => hasBlePermissions == false
+        ? BluetoothAvailabilityPhase.permissionsRequired
+        : BluetoothAvailabilityPhase.ready,
+    BluetoothLowEnergyState.poweredOff => BluetoothAvailabilityPhase.disabled,
+    BluetoothLowEnergyState.unauthorized =>
+      BluetoothAvailabilityPhase.permissionsRequired,
+    BluetoothLowEnergyState.unsupported =>
+      BluetoothAvailabilityPhase.unsupported,
+    BluetoothLowEnergyState.unknown => BluetoothAvailabilityPhase.warmingUp,
+  };
+
+  return BluetoothStateInfo(
+    state: state,
+    previousState: null,
+    isReady: phase == BluetoothAvailabilityPhase.ready,
+    availabilityPhase: phase,
+    timestamp: DateTime.now(),
+  );
+}
+
 Future<void> _pumpHomeScreen(
   WidgetTester tester, {
   required _FakeChatsRepository repository,
@@ -236,8 +263,18 @@ Future<void> _pumpHomeScreen(
   required _FakeHomeScreenFacade facade,
   required IMeshNetworkingService meshService,
   BluetoothLowEnergyState bleState = BluetoothLowEnergyState.poweredOn,
+  bool? hasBlePermissions,
+  BluetoothStatusMessage? bluetoothMessage,
   List<Peripheral> discoveredDevices = const <Peripheral>[],
 }) async {
+  final resolvedBlePermissions =
+      hasBlePermissions ?? bleState == BluetoothLowEnergyState.poweredOn;
+  final resolvedBluetoothMessage =
+      bluetoothMessage ??
+      (bleState == BluetoothLowEnergyState.poweredOn
+          ? BluetoothStatusMessage.ready('Bluetooth ready')
+          : BluetoothStatusMessage.disabled('Bluetooth is disabled'));
+
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -245,6 +282,20 @@ Future<void> _pumpHomeScreen(
         meshNetworkingServiceProvider.overrideWithValue(meshService),
         usernameProvider.overrideWith(() => _TestUsernameNotifier('Alice')),
         bleStateProvider.overrideWith((ref) => AsyncValue.data(bleState)),
+        bluetoothStateProvider.overrideWith(
+          (ref) => AsyncValue.data(
+            _bluetoothStateInfoFor(
+              bleState,
+              hasBlePermissions: resolvedBlePermissions,
+            ),
+          ),
+        ),
+        blePermissionsGrantedProvider.overrideWith(
+          (ref) async => resolvedBlePermissions,
+        ),
+        bluetoothStatusMessageProvider.overrideWith(
+          (ref) => AsyncValue.data(resolvedBluetoothMessage),
+        ),
         connectionInfoProvider.overrideWith(
           (ref) => const AsyncValue.data(
             ConnectionInfo(
@@ -349,7 +400,7 @@ void main() {
       expect(find.text('Connect to a nearby device first.'), findsOneWidget);
     });
 
-    testWidgets('shows bluetooth banner when adapter is not powered on', (
+    testWidgets('shows compact bluetooth status action when adapter is not powered on', (
       tester,
     ) async {
       final repository = _FakeChatsRepository();
@@ -367,11 +418,46 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const Key('bleStatusAction')), findsOneWidget);
       expect(
-        find.text('Bluetooth poweredOff - Allow Permission!'),
+        find.byTooltip(
+          'Bluetooth is off. PakConnect stays usable, but nearby discovery and mesh delivery are sleeping.',
+        ),
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'shows background re-check copy when plugin says unauthorized but permissions are granted',
+      (tester) async {
+        final repository = _FakeChatsRepository();
+        final chatManagementService = _FakeChatManagementService();
+        final facade = _FakeHomeScreenFacade();
+        final meshService = _FakeMeshNetworkingService();
+
+        await _pumpHomeScreen(
+          tester,
+          repository: repository,
+          chatManagementService: chatManagementService,
+          facade: facade,
+          meshService: meshService,
+          bleState: BluetoothLowEnergyState.unauthorized,
+          hasBlePermissions: true,
+          bluetoothMessage: BluetoothStatusMessage.unauthorized(
+            'Bluetooth permission required.',
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byKey(const Key('bleStatusAction')), findsOneWidget);
+        expect(
+          find.byTooltip(
+            'Bluetooth is re-checking availability in the background. You can keep using the app while mesh wakes up.',
+          ),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('search button opens bar and clear button collapses it', (
       tester,

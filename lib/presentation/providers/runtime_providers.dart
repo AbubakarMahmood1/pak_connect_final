@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pak_connect/presentation/providers/di_providers.dart';
 import 'package:logging/logging.dart';
@@ -62,7 +64,79 @@ final appBootstrapProvider =
       () => AppBootstrapNotifier(),
     );
 
-class _NoopSharedMessageQueueProvider implements ISharedMessageQueueProvider {
+/// Waits until bootstrap reaches a usable ready/running state.
+///
+/// Unlike `appBootstrapProvider.future`, this will not resolve on the
+/// intermediate `initializing` data state that the bootstrap notifier publishes
+/// during startup.
+final appBootstrapReadyProvider = FutureProvider<AppBootstrapState>((
+  ref,
+) async {
+  // AppCore now publishes the typed runtime composition root before BLE warm-up
+  // completes. If that snapshot is already live, presentation/runtime features
+  // can proceed immediately instead of waiting on the secondary bootstrap
+  // notifier, which may still be catching up in the background.
+  if (maybeResolveAppServices() != null) {
+    return const AppBootstrapState(status: AppBootstrapStatus.ready);
+  }
+
+  final current = ref.read(appBootstrapProvider);
+  final currentState = current.asData?.value;
+  if (currentState?.isReady ?? false) {
+    return currentState!;
+  }
+
+  if (currentState?.status == AppBootstrapStatus.error) {
+    throw currentState?.error ??
+        StateError('App bootstrap failed during startup.');
+  }
+
+  if (current.hasError) {
+    throw current.error!;
+  }
+
+  final completer = Completer<AppBootstrapState>();
+
+  void completeError(Object error, [StackTrace? stackTrace]) {
+    if (!completer.isCompleted) {
+      completer.completeError(error, stackTrace ?? StackTrace.current);
+    }
+  }
+
+  void handle(AsyncValue<AppBootstrapState> next) {
+    next.when(
+      data: (value) {
+        if (value.isReady) {
+          if (!completer.isCompleted) {
+            completer.complete(value);
+          }
+          return;
+        }
+
+        if (value.status == AppBootstrapStatus.error) {
+          completeError(
+            value.error ?? StateError('App bootstrap failed during startup.'),
+            value.stackTrace,
+          );
+        }
+      },
+      loading: () {},
+      error: completeError,
+    );
+  }
+
+  ref.listen<AsyncValue<AppBootstrapState>>(
+    appBootstrapProvider,
+    (previous, next) => handle(next),
+  );
+  handle(ref.read(appBootstrapProvider));
+
+  return completer.future;
+});
+
+class _NoopSharedMessageQueueProvider
+    with SharedMessageQueueProviderWaitMixin
+    implements ISharedMessageQueueProvider {
   const _NoopSharedMessageQueueProvider();
 
   @override

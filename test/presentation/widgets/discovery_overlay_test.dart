@@ -62,6 +62,7 @@ Future<void> _pumpOverlay(
   required _StubDiscoveryOverlayController controller,
   required MockConnectionService connectionService,
   required void Function() onClose,
+  DiscoveryScannerUiState? scannerUiState,
 }) async {
   tester.view.physicalSize = const Size(1200, 2000);
   tester.view.devicePixelRatio = 1.0;
@@ -79,6 +80,16 @@ Future<void> _pumpOverlay(
         ),
         burstScanningStatusProvider.overrideWith(
           (ref) => Stream.value(_burstStatus()),
+        ),
+        discoveryScannerUiStateProvider.overrideWith(
+          (ref) =>
+              scannerUiState ??
+              DiscoveryScannerUiState(
+                phase: DiscoveryScannerUiPhase.countdown,
+                message: 'Next scan starts soon.',
+                secondsRemaining: 10,
+                burstStatus: _burstStatus(),
+              ),
         ),
         burstScanningOperationsProvider.overrideWith((ref) => null),
         serverConnectionsStreamProvider.overrideWith(

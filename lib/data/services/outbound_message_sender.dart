@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -29,6 +30,7 @@ class OutboundMessageSender {
     required MessageAckTracker ackTracker,
     required MessageChunkSender chunkSender,
     ISecurityService? securityService,
+    ISecurityService Function()? securityServiceResolver,
     SealedEncryptionService? sealedEncryptionService,
     Future<void> Function({
       required CentralManager centralManager,
@@ -48,8 +50,9 @@ class OutboundMessageSender {
   }) : _logger = logger,
        _ackTracker = ackTracker,
        _chunkSender = chunkSender,
-       _securityService =
-           securityService ?? SecurityServiceLocator.resolveService(),
+       _securityServiceOverride = securityService,
+       _securityServiceResolver =
+           securityServiceResolver ?? SecurityServiceLocator.resolveService,
        _sealedEncryptionService =
            sealedEncryptionService ?? SealedEncryptionService(),
        _centralWrite = centralWrite,
@@ -58,7 +61,8 @@ class OutboundMessageSender {
   final Logger _logger;
   final MessageAckTracker _ackTracker;
   final MessageChunkSender _chunkSender;
-  final ISecurityService _securityService;
+  final ISecurityService? _securityServiceOverride;
+  final ISecurityService Function() _securityServiceResolver;
   final SealedEncryptionService _sealedEncryptionService;
   final Future<void> Function({
     required CentralManager centralManager,
@@ -76,6 +80,18 @@ class OutboundMessageSender {
   })?
   _peripheralWrite;
   String? _currentNodeId;
+  ISecurityService? _resolvedSecurityService;
+
+  ISecurityService get _securityService {
+    final existing = _securityServiceOverride ?? _resolvedSecurityService;
+    if (existing != null) {
+      return existing;
+    }
+
+    final resolved = _securityServiceResolver();
+    _resolvedSecurityService = resolved;
+    return resolved;
+  }
 
   void setCurrentNodeId(String? nodeId) {
     _currentNodeId = nodeId;
@@ -83,6 +99,30 @@ class OutboundMessageSender {
 
   String? get _safeNodeId =>
       _currentNodeId ?? EphemeralKeyManager.currentSessionKey;
+
+  Future<ProtocolMessage> buildSecureTextProtocolMessage({
+    required String message,
+    String? messageId,
+    String? contactPublicKey,
+    String? recipientId,
+    bool useEphemeralAddressing = false,
+    String? originalIntendedRecipient,
+    required ContactRepository contactRepository,
+    required BLEStateManager stateManager,
+  }) async {
+    final prepared = await _prepareTextProtocolMessage(
+      message: message,
+      messageId: messageId ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      contactPublicKey: contactPublicKey,
+      recipientId: recipientId,
+      useEphemeralAddressing: useEphemeralAddressing,
+      originalIntendedRecipient: originalIntendedRecipient,
+      contactRepository: contactRepository,
+      stateManager: stateManager,
+      logPrefix: 'MESSAGE',
+    );
+    return prepared.protocolMessage;
+  }
 
   Future<bool> sendCentralMessage({
     required CentralManager centralManager,
@@ -107,168 +147,24 @@ class OutboundMessageSender {
       onMessageOperationChanged?.call(true);
       // Skip extra ping writes; they have been causing GATT 133 on some stacks.
 
-      final contactKey = (contactPublicKey?.isNotEmpty ?? false)
-          ? contactPublicKey
-          : recipientId;
-      final identities = await _resolveMessageIdentities(
-        contactPublicKey: contactKey,
+      final prepared = await _prepareTextProtocolMessage(
+        message: message,
+        messageId: msgId,
+        contactPublicKey: contactPublicKey,
+        recipientId: recipientId,
+        useEphemeralAddressing: useEphemeralAddressing,
+        originalIntendedRecipient: originalIntendedRecipient,
         contactRepository: contactRepository,
         stateManager: stateManager,
+        logPrefix: 'MESSAGE',
       );
-
-      final finalRecipientId = identities.intendedRecipient;
-      final finalSenderIf = identities.originalSender;
-      final encryptionKey = (contactPublicKey?.isNotEmpty ?? false)
-          ? contactPublicKey!
-          : finalRecipientId;
-
-      if (finalRecipientId.isEmpty) {
-        _logger.severe(
-          '❌ SEND ABORTED: Intended recipient is empty; cannot send message $msgId',
-        );
-        throw Exception('Intended recipient not set');
-      }
-
-      if (identities.isSpyMode) {
-        _logger.info('🕵️ SPY MODE: Sending anonymously');
-        _logger.info(
-          '🕵️   Sender: ${finalSenderIf.shortId(8)}... (ephemeral)',
-        );
-        _logger.info(
-          '🕵️   Recipient: ${finalRecipientId.shortId(8)}... (ephemeral)',
-        );
-      }
-
-      String payload = message;
-      String encryptionMethod = 'none';
-      EncryptionMethod? encryptionDecision;
-      CryptoHeader? explicitCryptoHeader;
-
-      if (encryptionKey.isNotEmpty) {
-        encryptionDecision = await _securityService.getEncryptionMethod(
-          encryptionKey,
-          contactRepository,
-        );
-        payload = await _securityService.encryptMessageByType(
-          message,
-          encryptionKey,
-          contactRepository,
-          encryptionDecision.type,
-        );
-        encryptionMethod = _wireMethodForType(encryptionDecision.type);
-        _logger.info(
-          '🔒 MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
-        );
-      } else {
-        _logger.severe(
-          '❌ SEND ABORTED: No encryption key available for message $msgId',
-        );
-        throw Exception('Cannot send message without encryption key');
-      }
-
-      final shouldAttemptSealedFallback =
-          _isLegacyEncryptionType(encryptionDecision.type);
-
-      if (shouldAttemptSealedFallback) {
-        final sealedResult = await _tryEncryptWithSealedV1(
-          plaintext: message,
-          messageId: msgId,
-          senderId: finalSenderIf,
-          recipientId: finalRecipientId,
-          contactLookupKey: encryptionKey,
-          contactRepository: contactRepository,
-        );
-        if (sealedResult != null) {
-          payload = sealedResult.payloadBase64;
-          encryptionMethod = 'sealed';
-          explicitCryptoHeader = sealedResult.header;
-          _logger.info(
-            '🔒 MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
-          );
-        }
-      }
-
-      if (_isLegacyTransportMethod(encryptionMethod) &&
-          explicitCryptoHeader == null) {
-        throw StateError(
-          'Legacy v2 transport modes have been removed. '
-          'Recipient ${_safeTruncate(finalRecipientId, 12)} requires sealed_v1 capability.',
-        );
-      }
-
-      SecurityLevel trustLevel;
-      try {
-        trustLevel = await _securityService.getCurrentLevel(
-          encryptionKey,
-          contactRepository,
-        );
-      } catch (e) {
-        _logger.warning(
-          '🔒 CENTRAL: Failed to get security level: $e, defaulting to LOW',
-        );
-        trustLevel = SecurityLevel.low;
-      }
-
-      final signingInfo = SigningManager.getSigningInfo(trustLevel);
-
-      final protocolMessage = ProtocolMessage.textMessage(
-        messageId: msgId,
-        content: payload,
-        encrypted: encryptionMethod != 'none',
-        recipientId: finalRecipientId,
-        useEphemeralAddressing: useEphemeralAddressing,
-      );
-
-      final intendedRecipientPayload =
-          originalIntendedRecipient ?? finalRecipientId;
-      final cryptoHeader =
-          explicitCryptoHeader ??
-          _buildCryptoHeader(
-            encryptionMethod: encryptionMethod,
-            sessionId: encryptionMethod == 'noise'
-                ? (encryptionDecision.publicKey ?? encryptionKey)
-                : null,
-          );
-
-      final legacyPayload = {
-        ...protocolMessage.payload,
-        'encryptionMethod': encryptionMethod,
-        'intendedRecipient': intendedRecipientPayload,
-        'originalSender': finalSenderIf,
-        'senderId': finalSenderIf,
-        if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
-      };
-
-      final unsignedMessage = ProtocolMessage(
-        type: protocolMessage.type,
-        version: 2,
-        payload: legacyPayload,
-        timestamp: protocolMessage.timestamp,
-        useEphemeralSigning: signingInfo.useEphemeralSigning,
-        ephemeralSigningKey: signingInfo.signingKey,
-      );
-      final signaturePayload = SigningManager.signaturePayloadForMessage(
-        unsignedMessage,
-        fallbackContent: message,
-      );
-      final signature = SigningManager.signMessage(
-        signaturePayload,
-        trustLevel,
-      );
-      final finalMessage = ProtocolMessage(
-        type: unsignedMessage.type,
-        version: unsignedMessage.version,
-        payload: unsignedMessage.payload,
-        timestamp: unsignedMessage.timestamp,
-        signature: signature,
-        useEphemeralSigning: unsignedMessage.useEphemeralSigning,
-        ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
-      );
+      final finalMessage = prepared.protocolMessage;
+      final finalRecipientId = prepared.finalRecipientId;
 
       _logOutboundDiagnostics(
         msgId: msgId,
         useEphemeralAddressing: useEphemeralAddressing,
-        encryptionMethod: encryptionMethod,
+        encryptionMethod: prepared.encryptionMethod,
       );
 
       final jsonBytes = finalMessage.toBytes();
@@ -399,168 +295,30 @@ class OutboundMessageSender {
     required BLEStateManager stateManager,
     void Function(String messageId, bool success)? onMessageSent,
     void Function(MessageId messageId, bool success)? onMessageSentIds,
+    bool awaitAck = false,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    Completer<bool>? ackCompleter;
 
     try {
-      final contactKey = (contactPublicKey?.isNotEmpty ?? false)
-          ? contactPublicKey
-          : recipientId;
-      final identities = await _resolveMessageIdentities(
-        contactPublicKey: contactKey,
+      final prepared = await _prepareTextProtocolMessage(
+        message: message,
+        messageId: msgId,
+        contactPublicKey: contactPublicKey,
+        recipientId: recipientId,
+        useEphemeralAddressing: useEphemeralAddressing,
+        originalIntendedRecipient: originalIntendedRecipient,
         contactRepository: contactRepository,
         stateManager: stateManager,
+        logPrefix: 'PERIPHERAL MESSAGE',
       );
-
-      final finalRecipientId = identities.intendedRecipient;
-      final finalSenderIf = identities.originalSender;
-      final encryptionKey = (contactPublicKey?.isNotEmpty ?? false)
-          ? contactPublicKey!
-          : finalRecipientId;
-
-      if (finalRecipientId.isEmpty) {
-        _logger.severe(
-          '❌ PERIPHERAL SEND ABORTED: Intended recipient is empty; cannot send message $msgId',
-        );
-        throw Exception('Intended recipient not set');
-      }
-
-      String payload = message;
-      String encryptionMethod = 'none';
-      EncryptionMethod? encryptionDecision;
-      CryptoHeader? explicitCryptoHeader;
-
-      if (encryptionKey.isNotEmpty) {
-        encryptionDecision = await _securityService.getEncryptionMethod(
-          encryptionKey,
-          contactRepository,
-        );
-        payload = await _securityService.encryptMessageByType(
-          message,
-          encryptionKey,
-          contactRepository,
-          encryptionDecision.type,
-        );
-        encryptionMethod = _wireMethodForType(encryptionDecision.type);
-        _logger.info(
-          '🔒 PERIPHERAL MESSAGE: Encrypted with ${encryptionMethod.toUpperCase()} method',
-        );
-      } else {
-        _logger.severe(
-          '❌ PERIPHERAL SEND ABORTED: No encryption key available for message $msgId',
-        );
-        throw Exception('Cannot send message without encryption key');
-      }
-
-      final shouldAttemptSealedFallback =
-          _isLegacyEncryptionType(encryptionDecision.type);
-
-      if (shouldAttemptSealedFallback) {
-        final sealedResult = await _tryEncryptWithSealedV1(
-          plaintext: message,
-          messageId: msgId,
-          senderId: finalSenderIf,
-          recipientId: finalRecipientId,
-          contactLookupKey: encryptionKey,
-          contactRepository: contactRepository,
-        );
-        if (sealedResult != null) {
-          payload = sealedResult.payloadBase64;
-          encryptionMethod = 'sealed';
-          explicitCryptoHeader = sealedResult.header;
-          _logger.info(
-            '🔒 PERIPHERAL MESSAGE: Switched to SEALED_V1 offline lane (${_safeTruncate(msgId, 16)})',
-          );
-        }
-      }
-
-      if (_isLegacyTransportMethod(encryptionMethod) &&
-          explicitCryptoHeader == null) {
-        throw StateError(
-          'Legacy v2 transport modes have been removed. '
-          'Recipient ${_safeTruncate(finalRecipientId, 12)} requires sealed_v1 capability.',
-        );
-      }
-
-      SecurityLevel trustLevel;
-      try {
-        trustLevel = await _securityService.getCurrentLevel(
-          encryptionKey,
-          contactRepository,
-        );
-      } catch (e) {
-        _logger.warning(
-          '🔒 PERIPHERAL: Failed to get security level: $e, defaulting to LOW',
-        );
-        trustLevel = SecurityLevel.low;
-      }
-
-      final signingInfo = SigningManager.getSigningInfo(trustLevel);
-
-      if (signingInfo.useEphemeralSigning && signingInfo.signingKey == null) {
-        _logger.warning(
-          '⚠️ PERIPHERAL: Ephemeral signing key not available - message will not be signed',
-        );
-      }
-
-      final protocolMessage = ProtocolMessage.textMessage(
-        messageId: msgId,
-        content: payload,
-        encrypted: encryptionMethod != 'none',
-        recipientId: finalRecipientId,
-        useEphemeralAddressing: useEphemeralAddressing,
-      );
-
-      final intendedRecipientPayload =
-          originalIntendedRecipient ?? finalRecipientId;
-      final cryptoHeader =
-          explicitCryptoHeader ??
-          _buildCryptoHeader(
-            encryptionMethod: encryptionMethod,
-            sessionId: encryptionMethod == 'noise'
-                ? (encryptionDecision.publicKey ?? encryptionKey)
-                : null,
-          );
-
-      final legacyPayload = {
-        ...protocolMessage.payload,
-        'encryptionMethod': encryptionMethod,
-        'intendedRecipient': intendedRecipientPayload,
-        'originalSender': finalSenderIf,
-        'senderId': finalSenderIf,
-        if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
-      };
-
-      final unsignedMessage = ProtocolMessage(
-        type: protocolMessage.type,
-        version: 2,
-        payload: legacyPayload,
-        timestamp: protocolMessage.timestamp,
-        useEphemeralSigning: signingInfo.useEphemeralSigning,
-        ephemeralSigningKey: signingInfo.signingKey,
-      );
-      final signaturePayload = SigningManager.signaturePayloadForMessage(
-        unsignedMessage,
-        fallbackContent: message,
-      );
-      final signature = SigningManager.signMessage(
-        signaturePayload,
-        trustLevel,
-      );
-      final finalMessage = ProtocolMessage(
-        type: unsignedMessage.type,
-        version: unsignedMessage.version,
-        payload: unsignedMessage.payload,
-        timestamp: unsignedMessage.timestamp,
-        signature: signature,
-        useEphemeralSigning: unsignedMessage.useEphemeralSigning,
-        ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
-      );
+      final finalMessage = prepared.protocolMessage;
+      final finalRecipientId = prepared.finalRecipientId;
 
       _logOutboundDiagnostics(
         msgId: msgId,
         useEphemeralAddressing: useEphemeralAddressing,
-        encryptionMethod: encryptionMethod,
+        encryptionMethod: prepared.encryptionMethod,
       );
 
       final jsonBytes = finalMessage.toBytes();
@@ -585,6 +343,15 @@ class OutboundMessageSender {
       _logger.info(
         '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for peripheral message: $msgId',
       );
+
+      if (awaitAck) {
+        ackCompleter = _ackTracker.track(
+          msgId,
+          onTimeout: (timedOutId) {
+            _logger.warning('Peripheral message timeout: $timedOutId');
+          },
+        );
+      }
 
       if (useBinaryEnvelope) {
         await sendBinaryPayload(
@@ -641,17 +408,23 @@ class OutboundMessageSender {
       }
 
       _logger.info(
-        'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})',
+        'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})'
+        '${awaitAck ? ", waiting for ACK" : ""}',
       );
-      onMessageSent?.call(msgId, true);
-      onMessageSentIds?.call(MessageId(msgId), true);
-      return true;
+      final success = ackCompleter == null ? true : await ackCompleter.future;
+      onMessageSent?.call(msgId, success);
+      onMessageSentIds?.call(MessageId(msgId), success);
+      return success;
     } catch (e, stackTrace) {
       _logger.severe('Failed to send peripheral message: $e');
       _logger.severe('Stack trace: $stackTrace');
       onMessageSent?.call(msgId, false);
       onMessageSentIds?.call(MessageId(msgId), false);
       rethrow;
+    } finally {
+      if (awaitAck) {
+        _ackTracker.cancel(msgId);
+      }
     }
   }
 
@@ -664,6 +437,167 @@ class OutboundMessageSender {
       '📤 Outbound message prepared: id=${_safeTruncate(msgId, 16)}, '
       'addressing=${useEphemeralAddressing ? "ephemeral" : "persistent"}, '
       'encryption=$encryptionMethod',
+    );
+  }
+
+  Future<_PreparedTextMessage> _prepareTextProtocolMessage({
+    required String message,
+    required String messageId,
+    required String? contactPublicKey,
+    required String? recipientId,
+    required bool useEphemeralAddressing,
+    required String? originalIntendedRecipient,
+    required ContactRepository contactRepository,
+    required BLEStateManager stateManager,
+    required String logPrefix,
+  }) async {
+    final contactKey = (contactPublicKey?.isNotEmpty ?? false)
+        ? contactPublicKey
+        : recipientId;
+    final identities = await _resolveMessageIdentities(
+      contactPublicKey: contactKey,
+      contactRepository: contactRepository,
+      stateManager: stateManager,
+    );
+
+    final finalRecipientId = identities.intendedRecipient;
+    final finalSenderId = identities.originalSender;
+    final encryptionKey = (contactPublicKey?.isNotEmpty ?? false)
+        ? contactPublicKey!
+        : finalRecipientId;
+
+    if (finalRecipientId.isEmpty) {
+      throw StateError('Intended recipient not set');
+    }
+
+    if (identities.isSpyMode) {
+      _logger.info('🕵️ SPY MODE: Sending anonymously');
+      _logger.info('🕵️   Sender: ${finalSenderId.shortId(8)}... (ephemeral)');
+      _logger.info(
+        '🕵️   Recipient: ${finalRecipientId.shortId(8)}... (ephemeral)',
+      );
+    }
+
+    if (encryptionKey.isEmpty) {
+      throw StateError('Cannot send message without encryption key');
+    }
+
+    var payload = message;
+    var encryptionMethod = 'none';
+    EncryptionMethod? encryptionDecision;
+    CryptoHeader? explicitCryptoHeader;
+
+    encryptionDecision = await _securityService.getEncryptionMethod(
+      encryptionKey,
+      contactRepository,
+    );
+    payload = await _securityService.encryptMessageByType(
+      message,
+      encryptionKey,
+      contactRepository,
+      encryptionDecision.type,
+    );
+    encryptionMethod = _wireMethodForType(encryptionDecision.type);
+    _logger.info(
+      '🔒 $logPrefix: Encrypted with ${encryptionMethod.toUpperCase()} method',
+    );
+
+    if (_isLegacyEncryptionType(encryptionDecision.type)) {
+      final sealedResult = await _tryEncryptWithSealedV1(
+        plaintext: message,
+        messageId: messageId,
+        senderId: finalSenderId,
+        recipientId: finalRecipientId,
+        contactLookupKey: encryptionKey,
+        contactRepository: contactRepository,
+      );
+      if (sealedResult != null) {
+        payload = sealedResult.payloadBase64;
+        encryptionMethod = 'sealed';
+        explicitCryptoHeader = sealedResult.header;
+        _logger.info(
+          '🔒 $logPrefix: Switched to SEALED_V1 offline lane (${_safeTruncate(messageId, 16)})',
+        );
+      }
+    }
+
+    if (_isLegacyTransportMethod(encryptionMethod) &&
+        explicitCryptoHeader == null) {
+      throw StateError(
+        'Legacy v2 transport modes have been removed. '
+        'Recipient ${_safeTruncate(finalRecipientId, 12)} requires sealed_v1 capability.',
+      );
+    }
+
+    SecurityLevel trustLevel;
+    try {
+      trustLevel = await _securityService.getCurrentLevel(
+        encryptionKey,
+        contactRepository,
+      );
+    } catch (e) {
+      _logger.warning(
+        '🔒 $logPrefix: Failed to get security level: $e, defaulting to LOW',
+      );
+      trustLevel = SecurityLevel.low;
+    }
+
+    final signingInfo = SigningManager.getSigningInfo(trustLevel);
+    final protocolMessage = ProtocolMessage.textMessage(
+      messageId: messageId,
+      content: payload,
+      encrypted: encryptionMethod != 'none',
+      recipientId: finalRecipientId,
+      useEphemeralAddressing: useEphemeralAddressing,
+    );
+
+    final intendedRecipientPayload =
+        originalIntendedRecipient ?? finalRecipientId;
+    final cryptoHeader =
+        explicitCryptoHeader ??
+        _buildCryptoHeader(
+          encryptionMethod: encryptionMethod,
+          sessionId: encryptionMethod == 'noise'
+              ? (encryptionDecision.publicKey ?? encryptionKey)
+              : null,
+        );
+
+    final legacyPayload = {
+      ...protocolMessage.payload,
+      'encryptionMethod': encryptionMethod,
+      'intendedRecipient': intendedRecipientPayload,
+      'originalSender': finalSenderId,
+      'senderId': finalSenderId,
+      if (cryptoHeader != null) 'crypto': cryptoHeader.toJson(),
+    };
+
+    final unsignedMessage = ProtocolMessage(
+      type: protocolMessage.type,
+      version: 2,
+      payload: legacyPayload,
+      timestamp: protocolMessage.timestamp,
+      useEphemeralSigning: signingInfo.useEphemeralSigning,
+      ephemeralSigningKey: signingInfo.signingKey,
+    );
+    final signaturePayload = SigningManager.signaturePayloadForMessage(
+      unsignedMessage,
+      fallbackContent: message,
+    );
+    final signature = SigningManager.signMessage(signaturePayload, trustLevel);
+    final finalMessage = ProtocolMessage(
+      type: unsignedMessage.type,
+      version: unsignedMessage.version,
+      payload: unsignedMessage.payload,
+      timestamp: unsignedMessage.timestamp,
+      signature: signature,
+      useEphemeralSigning: unsignedMessage.useEphemeralSigning,
+      ephemeralSigningKey: unsignedMessage.ephemeralSigningKey,
+    );
+
+    return _PreparedTextMessage(
+      protocolMessage: finalMessage,
+      encryptionMethod: encryptionMethod,
+      finalRecipientId: finalRecipientId,
     );
   }
 
@@ -963,4 +897,16 @@ class _SealedPayload {
   final CryptoHeader header;
 
   _SealedPayload({required this.payloadBase64, required this.header});
+}
+
+class _PreparedTextMessage {
+  final ProtocolMessage protocolMessage;
+  final String encryptionMethod;
+  final String finalRecipientId;
+
+  _PreparedTextMessage({
+    required this.protocolMessage,
+    required this.encryptionMethod,
+    required this.finalRecipientId,
+  });
 }

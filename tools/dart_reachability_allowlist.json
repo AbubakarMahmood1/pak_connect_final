@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "reviewedOn": "2026-07-11",
+  "entries": [
+    {
+      "path": "lib/domain/models/change_log_entry.dart",
+      "classification": "dormant-prototype",
+      "owner": "sync-and-persistence",
+      "reason": "The metadata model is retained only with the disconnected change-log replay prototype; live database triggers, export, import, and pruning use other code paths.",
+      "exitCondition": "Delete it if peer replay is dropped from scope, or replace it only with authenticated full-row payloads and convergence tests under DEBT-SYNC-001."
+    },
+    {
+      "path": "lib/domain/models/sealed_sender_payload.dart",
+      "classification": "dormant-prototype",
+      "owner": "relay-privacy",
+      "reason": "Tests retain the payload primitive while production relay senders deliberately leave sealed sender disabled under DEBT-RELAY-PRIV-001.",
+      "exitCondition": "Either wire it behind an explicit mixed-version privacy policy with device tests, or delete it when sealed sender is rejected from product scope."
+    },
+    {
+      "path": "lib/domain/services/change_log_sync_service.dart",
+      "classification": "dormant-prototype",
+      "owner": "sync-and-persistence",
+      "reason": "Production composition no longer instantiates metadata-only peer replay; the fail-closed service remains solely as a reviewed future transport prototype.",
+      "exitCondition": "Delete it if peer replay is dropped from scope, or replace it only after authenticated row transport, partial-failure cursor rules, and convergence tests exist."
+    },
+    {
+      "path": "lib/domain/services/simple_crypto.dart",
+      "classification": "test-compatibility",
+      "owner": "security-and-crypto",
+      "reason": "Historical tests use SimpleCrypto and ActiveCryptoFacade as compatibility delegates to the narrower active crypto services; production code does not import this library.",
+      "exitCondition": "Migrate tests and diagnostics to ConversationCryptoService, ContactCryptoService, and SigningCryptoService, then delete both compatibility facades."
+    }
+  ]
+}

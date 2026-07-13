@@ -15,9 +15,11 @@ import '../../domain/entities/preference_keys.dart';
 import '../../domain/interfaces/i_chats_repository.dart';
 import '../../domain/interfaces/i_contact_repository.dart';
 import '../../domain/interfaces/i_database_provider.dart';
+import '../../domain/interfaces/i_panic_wipe_service.dart';
 import '../../domain/interfaces/i_preferences_repository.dart';
 import '../../domain/interfaces/i_user_preferences.dart';
 import '../../domain/services/auto_archive_scheduler.dart';
+import '../../domain/services/app_permission_service.dart';
 import '../../domain/services/notification_handler_factory.dart';
 import '../../domain/services/notification_service.dart';
 
@@ -28,6 +30,8 @@ class SettingsController extends ChangeNotifier {
     IChatsRepository? chatsRepository,
     IUserPreferences? userPreferences,
     IDatabaseProvider? databaseProvider,
+    IPanicWipeService? panicWipeService,
+    AppPermissionService? permissionService,
     Logger? logger,
   }) : _preferencesRepository =
            preferencesRepository ?? _resolvePreferencesRepository(),
@@ -35,6 +39,8 @@ class SettingsController extends ChangeNotifier {
        _chatsRepository = chatsRepository ?? _resolveChatsRepository(),
        _userPreferences = userPreferences ?? _resolveUserPreferences(),
        _databaseProvider = databaseProvider ?? _resolveDatabaseProvider(),
+       _panicWipeService = panicWipeService,
+       _permissionService = permissionService ?? const AppPermissionService(),
        _logger = logger ?? Logger('SettingsController');
 
   final IPreferencesRepository _preferencesRepository;
@@ -42,6 +48,8 @@ class SettingsController extends ChangeNotifier {
   final IChatsRepository _chatsRepository;
   final IUserPreferences _userPreferences;
   final IDatabaseProvider _databaseProvider;
+  IPanicWipeService? _panicWipeService;
+  final AppPermissionService _permissionService;
   final Logger _logger;
 
   bool _isDisposed = false;
@@ -191,6 +199,16 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> setNotificationsEnabled(bool value) async {
     if (_isDisposed) return;
+    if (value) {
+      final granted = await _permissionService.requestNotificationPermission();
+      if (!granted) {
+        notificationsEnabled = false;
+        _safeNotifyListeners();
+        throw StateError(
+          'Notification permission not granted. Please allow notifications in system settings.',
+        );
+      }
+    }
     notificationsEnabled = value;
     _safeNotifyListeners();
     await _preferencesRepository.setBool(
@@ -201,6 +219,16 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> setBackgroundNotifications(bool value) async {
     if (_isDisposed) return;
+    if (value) {
+      final granted = await _permissionService.requestNotificationPermission();
+      if (!granted) {
+        backgroundNotifications = false;
+        _safeNotifyListeners();
+        throw StateError(
+          'System notification permission not granted. Please allow notifications in system settings.',
+        );
+      }
+    }
     backgroundNotifications = value;
     _safeNotifyListeners();
     await _preferencesRepository.setBool(
@@ -462,6 +490,13 @@ class SettingsController extends ChangeNotifier {
     return true;
   }
 
+  Future<PanicWipeResult> panicWipe({required PanicWipeOrigin origin}) async {
+    if (_isDisposed) {
+      return PanicWipeResult.failure('settings controller disposed');
+    }
+    return _resolvedPanicWipeService.execute(origin: origin);
+  }
+
   Future<void> clearCaches() async {
     if (_isDisposed) return;
     ConversationCryptoService.clearAllConversationKeys();
@@ -540,6 +575,15 @@ class SettingsController extends ChangeNotifier {
               dependencyName: 'IDatabaseProvider',
             ),
         dependencyName: 'IDatabaseProvider',
+      );
+
+  IPanicWipeService get _resolvedPanicWipeService =>
+      _panicWipeService ??= _resolvePanicWipeService();
+
+  static IPanicWipeService _resolvePanicWipeService() =>
+      resolveFromAppServicesOrServiceLocator<IPanicWipeService>(
+        fromServices: (services) => services.panicWipeService,
+        dependencyName: 'IPanicWipeService',
       );
 }
 

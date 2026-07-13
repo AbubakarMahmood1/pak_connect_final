@@ -23,9 +23,11 @@ Existing peer-to-peer solutions (Bluetooth chat apps) typically:
 PakConnect addresses these gaps by combining:
 
 1. **Proven Cryptography**: Noise Protocol Framework (used by WhatsApp, WireGuard)
-2. **Mesh Networking**: Extended range through multi-hop relay
+2. **Mesh Networking**: Multi-hop relay code and automated regressions;
+   extended-range behavior still requires controlled three-device evidence
 3. **Offline Resilience**: Persistent message queue for deferred delivery
-4. **Open Source**: Transparent, auditable security implementation
+4. **Inspectable Implementation**: Public source supports review, while the
+   repository's proprietary `LICENSE` reserves reuse rights
 5. **No Infrastructure**: Zero dependency on internet or cellular networks
 
 ### Why This Matters
@@ -46,7 +48,8 @@ PakConnect addresses these gaps by combining:
    - Ensure message authenticity and integrity
 
 2. **Decentralized Mesh Networking**
-   - Enable multi-hop message relay
+   - Enable multi-hop message relay (implementation present; physical
+     `A -> B -> C` proof pending)
    - Implement duplicate detection and flood prevention
    - Optimize routing through network topology analysis
 
@@ -68,7 +71,7 @@ PakConnect addresses these gaps by combining:
 ### Secondary Objectives
 
 - Full-text search for archived messages
-- Group messaging with per-member delivery tracking
+- Sender-local broadcast lists with per-recipient queue-submission status
 - Contact favorites and organization
 - Message export/import for backup
 - Network topology visualization
@@ -79,7 +82,8 @@ PakConnect addresses these gaps by combining:
 
 **Core Messaging**
 - One-to-one encrypted messaging
-- Group messaging (multi-unicast)
+- Broadcast lists (multi-unicast into ordinary one-to-one chats; no shared
+  membership or group transcript)
 - Message status tracking (sent, delivered, read)
 - Threading and replies
 - Message editing and deletion
@@ -92,12 +96,13 @@ PakConnect addresses these gaps by combining:
 
 **Mesh Networking**
 - Multi-hop relay (up to 5 hops)
-- Duplicate detection (5-minute window)
+- Persistent completed-message deduplication (oldest-first cap per seen type)
 - Network topology tracking
 - Route optimization
 
 **Data Management**
-- SQLite storage with SQLCipher encryption
+- SQLCipher-backed SQLite on Android/iOS; desktop/test plaintext fallback and
+  device-proof boundary are tracked separately
 - Archive system with FTS5 search
 - Offline message queue
 - Data export/import
@@ -127,18 +132,23 @@ PakConnect addresses these gaps by combining:
 
 ### Technical Constraints
 
-1. **BLE Range**: 10-30 meters line-of-sight (hardware dependent)
-2. **MTU Limitations**: Typical 160-220 bytes per packet (requires fragmentation)
-3. **Connection Limits**: Android ~7 simultaneous connections, iOS ~10
+1. **BLE Range target**: 10-30 meters line-of-sight; no current device matrix
+   establishes that range
+2. **MTU Limitations**: Device-negotiated and not assumed above the default
+   without evidence; larger payloads require fragmentation
+3. **Connection configuration targets**: Android 7 and iOS 10, while current
+   user-payload policy remains single-link and multi-link evidence is pending
 4. **Background Restrictions**: iOS severely limits background BLE operations
 5. **Battery Drain**: Continuous BLE scanning/advertising consumes significant power
-6. **Latency**: Multi-hop mesh introduces delays (seconds to minutes)
+6. **Latency**: Multi-hop relay adds device- and topology-dependent delay; no
+   current physical benchmark establishes a range
 
 ### Cryptographic Constraints
 
 1. **Key Storage**: Limited by platform secure storage (FlutterSecureStorage)
 2. **Computation**: Mobile CPUs slower than desktop for crypto operations
-3. **Handshake Time**: Noise handshake adds ~200-500ms per new connection
+3. **Handshake Time**: Noise handshake latency requires physical-device
+   measurement; historical 200-500ms figures are targets, not results
 
 ### Platform Constraints
 
@@ -149,9 +159,12 @@ PakConnect addresses these gaps by combining:
 
 ### Regulatory Constraints
 
-1. **No Personal Data Collection**: GDPR/privacy compliance through local-only storage
-2. **Open Source License**: MIT License requirements
-3. **Export Control**: Cryptography export regulations (generally exempt for open source)
+1. **No Project-Operated Collection**: The app has no project-operated account,
+   analytics, or message server; device and peer data flows still require
+   platform-specific privacy review
+2. **Proprietary License**: Use and redistribution are governed by `LICENSE`
+3. **Export Control**: Cryptography obligations require jurisdiction-specific
+   review; no open-source exemption is claimed
 
 ## 2.6 Stakeholder and User Description
 
@@ -162,7 +175,7 @@ PakConnect addresses these gaps by combining:
    - Concerns: Ease of use, battery life, reliability
    - Technical Skill: Varies (basic smartphone users to technical experts)
 
-2. **Open Source Contributors**
+2. **Developers and Security Reviewers**
    - Need: Clean codebase, documentation, test coverage
    - Concerns: Code quality, architecture, maintainability
    - Technical Skill: Software developers, cryptographers, researchers
@@ -216,7 +229,7 @@ PakConnect addresses these gaps by combining:
 | Privacy (no telemetry) | Critical | Local-only storage, no analytics |
 | Contact verification | Medium | Security level system, PIN/crypto verification |
 | Message history | Medium | SQLite storage, archive system |
-| Group communication | Medium | Group messaging service |
+| Send the same update to several contacts | Medium | Sender-local broadcast list service |
 
 ---
 

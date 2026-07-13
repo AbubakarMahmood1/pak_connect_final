@@ -7,10 +7,9 @@ import 'package:pak_connect/domain/interfaces/i_ble_discovery_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_handshake_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
-import 'package:pak_connect/domain/models/connection_state.dart'
-    show ChatConnectionState;
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 
+import '../../domain/constants/ble_constants.dart';
 import '../../domain/services/device_deduplication_manager.dart';
 import 'ble_connection_manager.dart';
 import 'ble_connection_service.dart';
@@ -25,6 +24,12 @@ class BleLifecycleCoordinator {
     required IBLEAdvertisingService Function() getAdvertisingService,
     required IBLEMessagingService Function() getMessagingService,
     required IBLEHandshakeService Function() getHandshakeService,
+    int? Function(String address)? onInboundConnected,
+    void Function(String address, int mtu, int? attemptId)? onMtuReady,
+    void Function(String address, int? attemptId)? onNotifySubscribed,
+    bool Function(String address, int? attemptId)? onHandshakeStarted,
+    void Function(String address, String reason, int? attemptId)?
+    onPeerDisconnected,
   }) : _logger = logger,
        _platformHost = platformHost,
        _connectionManager = connectionManager,
@@ -32,7 +37,12 @@ class BleLifecycleCoordinator {
        _getDiscoveryService = getDiscoveryService,
        _getAdvertisingService = getAdvertisingService,
        _getMessagingService = getMessagingService,
-       _getHandshakeService = getHandshakeService;
+       _getHandshakeService = getHandshakeService,
+       _onInboundConnected = onInboundConnected,
+       _onMtuReady = onMtuReady,
+       _onNotifySubscribed = onNotifySubscribed,
+       _onHandshakeStarted = onHandshakeStarted,
+       _onPeerDisconnected = onPeerDisconnected;
 
   final Logger _logger;
   final IBLEPlatformHost _platformHost;
@@ -42,6 +52,14 @@ class BleLifecycleCoordinator {
   final IBLEAdvertisingService Function() _getAdvertisingService;
   final IBLEMessagingService Function() _getMessagingService;
   final IBLEHandshakeService Function() _getHandshakeService;
+  final int? Function(String address)? _onInboundConnected;
+  final void Function(String address, int mtu, int? attemptId)? _onMtuReady;
+  final void Function(String address, int? attemptId)? _onNotifySubscribed;
+  final bool Function(String address, int? attemptId)? _onHandshakeStarted;
+  final void Function(String address, String reason, int? attemptId)?
+  _onPeerDisconnected;
+  final Map<String, int> _inboundAttemptByAddress = {};
+  Future<void> _peripheralConnectionEventChain = Future<void>.value();
 
   Timer? _serverHandshakeTimer;
   StreamSubscription<CentralConnectionStateChangedEventArgs>?
@@ -75,8 +93,15 @@ class BleLifecycleCoordinator {
       }
     });
 
-    _connectionManager.onConnectionComplete = () =>
-        _getHandshakeService().performHandshake(startAsInitiatorOverride: true);
+    _connectionManager.onConnectionComplete = (address, attemptId) {
+      unawaited(
+        _getHandshakeService().performHandshake(
+          startAsInitiatorOverride: true,
+          onStartAccepted: () =>
+              _onHandshakeStarted?.call(address, attemptId) ?? true,
+        ),
+      );
+    };
 
     _connectionSetupComplete = true;
   }
@@ -95,6 +120,7 @@ class BleLifecycleCoordinator {
     _serverHandshakeTimer = null;
 
     await _peripheralConnectionSub?.cancel();
+    await _peripheralConnectionEventChain;
     await _peripheralMtuSub?.cancel();
     await _peripheralNotifyStateSub?.cancel();
     await _peripheralWriteSub?.cancel();
@@ -105,6 +131,8 @@ class BleLifecycleCoordinator {
     _peripheralNotifyStateSub = null;
     _peripheralWriteSub = null;
     _centralNotifySub = null;
+    _inboundAttemptByAddress.clear();
+    _peripheralConnectionEventChain = Future<void>.value();
 
     _peripheralEventsBound = false;
     _connectionSetupComplete = false;
@@ -119,47 +147,72 @@ class BleLifecycleCoordinator {
 
       _peripheralConnectionSub = peripheralManager.connectionStateChanged
           .listen((event) {
-            if (event.state == ConnectionState.connected) {
-              _connectionManager.handleCentralConnected(event.central);
-              final connectionService = _getConnectionService();
-              connectionService.connectedCentral = event.central;
-              _scheduleResponderHandshakeFallback();
-            } else {
-              _connectionManager.handleCentralDisconnected(event.central);
-              final connectionService = _getConnectionService();
-              final advertisingService = _getAdvertisingService();
+            _peripheralConnectionEventChain = _peripheralConnectionEventChain
+                .then((_) async {
+                  if (event.state == ConnectionState.connected) {
+                    final accepted = await _connectionManager
+                        .handleCentralConnected(event.central);
+                    if (!accepted) return;
+                    final connectionService = _getConnectionService();
+                    connectionService.connectedCentral = event.central;
+                    final address = event.central.uuid.toString();
+                    final attemptId = _onInboundConnected?.call(address);
+                    if (attemptId != null) {
+                      _inboundAttemptByAddress[address] = attemptId;
+                    }
+                    _scheduleResponderHandshakeFallback();
+                  } else {
+                    _connectionManager.handleCentralDisconnected(event.central);
+                    final connectionService = _getConnectionService();
+                    final advertisingService = _getAdvertisingService();
 
-              final disconnectedId = event.central.uuid.toString();
-              final activeId = connectionService.connectedCentral?.uuid
-                  .toString();
-              final disconnectedWasActive = disconnectedId == activeId;
-              final hasOtherServerConnections =
-                  _connectionManager.serverConnectionCount > 0;
+                    final disconnectedId = event.central.uuid.toString();
+                    final disconnectedAttemptId = _inboundAttemptByAddress
+                        .remove(disconnectedId);
+                    final activeId = connectionService.connectedCentral?.uuid
+                        .toString();
+                    final disconnectedWasActive = disconnectedId == activeId;
+                    final hasOtherServerConnections =
+                        _connectionManager.serverConnectionCount > 0;
 
-              if (disconnectedWasActive) {
-                _getHandshakeService().disposeHandshakeCoordinator();
-                connectionService.connectedCentral = null;
-                connectionService.connectedCharacteristic = null;
-              }
+                    if (disconnectedWasActive) {
+                      _getHandshakeService().disposeHandshakeCoordinator();
+                      connectionService.connectedCentral = null;
+                      connectionService.connectedCharacteristic = null;
+                    }
+                    _onPeerDisconnected?.call(
+                      disconnectedId,
+                      'peripheral-connection-state-disconnected',
+                      disconnectedAttemptId,
+                    );
 
-              if (!hasOtherServerConnections) {
-                advertisingService.resetPeripheralSession();
-              } else if (disconnectedWasActive) {
-                final remainingConnections =
-                    _connectionManager.serverConnections;
-                if (remainingConnections.isNotEmpty) {
-                  final replacement = remainingConnections.last;
-                  connectionService.connectedCentral = replacement.central;
-                  connectionService.connectedCharacteristic =
-                      replacement.subscribedCharacteristic;
-                }
-                advertisingService.peripheralHandshakeStarted = false;
-                _maybeStartResponderHandshake(
-                  characteristicOverride:
-                      connectionService.connectedCharacteristic,
-                );
-              }
-            }
+                    if (!hasOtherServerConnections) {
+                      advertisingService.resetPeripheralSession();
+                    } else if (disconnectedWasActive) {
+                      final remainingConnections =
+                          _connectionManager.serverConnections;
+                      if (remainingConnections.isNotEmpty) {
+                        final replacement = remainingConnections.last;
+                        connectionService.connectedCentral =
+                            replacement.central;
+                        connectionService.connectedCharacteristic =
+                            replacement.subscribedCharacteristic;
+                      }
+                      advertisingService.peripheralHandshakeStarted = false;
+                      _maybeStartResponderHandshake(
+                        characteristicOverride:
+                            connectionService.connectedCharacteristic,
+                      );
+                    }
+                  }
+                })
+                .catchError((Object error, StackTrace stackTrace) {
+                  _logger.warning(
+                    'Failed to process peripheral connection event: $error',
+                    error,
+                    stackTrace,
+                  );
+                });
           });
 
       _peripheralMtuSub = peripheralManager.mtuChanged.listen((event) {
@@ -169,6 +222,12 @@ class BleLifecycleCoordinator {
         _connectionManager.updateServerMtu(
           event.central.uuid.toString(),
           event.mtu,
+        );
+        final address = event.central.uuid.toString();
+        _onMtuReady?.call(
+          address,
+          event.mtu,
+          _inboundAttemptByAddress[address],
         );
         _maybeStartResponderHandshake();
       });
@@ -184,6 +243,11 @@ class BleLifecycleCoordinator {
             final connectionService = _getConnectionService();
             connectionService.connectedCentral = event.central;
             connectionService.connectedCharacteristic = event.characteristic;
+            final address = event.central.uuid.toString();
+            _onNotifySubscribed?.call(
+              address,
+              _inboundAttemptByAddress[address],
+            );
             _maybeStartResponderHandshake(
               characteristicOverride: event.characteristic,
             );
@@ -211,15 +275,26 @@ class BleLifecycleCoordinator {
             return;
           }
 
-          await _getMessagingService().processIncomingPeripheralData(
-            data,
-            senderDeviceId: event.central.uuid.toString(),
-            senderNodeId: DeviceDeduplicationManager.getDevice(
-              event.central.uuid.toString(),
-            )?.ephemeralHint,
-          );
+          final status = await _getMessagingService()
+              .processIncomingPeripheralData(
+                data,
+                senderDeviceId: event.central.uuid.toString(),
+                senderNodeId: DeviceDeduplicationManager.getDevice(
+                  event.central.uuid.toString(),
+                )?.ephemeralHint,
+              );
 
-          await peripheralManager.respondWriteRequest(event.request);
+          // Only ACK when the frame was accepted. A structurally corrupt frame
+          // must NACK so the sender does not record a false delivery
+          // (PC-GATT-002).
+          if (status == InboundProcessStatus.failed) {
+            await peripheralManager.respondWriteRequestWithError(
+              event.request,
+              error: GATTError.unlikelyError,
+            );
+          } else {
+            await peripheralManager.respondWriteRequest(event.request);
+          }
         } catch (e, stack) {
           _logger.warning(
             '⚠️ Failed to handle inbound write from ${event.central.uuid}: $e',
@@ -245,10 +320,9 @@ class BleLifecycleCoordinator {
     GATTCharacteristic? characteristicOverride,
   }) {
     final handshakeService = _getHandshakeService();
-    if (handshakeService.isHandshakeInProgress ||
-        _connectionManager.connectionState == ChatConnectionState.ready) {
+    if (handshakeService.isHandshakeInProgress) {
       _logger.info(
-        '🛑 Skipping fallback responder handshake: already ${handshakeService.isHandshakeInProgress ? "IN_PROGRESS" : "READY"}',
+        '🛑 Skipping fallback responder handshake: already IN_PROGRESS',
       );
       return;
     }
@@ -307,7 +381,21 @@ class BleLifecycleCoordinator {
     _connectionManager.onCharacteristicFound?.call(characteristic);
 
     unawaited(
-      _getHandshakeService().performHandshake(startAsInitiatorOverride: false),
+      _getHandshakeService().performHandshake(
+        startAsInitiatorOverride: false,
+        onStartAccepted: () {
+          final accepted =
+              _onHandshakeStarted?.call(
+                address,
+                _inboundAttemptByAddress[address],
+              ) ??
+              true;
+          if (!accepted) {
+            advertisingService.peripheralHandshakeStarted = false;
+          }
+          return accepted;
+        },
+      ),
     );
   }
 
@@ -316,8 +404,7 @@ class BleLifecycleCoordinator {
   }) {
     if (_connectionManager.serverConnectionCount == 0) return;
 
-    if (_connectionManager.connectionState == ChatConnectionState.ready ||
-        _getHandshakeService().isHandshakeInProgress) {
+    if (_getHandshakeService().isHandshakeInProgress) {
       return;
     }
 
@@ -352,8 +439,7 @@ class BleLifecycleCoordinator {
       try {
         if (_connectionManager.serverConnectionCount == 0) return;
 
-        if (_connectionManager.connectionState == ChatConnectionState.ready ||
-            _getHandshakeService().isHandshakeInProgress) {
+        if (_getHandshakeService().isHandshakeInProgress) {
           return;
         }
 
@@ -409,6 +495,17 @@ class BleLifecycleCoordinator {
                   '🧟 Service Changed (0x2A05) received from $deviceId - Remote app likely restarted. Disconnecting to clear zombie state.',
                 );
                 await _connectionManager.disconnectClient(deviceId);
+                return;
+              }
+
+              // Only app payloads from our message characteristic are
+              // processed; foreign notifications (battery, HID, other apps'
+              // services) must not reach handshake/fragment parsing where
+              // they could poison partial reassembly state.
+              if (uuid != BLEConstants.messageCharacteristicUUID) {
+                _logger.finer(
+                  'Ignoring notification from non-message characteristic $uuid',
+                );
                 return;
               }
 

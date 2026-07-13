@@ -737,13 +737,29 @@ class MockIConnectionService extends _i1.Mock
           as _i13.Future<bool>);
 
   @override
-  _i13.Future<void> sendQueueSyncMessage(_i3.QueueSyncMessage? message) =>
+  _i13.Future<bool> sendProtocolMessage(_i21.ProtocolMessage? message) =>
       (super.noSuchMethod(
-            Invocation.method(#sendQueueSyncMessage, [message]),
-            returnValue: _i13.Future<void>.value(),
-            returnValueForMissingStub: _i13.Future<void>.value(),
+            Invocation.method(#sendProtocolMessage, [message]),
+            returnValue: _i13.Future<bool>.value(false),
+            returnValueForMissingStub: _i13.Future<bool>.value(false),
           )
-          as _i13.Future<void>);
+          as _i13.Future<bool>);
+
+  @override
+  _i13.Future<bool> sendQueueSyncMessage(
+    _i3.QueueSyncMessage? message, {
+    String? peerId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #sendQueueSyncMessage,
+              [message],
+              {#peerId: peerId},
+            ),
+            returnValue: _i13.Future<bool>.value(false),
+            returnValueForMissingStub: _i13.Future<bool>.value(false),
+          )
+          as _i13.Future<bool>);
 
   @override
   _i13.Future<void> startScanning({
@@ -1074,6 +1090,26 @@ class MockIBLEMessageHandlerFacade extends _i1.Mock
           as _i13.Future<bool>);
 
   @override
+  _i13.Future<_i21.ProtocolMessage?> buildSecureTextProtocolMessage({
+    required String? recipientKey,
+    required String? content,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#buildSecureTextProtocolMessage, [], {
+              #recipientKey: recipientKey,
+              #content: content,
+              #messageId: messageId,
+              #originalIntendedRecipient: originalIntendedRecipient,
+            }),
+            returnValue: _i13.Future<_i21.ProtocolMessage?>.value(),
+            returnValueForMissingStub:
+                _i13.Future<_i21.ProtocolMessage?>.value(),
+          )
+          as _i13.Future<_i21.ProtocolMessage?>);
+
+  @override
   _i13.Future<_i3.RelayStatistics> getRelayStatistics() =>
       (super.noSuchMethod(
             Invocation.method(#getRelayStatistics, []),
@@ -1191,6 +1227,26 @@ class MockISharedMessageQueueProvider extends _i1.Mock
             returnValueForMissingStub: _i13.Future<void>.value(),
           )
           as _i13.Future<void>);
+
+  @override
+  _i13.Future<_i6.OfflineMessageQueueContract> waitForMessageQueue() =>
+      (super.noSuchMethod(
+            Invocation.method(#waitForMessageQueue, []),
+            returnValue: _i13.Future<_i6.OfflineMessageQueueContract>.value(
+              _FakeOfflineMessageQueueContract_4(
+                this,
+                Invocation.method(#waitForMessageQueue, []),
+              ),
+            ),
+            returnValueForMissingStub:
+                _i13.Future<_i6.OfflineMessageQueueContract>.value(
+                  _FakeOfflineMessageQueueContract_4(
+                    this,
+                    Invocation.method(#waitForMessageQueue, []),
+                  ),
+                ),
+          )
+          as _i13.Future<_i6.OfflineMessageQueueContract>);
 }
 
 /// A class which mocks [IMessageRepository].
@@ -1319,14 +1375,14 @@ class MockMeshRelayCoordinator extends _i1.Mock
 
   @override
   _i13.Future<_i7.MeshSendResult> sendRelayMessage({
-    required String? content,
+    required _i21.ProtocolMessage? innerProtocolMessage,
     required String? recipientPublicKey,
     required String? chatId,
     _i6.MessagePriority? priority = _i6.MessagePriority.normal,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#sendRelayMessage, [], {
-              #content: content,
+              #innerProtocolMessage: innerProtocolMessage,
               #recipientPublicKey: recipientPublicKey,
               #chatId: chatId,
               #priority: priority,
@@ -1335,7 +1391,7 @@ class MockMeshRelayCoordinator extends _i1.Mock
               _FakeMeshSendResult_5(
                 this,
                 Invocation.method(#sendRelayMessage, [], {
-                  #content: content,
+                  #innerProtocolMessage: innerProtocolMessage,
                   #recipientPublicKey: recipientPublicKey,
                   #chatId: chatId,
                   #priority: priority,
@@ -1346,7 +1402,7 @@ class MockMeshRelayCoordinator extends _i1.Mock
               _FakeMeshSendResult_5(
                 this,
                 Invocation.method(#sendRelayMessage, [], {
-                  #content: content,
+                  #innerProtocolMessage: innerProtocolMessage,
                   #recipientPublicKey: recipientPublicKey,
                   #chatId: chatId,
                   #priority: priority,
@@ -1552,13 +1608,6 @@ class MockMeshQueueSyncCoordinator extends _i1.Mock
           as _i13.Future<void>);
 
   @override
-  void completeAck(String? messageId, {bool? success = true}) =>
-      super.noSuchMethod(
-        Invocation.method(#completeAck, [messageId], {#success: success}),
-        returnValueForMissingStub: null,
-      );
-
-  @override
   void enableQueueSyncHandling() => super.noSuchMethod(
     Invocation.method(#enableQueueSyncHandling, []),
     returnValueForMissingStub: null,
@@ -1612,6 +1661,15 @@ class MockMeshQueueSyncCoordinator extends _i1.Mock
             ),
           )
           as _i13.Future<String>);
+
+  @override
+  _i13.Future<void> reprocessPendingDeliveries() =>
+      (super.noSuchMethod(
+            Invocation.method(#reprocessPendingDeliveries, []),
+            returnValue: _i13.Future<void>.value(),
+            returnValueForMissingStub: _i13.Future<void>.value(),
+          )
+          as _i13.Future<void>);
 
   @override
   _i13.Future<bool> retryMessage(String? messageId) =>

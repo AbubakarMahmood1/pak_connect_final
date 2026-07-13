@@ -22,6 +22,9 @@ class ConnectionHealthMonitor {
   final bool Function() hasViableRelayConnection;
   final void Function(bool active)? onMonitoringChanged;
   final void Function(bool isReconnection)? onReconnectionFlagChanged;
+  final void Function(String? peerId)? onReconnectionAttemptStarted;
+  final void Function(String? peerId, bool success)?
+  onReconnectionAttemptFinished;
   final bool Function()? _hasActiveClientLink;
   final bool Function()? _isCollisionResolving;
   final bool Function()? _hasPendingClientConnection;
@@ -54,6 +57,8 @@ class ConnectionHealthMonitor {
     required this.hasViableRelayConnection,
     this.onMonitoringChanged,
     this.onReconnectionFlagChanged,
+    this.onReconnectionAttemptStarted,
+    this.onReconnectionAttemptFinished,
     bool Function()? hasActiveClientLink,
     bool Function()? isCollisionResolving,
     bool Function()? hasPendingClientConnection,
@@ -344,6 +349,7 @@ class ConnectionHealthMonitor {
     _logger.info(
       '🔄 Reconnect attempt $_reconnectAttempts/$maxReconnectAttempts',
     );
+    onReconnectionAttemptStarted?.call(null);
 
     try {
       final foundDevice = await scanForSpecificDevice(
@@ -361,11 +367,14 @@ class ConnectionHealthMonitor {
         _monitoringInterval = minInterval;
         _isReconnection = false;
         onReconnectionFlagChanged?.call(false);
+        onReconnectionAttemptFinished?.call(foundDevice.uuid.toString(), true);
         _logger.info('✅ Reconnection successful');
       } else {
+        onReconnectionAttemptFinished?.call(null, false);
         _logger.warning('⚠️ No device found for reconnection');
       }
     } catch (e) {
+      onReconnectionAttemptFinished?.call(null, false);
       _logger.warning('❌ Reconnection failed: $e');
     }
   }

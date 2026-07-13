@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:logging/logging.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart'
     hide ConnectionState;
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart' as ble;
+import 'package:flutter/foundation.dart';
 import '../../domain/interfaces/i_chat_connection_manager.dart';
 import '../../domain/models/connection_status.dart';
 import '../../domain/models/connection_info.dart';
@@ -30,16 +30,14 @@ class ChatConnectionManager implements IChatConnectionManager {
 
   StreamSubscription? _peripheralConnectionSubscription;
   StreamSubscription? _discoveryDataSubscription;
+  Future<void>? _initializationFuture;
+  bool _isInitialized = false;
 
   ChatConnectionManager({IConnectionService? bleService})
     : _bleService = bleService;
 
   @override
-  Future<void> initialize() async {
-    await setupPeripheralConnectionListener();
-    await setupDiscoveryListener();
-    _logger.info('✅ ChatConnectionManager initialized');
-  }
+  Future<void> initialize() => _initializationFuture ??= _initializeOnce();
 
   @override
   ConnectionStatus determineConnectionStatus({
@@ -185,7 +183,11 @@ class ChatConnectionManager implements IChatConnectionManager {
 
   @override
   Future<void> setupPeripheralConnectionListener() async {
-    if (!Platform.isAndroid) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+
+    if (_peripheralConnectionSubscription != null) {
+      return;
+    }
 
     final bleService = _bleService;
     if (bleService == null) return;
@@ -214,6 +216,10 @@ class ChatConnectionManager implements IChatConnectionManager {
 
   @override
   Future<void> setupDiscoveryListener() async {
+    if (_discoveryDataSubscription != null) {
+      return;
+    }
+
     final bleService = _bleService;
     if (bleService == null) return;
 
@@ -256,8 +262,28 @@ class ChatConnectionManager implements IChatConnectionManager {
   Future<void> dispose() async {
     await _peripheralConnectionSubscription?.cancel();
     await _discoveryDataSubscription?.cancel();
+    _peripheralConnectionSubscription = null;
+    _discoveryDataSubscription = null;
+    _initializationFuture = null;
+    _isInitialized = false;
     _connectionStatusListeners.clear();
     _logger.info('♻️ ChatConnectionManager disposed');
+  }
+
+  Future<void> _initializeOnce() async {
+    if (_isInitialized) {
+      return;
+    }
+
+    try {
+      await setupPeripheralConnectionListener();
+      await setupDiscoveryListener();
+      _isInitialized = true;
+      _logger.info('✅ ChatConnectionManager initialized');
+    } catch (error) {
+      _initializationFuture = null;
+      rethrow;
+    }
   }
 
   void _notify(ConnectionStatus status) {
