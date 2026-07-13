@@ -203,12 +203,14 @@ class BLEMessageHandler {
           ({
             required String originalMessageId,
             required String relayNode,
+            required String transportSender,
             required bool delivered,
             List<String>? ackRoutingPath,
           }) async {
             await _meshRelayHandler.handleRelayAck(
               originalMessageId: originalMessageId,
               relayNode: relayNode,
+              transportSender: transportSender,
               delivered: delivered,
               ackRoutingPath: ackRoutingPath,
             );
@@ -217,12 +219,14 @@ class BLEMessageHandler {
           ({
             required MessageId originalMessageId,
             required String relayNode,
+            required String transportSender,
             required bool delivered,
             List<String>? ackRoutingPath,
           }) async {
             await _meshRelayHandler.handleRelayAck(
               originalMessageId: originalMessageId.value,
               relayNode: relayNode,
+              transportSender: transportSender,
               delivered: delivered,
               ackRoutingPath: ackRoutingPath,
             );

@@ -53,7 +53,7 @@ class MeshRelayHandler {
   onProcessRelayDelivery;
   Function(RelayDecision decision)? onRelayDecisionMade;
   Function(RelayStatistics stats)? onRelayStatsUpdated;
-  Function(ProtocolMessage message)? onSendAckMessage;
+  FutureOr<void> Function(ProtocolMessage message)? onSendAckMessage;
   Function(ProtocolMessage relayMessage, String nextHopId)? onSendRelayMessage;
 
   Future<void> initializeRelaySystem({
@@ -256,6 +256,7 @@ class MeshRelayHandler {
   Future<void> handleRelayAck({
     required String originalMessageId,
     required String relayNode,
+    required String transportSender,
     required bool delivered,
     List<String>? ackRoutingPath,
   }) async {
@@ -263,6 +264,27 @@ class MeshRelayHandler {
       if (_currentNodeId == null) {
         _logger.warning('Cannot handle ACK - current node ID not set');
         return;
+      }
+      if (transportSender.isEmpty || relayNode != transportSender) {
+        _logger.warning(
+          'Dropping relay ACK with unbound route claim: claimed=$relayNode, '
+          'transport=$transportSender',
+        );
+        return;
+      }
+
+      if (ackRoutingPath != null && ackRoutingPath.isNotEmpty) {
+        final currentIndex = ackRoutingPath.indexOf(_currentNodeId!);
+        final senderIndex = currentIndex + 1;
+        if (currentIndex < 0 ||
+            senderIndex >= ackRoutingPath.length ||
+            ackRoutingPath[senderIndex] != transportSender) {
+          _logger.warning(
+            'Dropping relay ACK whose transport sender is not the next hop '
+            'in the authenticated route',
+          );
+          return;
+        }
       }
 
       final truncatedMessageId = originalMessageId.length > 16
@@ -276,61 +298,131 @@ class MeshRelayHandler {
         '🔙 Received relayAck for $truncatedMessageId from $truncatedRelayNode',
       );
 
-      final queuedMessage = _messageQueue?.getMessageById(originalMessageId);
+      final queue = _messageQueue;
+      final originatedMessage = queue?.getMessageById(originalMessageId);
+      final isOriginatedMessage =
+          originatedMessage != null && !originatedMessage.isRelayMessage;
 
-      if (queuedMessage != null) {
-        _logger.info('✅ ACK for our originated message - marking as delivered');
-        await _messageQueue?.markMessageDelivered(originalMessageId);
-        onRelayMessageReceivedIds?.call(
-          MessageId(originalMessageId),
-          queuedMessage.content,
-          queuedMessage.senderPublicKey,
+      // Relay queue rows use a local wrapper ID while wire ACKs carry the
+      // original message ID. Bind the ACK to the wrapper for the authenticated
+      // immediate sender; sibling fan-out routes must remain independent.
+      final allRelayRows = <String, QueuedMessage>{};
+      final matchingRelayRows = <String, QueuedMessage>{};
+      if (queue != null) {
+        if ((originatedMessage?.isRelayMessage ?? false) &&
+            originatedMessage!.originalMessageId == originalMessageId) {
+          allRelayRows[originatedMessage.id] = originatedMessage;
+        }
+        for (final status in QueuedMessageStatus.values) {
+          for (final message in queue.getMessagesByStatus(status)) {
+            if (message.isRelayMessage &&
+                message.originalMessageId == originalMessageId) {
+              allRelayRows[message.id] = message;
+            }
+          }
+        }
+        for (final relayRow in allRelayRows.values) {
+          if (relayRow.recipientPublicKey == transportSender) {
+            matchingRelayRows[relayRow.id] = relayRow;
+          }
+        }
+      }
+
+      if (matchingRelayRows.isEmpty) {
+        _logger.warning(
+          'Dropping uncorrelated relay ACK for $truncatedMessageId',
         );
         return;
       }
 
-      if (ackRoutingPath != null && ackRoutingPath.isNotEmpty) {
-        final currentIndex = ackRoutingPath.indexOf(_currentNodeId!);
-
-        if (currentIndex > 0) {
-          final previousHop = ackRoutingPath[currentIndex - 1];
-
-          final truncatedPrevHop = previousHop.length > 8
-              ? previousHop.shortId(8)
-              : previousHop;
-
-          _logger.info('⚡ Propagating ACK backward to $truncatedPrevHop');
-
-          final forwardAck = ProtocolMessage.relayAckWithId(
-            originalMessageId: MessageId(originalMessageId),
-            relayNode: _currentNodeId!,
-            delivered: delivered,
+      // An intermediate hop must durably hand the ACK upstream before
+      // completing its local wrapper. If that control write fails, retaining
+      // the awaiting-ACK row lets a duplicate downstream ACK retry propagation.
+      if (!isOriginatedMessage) {
+        if (ackRoutingPath == null || ackRoutingPath.isEmpty) {
+          _logger.warning(
+            '⚠️ No ackRoutingPath in relay ACK - cannot propagate backward',
           );
-          forwardAck.payload['ackRoutingPath'] = ackRoutingPath;
-
-          onSendAckMessage?.call(forwardAck);
-          _logger.info('✅ ACK propagated for $truncatedMessageId');
-        } else {
-          _logger.info('🏁 This is the originator - ACK propagation complete');
+          return;
         }
-      } else {
-        _logger.warning(
-          '⚠️ No ackRoutingPath in relay ACK - cannot propagate backward',
+        final currentIndex = ackRoutingPath.indexOf(_currentNodeId!);
+        if (currentIndex <= 0) {
+          _logger.warning(
+            'Dropping relay ACK with no upstream hop in its route',
+          );
+          return;
+        }
+
+        final previousHop = ackRoutingPath[currentIndex - 1];
+        final truncatedPrevHop = previousHop.length > 8
+            ? previousHop.shortId(8)
+            : previousHop;
+        _logger.info('⚡ Propagating ACK backward to $truncatedPrevHop');
+
+        final forwardAck = ProtocolMessage.relayAckWithId(
+          originalMessageId: MessageId(originalMessageId),
+          relayNode: _currentNodeId!,
+          delivered: delivered,
         );
+        forwardAck.payload['ackRoutingPath'] = ackRoutingPath;
+
+        final callback = onSendAckMessage;
+        if (callback == null) {
+          throw StateError('Cannot propagate relay ACK - callback not set');
+        }
+        await callback(forwardAck);
+        _logger.info('✅ ACK propagated for $truncatedMessageId');
       }
-    } catch (e) {
+
+      for (final relayRow in matchingRelayRows.values) {
+        if (delivered) {
+          await queue!.markMessageDelivered(relayRow.id);
+        } else {
+          await queue!.markMessageFailed(
+            relayRow.id,
+            'Relay delivery was rejected downstream',
+          );
+        }
+      }
+
+      if (isOriginatedMessage && delivered) {
+        _logger.info('✅ Positive relay ACK completed our originated message');
+        await queue!.markMessageDelivered(originatedMessage.id);
+        onRelayMessageReceivedIds?.call(
+          MessageId(originalMessageId),
+          originatedMessage.content,
+          originatedMessage.senderPublicKey,
+        );
+      } else if (isOriginatedMessage) {
+        // A single rejected fan-out route cannot fail the origin while a
+        // sibling route may still deliver it. Only an explicitly terminal
+        // aggregate failure may transition the origin.
+        final allRoutesTerminal = allRelayRows.values.every(
+          (message) => message.status == QueuedMessageStatus.failed,
+        );
+        if (allRoutesTerminal) {
+          await queue!.markMessageFailed(
+            originatedMessage.id,
+            'All relay delivery routes were rejected downstream',
+          );
+        }
+      }
+    } catch (e, stack) {
       _logger.severe('Failed to handle relay ACK: $e');
+      Error.throwWithStackTrace(e, stack);
     }
   }
 
   Future<void> handleRelayAckWithId({
     required MessageId originalMessageId,
     required String relayNode,
+    required String transportSender,
     required bool delivered,
     List<String>? ackRoutingPath,
   }) => handleRelayAck(
     originalMessageId: originalMessageId.value,
     relayNode: relayNode,
+    transportSender: transportSender,
     delivered: delivered,
     ackRoutingPath: ackRoutingPath,
   );
