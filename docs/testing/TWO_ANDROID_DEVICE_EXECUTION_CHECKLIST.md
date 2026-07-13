@@ -79,6 +79,15 @@ if ($LASTEXITCODE -ne 0) {
   throw "Build inputs differ from $Baseline. Create and verify a new baseline."
 }
 
+git diff --exit-code $Baseline -- $BuildInputs
+if ($LASTEXITCODE -ne 0) {
+  throw 'Tracked build inputs have staged or unstaged edits.'
+}
+$BuildInputStatus = @(git status --porcelain -- $BuildInputs)
+if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
+  throw "Build-input worktree is not clean:`n$($BuildInputStatus -join "`n")"
+}
+
 git status --short
 git log -2 --oneline --decorate
 flutter --version
@@ -167,13 +176,16 @@ Checklist:
 
 ## 2. Freeze and install the functional debug APK
 
-If the already-built APK exists, hash it. If it is absent, rebuild it from the
-accepted code tree. A rebuild may have a different byte hash; that is allowed
-only when the commit/build-input gate above passed, and the new hash must be
-recorded instead of being mislabeled as the previously verified binary.
+If the already-built APK is absent, rebuild it from the accepted code tree.
+Install only the exact verified artifact below. A size/hash mismatch is a hard
+stop: it may be stale, built by another toolchain, or otherwise different from
+the binary covered by this baseline. Record and promote a new verified artifact
+before continuing instead of relabeling the mismatch.
 
 ```powershell
 $DebugApk = Join-Path (Get-Location) 'build\app\outputs\flutter-apk\app-debug.apk'
+$ExpectedDebugBytes = 203988403
+$ExpectedDebugHash = '3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50'
 if (-not (Test-Path $DebugApk)) {
   flutter build apk --debug --no-pub
   if ($LASTEXITCODE -ne 0) { throw 'Debug APK build failed.' }
@@ -181,14 +193,13 @@ if (-not (Test-Path $DebugApk)) {
 
 $DebugItem = Get-Item $DebugApk
 $DebugHash = (Get-FileHash $DebugApk -Algorithm SHA256).Hash
+if ($DebugItem.Length -ne $ExpectedDebugBytes -or $DebugHash -ne $ExpectedDebugHash) {
+  throw "APK does not match the verified baseline: bytes=$($DebugItem.Length), sha256=$DebugHash"
+}
 "debug_apk=$($DebugItem.FullName)" | Add-Content "$Evidence\session_metadata.txt"
 "debug_apk_bytes=$($DebugItem.Length)" | Add-Content "$Evidence\session_metadata.txt"
 "debug_apk_sha256=$DebugHash" | Add-Content "$Evidence\session_metadata.txt"
 Copy-Item $DebugApk "$Evidence\pakconnect_${Baseline}_debug.apk"
-
-if ($DebugHash -ne '3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50') {
-  Write-Warning 'This is a rebuilt baseline APK, not the previously hashed APK; the new hash is recorded.'
-}
 
 adb -s $DeviceA uninstall $Package
 adb -s $DeviceB uninstall $Package
@@ -605,8 +616,8 @@ START`, and repeat the same two commands with filenames
 2. In separate interactive terminals, launch the same preserved APK:
 
 ```powershell
-flutter run -d <device-A-serial> --profile --use-application-binary='<absolute mode APK>'
-flutter run -d <device-B-serial> --profile --use-application-binary='<absolute mode APK>'
+flutter run --no-pub -d <device-A-serial> --profile --use-application-binary='<absolute mode APK>'
+flutter run --no-pub -d <device-B-serial> --profile --use-application-binary='<absolute mode APK>'
 ```
 
 3. Wait up to 60 seconds for ready state.
@@ -688,15 +699,16 @@ Run this after messaging because the integration-test install may replace or
 clear normal app state:
 
 ```powershell
-flutter test integration_test/security/database_encryption_device_test.dart `
+flutter test --no-pub integration_test/security/database_encryption_device_test.dart `
   -d $DeviceA 2>&1 | Tee-Object "$Evidence\sqlcipher_device_A.txt"
 if ($LASTEXITCODE -ne 0) { throw 'Android SQLCipher device proof failed.' }
 ```
 
 The test writes a marker, verifies the file lacks the plaintext
-`SQLite format 3` header, proves a no-password query fails, and reopens it
-through the app's SQLCipher path. Record the exact device, commit, output, and
-exit code.
+`SQLite format 3` header, proves a no-password query fails, and asks the app's
+database helper to report its encryption state. It does not independently
+reopen the file with the secure-storage credential and read the marker back.
+Record the exact device, commit, output, and exit code.
 
 Step 7 already supplies the normal-app persistence check: after pairing and
 writing chat/contact state, both apps are force-stopped and relaunched without
@@ -792,6 +804,13 @@ adb devices -l | Add-Content "$Evidence\adb_devices_end.txt"
 
 git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
 if ($LASTEXITCODE -ne 0) { throw 'Build inputs drifted during the run.' }
+
+git diff --exit-code $Baseline -- $BuildInputs
+if ($LASTEXITCODE -ne 0) { throw 'Tracked build-input edits appeared during the run.' }
+$BuildInputStatus = @(git status --porcelain -- $BuildInputs)
+if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
+  throw "Build-input worktree drifted during the run:`n$($BuildInputStatus -join "`n")"
+}
 
 git status --short
 ```
