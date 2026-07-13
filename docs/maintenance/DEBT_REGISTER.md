@@ -1,6 +1,6 @@
 # PakConnect debt register
 
-Last reconciled: 2026-07-11
+Last reconciled: 2026-07-13
 
 This register contains confirmed liabilities that are not silently promoted as
 working features. `Now` means required before the current FYP/portfolio
@@ -12,7 +12,8 @@ before a design decision.
 | DEBT-SYNC-001 | P2 | Later | Live change-log replay is intentionally disabled; the dormant prototype carries metadata rather than full rows and has no authenticated transport or convergence contract | Enable only with row payloads, exact authenticated peer routing, partial-failure cursor rules and convergence tests; keep local capture/export/import/prune meanwhile |
 | DEBT-BG-001 | P1 | Later/device | Resume hook flushes pending messages, but there is no native Android WorkManager/service or iOS BGTask execution | Do not claim background delivery while suspended; choose platform design only after device lifecycle evidence |
 | DEBT-SQLCIPHER-001 | P1 | Device | Desktop tests fall back to plaintext SQLite; no current at-rest device proof | Complete the SQLCipher device proof in the validation ledger |
-| DEBT-QUEUE-LINK-001 | P1 | Later/device | Queue control frames route by exact address, but user-payload identity, send handles and ACK return remain globally scoped; the runtime now fails closed unless one unambiguous link is active | Record `address + connection generation -> verified ephemeral/persistent aliases + Noise-ready` at handshake completion, clear it on exact disconnect, target text and ACK by that binding, and prove A/B concurrent-link isolation on devices |
+| DEBT-QUEUE-LINK-001 | P1 | Later/device | Queue-sync payloads now preflight one exact address, pin the physical peer/characteristic through the serialized GATT write, and start ACK timing only when that write executes. Direct queued delivery still fails closed unless one unambiguous link is active, and physical multi-link identity/ACK isolation is unproved | Record `address + connection generation -> verified ephemeral/persistent aliases + Noise-ready` at handshake completion, clear it on exact disconnect, permit concurrent-link delivery only through that binding, and prove A/B isolation with a third device |
+| DEBT-QUEUE-REV-001 | P3 | Investigate | Durable delivery ownership compares `(status, attempts, lastAttemptAt)`. Normal attempts change that token and reset/rebootstrap races are covered, but manual retry can restore `pending/0/null`, so a contrived overlapping-instance ABA cycle is not formally excluded | Add a durable monotonic row revision or attempt UUID only if lifecycle/concurrency evidence exposes the ABA; retain message-ID deduplication and the current CAS handoff meanwhile |
 | DEBT-RECONNECT-001 | P2 | Later | Manual reconnect now works but selects the first PakConnect service advertiser, not a requested contact | Add target hint/contact filtering before claiming reliable multi-peer manual reconnect |
 | DEBT-BLE-GEN-001 | P2 | Device | BLE plugin inbound events expose address but no native connection generation | Validate same-address rapid reconnect on hardware; upstream/extend plugin if delayed old-link events can cross a new connected event |
 | DEBT-BLE-API-001 | P2 | Investigate | BLE contract surface is large (many interfaces and phase markers), with partial static/service-locator fallbacks | Refactor only along measured ownership seams after two-device stabilization; no pre-test rewrite |
@@ -26,6 +27,14 @@ before a design decision.
 
 - Queue responses can no longer complete the wrong target's pending round via
   a claimed node ID or global alias.
+- Queue delivery admissions, recovery, retry and post-dispose finalization use
+  conditional durable ownership; stale instances cannot overwrite, delete or
+  resurrect a successor attempt in the covered old-wins/successor-wins races.
+- Peer-synced queue rows are inserted atomically only when neither an active row
+  nor a durable deletion tombstone exists.
+- Queue-sync payload receipts now follow exact durable transport admissions;
+  central/peripheral route handles are revalidated at the serialized physical
+  write without consuming ACK timeout while waiting for that lane.
 - Already-synchronized queue rounds emit a response.
 - Tokenless/uncorrelated responses cannot mutate queues or trigger reverse send.
 - Direct queue payloads fail closed on ambiguous multi-link state; central and

@@ -7,24 +7,23 @@ repository root in Windows PowerShell. Use only `PASS`, `FAIL`, `BLOCKED`, and
 
 The fixed code/test/tooling baseline is:
 
-- commit: `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3`
-- short commit: `9cccd01`
-- branch used to prepare the baseline: `codex/reconcile-pakconnect`
+- commit: `9f0a05531bd13def03b01812b297c7315929ff0f`
+- short commit: `9f0a055`
+- branch used to prepare the baseline: `codex/archive-delete-contract`
 - local verification toolchain: Flutter 3.41.5 / Dart 3.11.3
 - analyzer: clean on 2026-07-13
-- full desktop suite: 5,539 passed, 0 failed, 5m20s
-- full-suite log: 9,515,985 bytes; SHA-256
-  `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE`
+- full desktop suite: 5,690 passed, 0 failed, 3m22s
+- full-suite log: 9,601,513 bytes; SHA-256
+  `94800A24EAE98A7EE0D154D911ADD87F91E33B75E734859864F55D13F475E166`
 - verified debug APK: `build/app/outputs/flutter-apk/app-debug.apk`
-- verified debug APK size: `203988403` bytes
+- verified debug APK size: `233187740` bytes
 - verified debug APK SHA-256:
-  `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`
+  `2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233`
 
 A documentation-only descendant is acceptable. Any changed build input is a
 hard stop until the new code has its own baseline and desktop verification.
-The previous `a5c2b08` baseline and `fcb3013` candidate remain historical
-provenance only. Flutter 3.44 analysis required an equivalent null-aware syntax
-cleanup after `fcb3013`; neither older commit is valid for this run.
+The previous `9cccd01` and `a5c2b08` baselines and `fcb3013` candidate remain
+historical provenance only; no older commit is valid for this run.
 
 ## Honest two-device boundary
 
@@ -56,8 +55,8 @@ is run.
 Open a PowerShell terminal at the repository root and run:
 
 ```powershell
-$Baseline = '9cccd01'
-$ExpectedBaseline = '9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3'
+$Baseline = '9f0a055'
+$ExpectedBaseline = '9f0a05531bd13def03b01812b297c7315929ff0f'
 $Package = 'com.pakconnect.app'
 
 $ResolvedBaseline = (git rev-parse $Baseline).Trim()
@@ -184,8 +183,8 @@ before continuing instead of relabeling the mismatch.
 
 ```powershell
 $DebugApk = Join-Path (Get-Location) 'build\app\outputs\flutter-apk\app-debug.apk'
-$ExpectedDebugBytes = 203988403
-$ExpectedDebugHash = '3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50'
+$ExpectedDebugBytes = 233187740
+$ExpectedDebugHash = '2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233'
 if (-not (Test-Path $DebugApk)) {
   flutter build apk --debug --no-pub
   if ($LASTEXITCODE -ne 0) { throw 'Debug APK build failed.' }
@@ -505,12 +504,22 @@ scenario did not prove that the resume hook caused delivery.
 
 ### 9.3 Process death and relaunch
 
-1. Force-stop B: `adb -s $DeviceB shell am force-stop $Package`.
-2. A sends `PK-RELAUNCH-<Stamp>-01`; it must remain pending.
-3. Relaunch B with
-   `adb -s $DeviceB shell am start -n "$Package/.MainActivity"`.
-4. Confirm the paired identity/data survives and the message arrives once
-   after reconnect.
+1. Force-stop B: `adb -s $DeviceB shell am force-stop $Package`, and wait for A
+   to show B as unavailable.
+2. A sends `PK-RELAUNCH-<Stamp>-01`; it must remain pending and must not claim
+   delivery.
+3. Force-stop the sender A:
+   `adb -s $DeviceA shell am force-stop $Package`. Keep B unavailable.
+4. Relaunch A with
+   `adb -s $DeviceA shell am start -n "$Package/.MainActivity"`.
+5. Before restoring B, confirm the exact queue row is still present and
+   pending on A. A missing row or a delivered state is a failure.
+6. Relaunch B with
+   `adb -s $DeviceB shell am start -n "$Package/.MainActivity"`, restore the
+   exact paired A/B link, and wait up to 60 seconds.
+7. Confirm B receives exactly one copy and A clears the pending row only after
+   the delivery ACK. Leave both apps open another 60 seconds to catch a late
+   duplicate.
 
 ```powershell
 Mark 'PROCESS_DEATH_RELAUNCH RESULT: PASS|FAIL - <observation>'
@@ -740,7 +749,9 @@ Select-String -Path $Logs.FullName `
   -Pattern 'private[_ ]?key|passphrase|password|SQLCipher.{0,20}key|encryption.{0,20}key|FATAL EXCEPTION|nonce|replay|authentication failed|decrypt.*failed|status 133' `
   -Context 1,1 | Set-Content "$Evidence\privacy_and_failure_review.txt"
 
-Get-ChildItem $Evidence -File | Get-FileHash -Algorithm SHA256 |
+Get-ChildItem $Evidence -File |
+  Where-Object Name -ne 'evidence_hashes.txt' |
+  Get-FileHash -Algorithm SHA256 |
   Format-Table -AutoSize | Out-File "$Evidence\evidence_hashes.txt"
 ```
 

@@ -29,8 +29,8 @@ Use only these labels:
 | Item | Status | Evidence/notes |
 |---|---|---|
 | `flutter analyze --no-pub` | PASS | Clean on 2026-07-13 with Flutter 3.41.5 / Dart 3.11.3 |
-| Desktop full unit/widget suite | PASS | 5,539 tests, 0 failures, 5m20s; 9,515,985-byte `flutter_test_latest.log`, SHA-256 `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,403 bytes; SHA-256 `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`; its exact code/build-input tree is committed as baseline `9cccd01` |
+| Desktop full unit/widget suite | PASS | 5,690 tests, 0 failures, 3m22s; 9,601,513-byte `flutter_test_latest.log`, SHA-256 `94800A24EAE98A7EE0D154D911ADD87F91E33B75E734859864F55D13F475E166` |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 233,187,740 bytes; SHA-256 `2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233`; its exact code/build-input tree is committed as baseline `9f0a055` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -41,16 +41,15 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3`
-(`9cccd01`). A documentation-only descendant is acceptable if
-`git diff 9cccd01..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
+Code baseline for the next run: `9f0a05531bd13def03b01812b297c7315929ff0f`
+(`9f0a055`). A documentation-only descendant is acceptable if
+`git diff 9f0a055..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
 is empty. Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The previous verified baseline `a5c2b08` and superseded candidate `fcb3013`
-remain historical provenance only. Flutter 3.44 analysis required an equivalent
-null-aware syntax cleanup after `fcb3013`; do not use either older commit for a
-new device run.
+The previous verified baseline `9cccd01`, older baseline `a5c2b08`, and
+superseded candidate `fcb3013` remain historical provenance only. Do not use
+an older commit for a new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
@@ -67,6 +66,8 @@ new device run.
 | Large/binary media | BLOCKED | Target-route MTU respected; byte-perfect reassembly; progress/retry sane |
 | Offline queue then reconnect | BLOCKED | Pending direct message reaches intended peer only |
 | Foreground -> background -> resume | BLOCKED | Dart resume hook flushes backlog on a ready link; this does not claim delivery while killed or dozing |
+| Sender process death -> relaunch | BLOCKED | A persists a pending row while B is unavailable, survives A process death/relaunch, then delivers exactly once after B returns |
+| Doze/battery-saver observation | BLOCKED | Forced-idle state is recorded; any pending row survives and delivers once after unforce/resume, without claiming native background delivery |
 | Route disappears mid-send | BLOCKED | Sender fails promptly and retains/retries queue item; no false success |
 | Manual reconnect | BLOCKED | Finds the other PakConnect advertiser and reconnects |
 | Multi-link inventory/routing | BLOCKED | All links listed; control frames use exact route/MTU; ambiguous direct payloads defer until per-link identity/ACK binding exists |
