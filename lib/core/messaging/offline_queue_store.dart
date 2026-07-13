@@ -141,17 +141,50 @@ class QueueStore {
     await repo.deleteMessageFromStorage(messageId);
   }
 
+  Future<void> deleteMessagesFromStorage(Iterable<String> messageIds) async {
+    await repo.deleteMessagesFromStorage(messageIds);
+  }
+
   Future<void> saveQueueToStorage() async {
     await repo.saveQueueToStorage();
   }
 
+  Future<void> saveQueueSnapshotToStorage(
+    Iterable<QueuedMessage> messages,
+  ) async {
+    await repo.saveQueueSnapshotToStorage(messages);
+  }
+
   Future<void> loadDeletedMessageIds() async {
     await repo.loadDeletedMessageIds();
+    final loadedIds = repo.getDeletedMessageIdsSnapshot();
+    _deletedMessageIds
+      ..clear()
+      ..addAll(loadedIds.map(MessageId.new));
+  }
+
+  Future<void> saveDeletedIdsSnapshotToStorage(
+    Iterable<String> messageIds,
+  ) async {
+    await repo.saveDeletedIdsSnapshotToStorage(messageIds);
+  }
+
+  Future<void> markMessagesDeleted(Iterable<String> messageIds) async {
+    await repo.markMessagesDeleted(messageIds);
+  }
+
+  Future<Set<String>> pruneDeletedMessageIds(int maxRetained) {
+    return repo.pruneDeletedMessageIds(maxRetained);
   }
 
   void clearInMemoryQueues() {
-    _directMessageQueue.clear();
-    _relayMessageQueue.clear();
+    final messageIds = repo
+        .getAllMessages()
+        .map((message) => message.id)
+        .toSet();
+    for (final messageId in messageIds) {
+      repo.removeMessageFromQueue(messageId);
+    }
   }
 }
 
@@ -178,13 +211,31 @@ class _InMemoryQueueRepository implements IMessageQueueRepository {
   Future<void> deleteMessageFromStorage(String messageId) async {}
 
   @override
+  Future<void> deleteMessagesFromStorage(Iterable<String> messageIds) async {}
+
+  @override
   Future<void> saveQueueToStorage() async {}
+
+  @override
+  Future<void> saveQueueSnapshotToStorage(
+    Iterable<QueuedMessage> messages,
+  ) async {}
 
   @override
   Future<void> loadDeletedMessageIds() async {}
 
   @override
   Future<void> saveDeletedMessageIds() async {}
+
+  @override
+  Set<String> getDeletedMessageIdsSnapshot() => Set<String>.unmodifiable(
+    deletedMessageIds.map((messageId) => messageId.value),
+  );
+
+  @override
+  Future<void> saveDeletedIdsSnapshotToStorage(
+    Iterable<String> messageIds,
+  ) async {}
 
   @override
   QueuedMessage? getMessageById(String messageId) {
@@ -210,6 +261,7 @@ class _InMemoryQueueRepository implements IMessageQueueRepository {
 
   @override
   Future<void> removeMessage(String messageId) async {
+    await deleteMessageFromStorage(messageId);
     removeMessageFromQueue(messageId);
   }
 
@@ -230,15 +282,16 @@ class _InMemoryQueueRepository implements IMessageQueueRepository {
     final targetQueue = message.isRelayMessage
         ? relayMessageQueue
         : directMessageQueue;
-    int insertIndex = 0;
-    for (int index = 0; index < targetQueue.length; index++) {
-      if (targetQueue[index].priority.index <= message.priority.index) {
-        insertIndex = index;
-        break;
+    final insertIndex = targetQueue.indexWhere((existing) {
+      if (existing.priority.index != message.priority.index) {
+        return existing.priority.index < message.priority.index;
       }
-      insertIndex = index + 1;
-    }
-    targetQueue.insert(insertIndex, message);
+      return existing.queuedAt.isAfter(message.queuedAt);
+    });
+    targetQueue.insert(
+      insertIndex < 0 ? targetQueue.length : insertIndex,
+      message,
+    );
   }
 
   @override
@@ -255,8 +308,39 @@ class _InMemoryQueueRepository implements IMessageQueueRepository {
 
   @override
   Future<void> markMessageDeleted(String messageId) async {
-    deletedMessageIds.add(MessageId(messageId));
-    removeMessageFromQueue(messageId);
+    await markMessagesDeleted([messageId]);
+  }
+
+  @override
+  Future<void> markMessagesDeleted(Iterable<String> messageIds) async {
+    final ids = messageIds.map(MessageId.new).toSet();
+    deletedMessageIds.addAll(ids);
+    directMessageQueue.removeWhere(
+      (message) => ids.contains(MessageId(message.id)),
+    );
+    relayMessageQueue.removeWhere(
+      (message) => ids.contains(MessageId(message.id)),
+    );
+  }
+
+  @override
+  Future<Set<String>> pruneDeletedMessageIds(int maxRetained) async {
+    if (maxRetained < 0) {
+      throw ArgumentError.value(
+        maxRetained,
+        'maxRetained',
+        'must not be negative',
+      );
+    }
+    final retained = deletedMessageIds
+        .toList()
+        .reversed
+        .take(maxRetained)
+        .toSet();
+    deletedMessageIds
+      ..clear()
+      ..addAll(retained);
+    return Set<String>.unmodifiable(retained.map((id) => id.value));
   }
 
   @override

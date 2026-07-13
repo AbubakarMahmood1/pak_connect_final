@@ -52,10 +52,23 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
+ Future<void> saveQueueSnapshotToStorage(
+ Iterable<QueuedMessage> messages,
+ ) async {
+ saveCalled = true;
+ }
+
+ @override
  Future<void> loadDeletedMessageIds() async {}
 
  @override
+ Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
+
+ @override
  Future<void> saveDeletedMessageIds() async {}
+
+ @override
+ Future<void> markMessagesDeleted(Iterable<String> messageIds) async {}
 
  @override
  QueuedMessage? getMessageById(String messageId) =>

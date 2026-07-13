@@ -122,13 +122,14 @@ class MessageQueueRepository implements IMessageQueueRepository {
   /// Save a single message to persistent storage (optimized for individual updates)
   @override
   Future<void> saveMessageToStorage(QueuedMessage message) async {
+    final row = Map<String, Object?>.unmodifiable(queuedMessageToDb(message));
     try {
       final db = await _getDatabase();
 
       // Use INSERT OR REPLACE for efficiency - updates if exists, inserts if not
       await db.insert(
         'offline_message_queue',
-        queuedMessageToDb(message),
+        row,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     } catch (e) {
@@ -139,25 +140,56 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
   /// Delete a single message from persistent storage
   @override
-  Future<void> deleteMessageFromStorage(String messageId) async {
-    try {
-      final id = MessageId(messageId);
-      final db = await _getDatabase();
+  Future<void> deleteMessageFromStorage(String messageId) {
+    return deleteMessagesFromStorage([messageId]);
+  }
 
-      await db.delete(
-        'offline_message_queue',
-        where: 'message_id = ?',
-        whereArgs: [id.value],
-      );
+  /// Delete messages from persistent storage in one transaction.
+  @override
+  Future<void> deleteMessagesFromStorage(Iterable<String> messageIds) async {
+    final ids = _snapshotMessageIds(messageIds);
+    if (ids.isEmpty) return;
+
+    try {
+      final db = await _getDatabase();
+      await db.transaction((txn) async {
+        for (final id in ids) {
+          await txn.delete(
+            'offline_message_queue',
+            where: 'message_id = ?',
+            whereArgs: [id],
+          );
+        }
+      });
     } catch (e) {
-      _logger.warning('Failed to delete message ${messageId.shortId()}...: $e');
+      _logger.warning('Failed to delete ${ids.length} queued message(s): $e');
       rethrow;
     }
   }
 
   /// Save entire queue to persistent storage
   @override
-  Future<void> saveQueueToStorage() async {
+  Future<void> saveQueueToStorage() {
+    return saveQueueSnapshotToStorage([
+      ...directMessageQueue,
+      ...relayMessageQueue,
+    ]);
+  }
+
+  /// Replace the durable queue from a detached point-in-time snapshot.
+  @override
+  Future<void> saveQueueSnapshotToStorage(
+    Iterable<QueuedMessage> messages,
+  ) async {
+    // QueuedMessage is mutable. Convert every message to a detached immutable
+    // row before the first await so caller mutations cannot change this write.
+    final rows = List<Map<String, Object?>>.unmodifiable(
+      messages.map(
+        (message) =>
+            Map<String, Object?>.unmodifiable(queuedMessageToDb(message)),
+      ),
+    );
+
     try {
       final db = await _getDatabase();
 
@@ -166,14 +198,8 @@ class MessageQueueRepository implements IMessageQueueRepository {
         // Clear and reinsert all messages
         await txn.delete('offline_message_queue');
 
-        // Save direct messages
-        for (final message in directMessageQueue) {
-          await txn.insert('offline_message_queue', queuedMessageToDb(message));
-        }
-
-        // Save relay messages
-        for (final message in relayMessageQueue) {
-          await txn.insert('offline_message_queue', queuedMessageToDb(message));
+        for (final row in rows) {
+          await txn.insert('offline_message_queue', row);
         }
       });
     } catch (e) {
@@ -210,19 +236,50 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
   /// Save deleted message IDs to persistent storage
   @override
-  Future<void> saveDeletedMessageIds() async {
+  Future<void> saveDeletedMessageIds() {
+    return saveDeletedIdsSnapshotToStorage(
+      deletedMessageIds.map((id) => id.value),
+    );
+  }
+
+  @override
+  Set<String> getDeletedMessageIdsSnapshot() => Set<String>.unmodifiable(
+    deletedMessageIds.map((messageId) => messageId.value),
+  );
+
+  /// Replace durable tombstones while retaining their original timestamps.
+  @override
+  Future<void> saveDeletedIdsSnapshotToStorage(
+    Iterable<String> messageIds,
+  ) async {
+    final ids = _snapshotMessageIds(messageIds);
+
     try {
       final db = await _getDatabase();
 
       await db.transaction((txn) async {
-        // Clear and reinsert all deleted IDs
+        final existingRows = await txn.query('deleted_message_ids');
+        final existingRowsById = <String, Map<String, Object?>>{};
+        for (final row in existingRows) {
+          final id = row['message_id'] as String;
+          existingRowsById[id] = row;
+        }
+
+        final deletedAt = DateTime.now().millisecondsSinceEpoch;
         await txn.delete('deleted_message_ids');
 
-        for (final messageId in deletedMessageIds) {
-          await txn.insert('deleted_message_ids', {
-            'message_id': messageId.value,
-            'deleted_at': DateTime.now().millisecondsSinceEpoch,
-          });
+        for (final id in ids) {
+          final existing = existingRowsById[id];
+          final row = <String, Object?>{
+            'message_id': id,
+            'deleted_at': existing?['deleted_at'] ?? deletedAt,
+          };
+          // The canonical schema has a nullable reason column, while the
+          // minimal queue-table bootstrap does not. Preserve it when present.
+          if (existing?.containsKey('reason') ?? false) {
+            row['reason'] = existing!['reason'];
+          }
+          await txn.insert('deleted_message_ids', row);
         }
       });
     } catch (e) {
@@ -256,8 +313,8 @@ class MessageQueueRepository implements IMessageQueueRepository {
   /// Remove message from queue by ID
   @override
   Future<void> removeMessage(String messageId) async {
-    removeMessageFromQueue(messageId);
     await deleteMessageFromStorage(messageId);
+    removeMessageFromQueue(messageId);
   }
 
   /// Get oldest pending message
@@ -287,20 +344,20 @@ class MessageQueueRepository implements IMessageQueueRepository {
         ? relayMessageQueue
         : directMessageQueue;
 
-    // Find insertion point based on priority
-    int insertIndex = 0;
-    for (int i = 0; i < targetQueue.length; i++) {
-      if (targetQueue[i].priority.index <= message.priority.index) {
-        insertIndex = i;
-        break;
+    final insertIndex = targetQueue.indexWhere((existing) {
+      if (existing.priority.index != message.priority.index) {
+        return existing.priority.index < message.priority.index;
       }
-      insertIndex = i + 1;
-    }
+      return existing.queuedAt.isAfter(message.queuedAt);
+    });
+    final resolvedInsertIndex = insertIndex < 0
+        ? targetQueue.length
+        : insertIndex;
 
-    targetQueue.insert(insertIndex, message);
+    targetQueue.insert(resolvedInsertIndex, message);
 
     _logger.fine(
-      'Inserted into ${message.isRelayMessage ? "relay" : "direct"} queue at index $insertIndex (queue size: ${targetQueue.length})',
+      'Inserted into ${message.isRelayMessage ? "relay" : "direct"} queue at index $resolvedInsertIndex (queue size: ${targetQueue.length})',
     );
   }
 
@@ -320,18 +377,102 @@ class MessageQueueRepository implements IMessageQueueRepository {
 
   /// Mark message as deleted for sync purposes
   @override
-  Future<void> markMessageDeleted(String messageId) async {
-    final msgId = MessageId(messageId);
-    deletedMessageIds.add(msgId);
-    await saveDeletedMessageIds();
+  Future<void> markMessageDeleted(String messageId) {
+    return markMessagesDeleted([messageId]);
+  }
 
-    // Remove from active queue if present
-    removeMessageFromQueue(messageId);
-    await saveQueueToStorage();
+  /// Atomically tombstone messages and remove their active queue rows.
+  @override
+  Future<void> markMessagesDeleted(Iterable<String> messageIds) async {
+    final ids = _snapshotMessageIds(messageIds);
+    if (ids.isEmpty) return;
 
-    _logger.info(
-      'Message marked as deleted: ${messageId.length > 16 ? "${messageId.shortId()}..." : messageId}',
-    );
+    try {
+      final deletedAt = DateTime.now().millisecondsSinceEpoch;
+      final db = await _getDatabase();
+      await db.transaction((txn) async {
+        for (final id in ids) {
+          // Ignore existing tombstones so their first-deletion timestamp is
+          // never refreshed by a repeated sync/delete request.
+          await txn.insert('deleted_message_ids', {
+            'message_id': id,
+            'deleted_at': deletedAt,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          await txn.delete(
+            'offline_message_queue',
+            where: 'message_id = ?',
+            whereArgs: [id],
+          );
+        }
+      });
+
+      // Publish only after both tables commit successfully.
+      final typedIds = ids.map(MessageId.new).toSet();
+      deletedMessageIds.addAll(typedIds);
+      directMessageQueue.removeWhere(
+        (message) => typedIds.contains(MessageId(message.id)),
+      );
+      relayMessageQueue.removeWhere(
+        (message) => typedIds.contains(MessageId(message.id)),
+      );
+    } catch (e) {
+      _logger.warning('Failed to tombstone ${ids.length} message(s): $e');
+      rethrow;
+    }
+
+    _logger.info('${ids.length} message(s) marked as deleted');
+  }
+
+  /// Keep only the newest durable tombstones and publish after commit.
+  @override
+  Future<Set<String>> pruneDeletedMessageIds(int maxRetained) async {
+    if (maxRetained < 0) {
+      throw ArgumentError.value(
+        maxRetained,
+        'maxRetained',
+        'must not be negative',
+      );
+    }
+
+    try {
+      final db = await _getDatabase();
+      final retainedIds = await db.transaction((txn) async {
+        if (maxRetained == 0) {
+          await txn.delete('deleted_message_ids');
+        } else {
+          await txn.rawDelete(
+            '''
+            DELETE FROM deleted_message_ids
+            WHERE message_id NOT IN (
+              SELECT message_id
+              FROM deleted_message_ids
+              ORDER BY deleted_at DESC, message_id ASC
+              LIMIT ?
+            )
+            ''',
+            [maxRetained],
+          );
+        }
+
+        final rows = await txn.query(
+          'deleted_message_ids',
+          columns: const ['message_id'],
+          orderBy: 'deleted_at DESC, message_id ASC',
+        );
+        final retained = List<String>.unmodifiable(
+          rows.map((row) => row['message_id'] as String),
+        );
+        return retained;
+      });
+
+      deletedMessageIds
+        ..clear()
+        ..addAll(retainedIds.map(MessageId.new));
+      return Set<String>.unmodifiable(retainedIds);
+    } catch (e) {
+      _logger.warning('Failed to prune deleted message IDs: $e');
+      rethrow;
+    }
   }
 
   /// Convert QueuedMessage to database row
@@ -459,6 +600,12 @@ class MessageQueueRepository implements IMessageQueueRepository {
       },
       where: 'message_id = ?',
       whereArgs: [messageId],
+    );
+  }
+
+  List<String> _snapshotMessageIds(Iterable<String> messageIds) {
+    return List<String>.unmodifiable(
+      messageIds.map((id) => MessageId(id).value).toSet(),
     );
   }
 }

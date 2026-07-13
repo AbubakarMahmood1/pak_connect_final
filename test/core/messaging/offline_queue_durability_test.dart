@@ -165,6 +165,9 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
   }
 
   @override
+  Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
+
+  @override
   Future<void> saveMessageToStorage(QueuedMessage message) async {
     saveCalled = true;
     if (failSave) throw StateError('queue write failed');
