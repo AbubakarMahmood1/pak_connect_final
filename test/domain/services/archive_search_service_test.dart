@@ -37,8 +37,9 @@ class _FakeArchiveRepository implements IArchiveRepository {
 
   // The remaining repository methods are not needed for these tests.
   @override
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async =>
-      throw UnimplementedError();
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    ArchiveId archivedChatId,
+  ) async => throw UnimplementedError();
 
   @override
   Future<ArchiveOperationResult> archiveChat({
