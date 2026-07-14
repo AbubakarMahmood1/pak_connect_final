@@ -42,13 +42,19 @@ void main() {
         QueuedMessage? deliveredEvent;
         String? failedReason;
         QueueStatistics? latestStats;
+        String? awaitingAckMessageId;
 
         await queue.initialize(
           onMessageQueued: (message) => queuedEvent = message,
           onMessageDelivered: (message) => deliveredEvent = message,
           onMessageFailed: (message, reason) => failedReason = reason,
           onStatsUpdated: (stats) => latestStats = stats,
-          onSendMessage: (messageId) => sentMessageIds.add(messageId),
+          onSendMessage: (messageId) {
+            sentMessageIds.add(messageId);
+            return messageId == awaitingAckMessageId
+                ? OfflineQueueSendDisposition.awaitingAck
+                : OfflineQueueSendDisposition.deferred;
+          },
           onConnectivityCheck: () => connectivityChecks++,
         );
 
@@ -67,6 +73,7 @@ void main() {
           senderId: const ChatId('sender'),
           priority: MessagePriority.normal,
         )).value;
+        awaitingAckMessageId = id1;
 
         expect(queuedEvent, isNotNull);
         expect(queue.getPendingMessages().length, 2);
@@ -74,6 +81,15 @@ void main() {
         expect(latestStats, isNotNull);
 
         await queue.setOnline();
+        expect(connectivityChecks, 1);
+        final sendsAfterFirstOnline = sentMessageIds.length;
+        await queue.setOnline();
+        expect(
+          sentMessageIds,
+          hasLength(sendsAfterFirstOnline),
+          reason:
+              'an idempotent online signal must not resend ACK-waiting rows',
+        );
         expect(connectivityChecks, 1);
 
         await queue.flushQueueForPeer('peer_1');
@@ -304,7 +320,8 @@ void main() {
         expect(typedQueued.isQueued, isTrue);
         expect(typedQueued.messageIdValue, MessageId(typedQueued.messageId));
 
-        router.offlineQueue.onSendMessage = (_) {};
+        router.offlineQueue.onSendMessage = (_) =>
+            OfflineQueueSendDisposition.delivered;
         await router.offlineQueue.setOnline();
         await router.flushOutboxFor('peer_a');
         await router.flushOutboxForId(const ChatId('peer_b'));

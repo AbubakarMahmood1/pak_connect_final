@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:mockito/annotations.dart';
@@ -12,6 +13,7 @@ import 'package:pak_connect/data/services/ble_connection_manager.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_state_manager_facade.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart'
     as relay_models;
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/data/repositories/contact_repository.dart';
 import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/interfaces/i_message_fragmentation_handler.dart';
@@ -886,6 +888,350 @@ void main() {
           descriptors: const [],
         );
 
+    test('direct payload admission carries the exact address and queued '
+        'recipient without awaiting its outcome', () async {
+      final outcome = Completer<bool>();
+      handler.centralRouteOutcome = outcome.future;
+      when(stateManager.getRecipientId()).thenReturn('unrelated-global-peer');
+      final service = buildService();
+
+      final attempt = service.trySendMessageOnRoute(
+        'payload',
+        transportAddress: 'device-a',
+        messageId: 'message-a',
+        intendedRecipient: 'queued-recipient',
+      );
+
+      expect(attempt, isNotNull);
+      expect(handler.centralRouteAttempts, [
+        (
+          peerId: 'device-a',
+          recipientKey: 'queued-recipient',
+          messageId: 'message-a',
+        ),
+      ]);
+      expect(outcome.isCompleted, isFalse);
+
+      outcome.complete(true);
+      expect(await attempt!, isTrue);
+    });
+
+    test(
+      'direct payload admission falls through to an exact server route',
+      () async {
+        final outcome = Completer<bool>();
+        handler.peripheralRouteOutcome = outcome.future;
+        final service = buildService();
+
+        final attempt = service.trySendMessageOnRoute(
+          'payload',
+          transportAddress: 'device-server',
+          messageId: 'message-server',
+          intendedRecipient: 'queued-recipient',
+        );
+
+        expect(attempt, isNotNull);
+        expect(handler.centralRouteAttempts, isEmpty);
+        expect(handler.peripheralRouteAttempts, [
+          (
+            peerId: 'device-server',
+            senderKey: 'queued-recipient',
+            messageId: 'message-server',
+          ),
+        ]);
+
+        outcome.complete(false);
+        expect(await attempt!, isFalse);
+      },
+    );
+
+    test('direct payload without an exact handler route is not admitted', () {
+      final service = buildService();
+
+      final attempt = service.trySendMessageOnRoute(
+        'payload',
+        transportAddress: 'missing-device',
+        messageId: 'missing-message',
+        intendedRecipient: 'queued-recipient',
+      );
+
+      expect(attempt, isNull);
+      expect(handler.centralRouteAttempts, isEmpty);
+      expect(handler.peripheralRouteAttempts, isEmpty);
+    });
+
+    test(
+      'route-bound direct writes share one serialized transport lane',
+      () async {
+        final writeGates = <String, Completer<void>>{
+          for (var index = 0; index < 4; index++)
+            'message-$index': Completer<void>(),
+        };
+        final outcomes = <String, Completer<bool>>{
+          for (var index = 0; index < 4; index++)
+            'message-$index': Completer<bool>(),
+        };
+        final started = <String>[];
+        var active = 0;
+        var maxActive = 0;
+        handler.centralRouteTaskProvider = (messageId) =>
+            (scheduleWrite) async {
+              await scheduleWrite(() async {
+                active++;
+                if (active > maxActive) maxActive = active;
+                started.add(messageId);
+                try {
+                  await writeGates[messageId]!.future;
+                } finally {
+                  active--;
+                }
+              });
+              return outcomes[messageId]!.future;
+            };
+        final service = buildService();
+
+        final attempts = <Future<bool>>[];
+        for (var index = 0; index < 4; index++) {
+          final attempt = service.trySendMessageOnRoute(
+            'payload-$index',
+            transportAddress: 'device-a',
+            messageId: 'message-$index',
+            intendedRecipient: 'queued-recipient',
+          );
+          expect(attempt, isNotNull);
+          attempts.add(attempt!);
+        }
+
+        expect(handler.centralRouteAttempts, hasLength(4));
+        await _waitUntil(() => started.length == 1);
+        expect(started, <String>['message-0']);
+        expect(maxActive, 1);
+
+        for (var index = 0; index < 4; index++) {
+          writeGates['message-$index']!.complete();
+          if (index < 3) {
+            await _waitUntil(() => started.length == index + 2);
+            expect(maxActive, 1);
+          }
+        }
+
+        await _waitUntil(() => active == 0);
+        expect(
+          outcomes.values.every((outcome) => !outcome.isCompleted),
+          isTrue,
+          reason: 'the physical-write lane must advance before remote ACKs',
+        );
+        for (final outcome in outcomes.values) {
+          outcome.complete(true);
+        }
+        expect(await Future.wait(attempts), everyElement(isTrue));
+        expect(started, outcomes.keys.toList());
+        expect(maxActive, 1);
+      },
+    );
+
+    test(
+      'a failed serialized route write does not strand later work',
+      () async {
+        final started = <String>[];
+        handler.centralRouteTaskProvider = (messageId) =>
+            (scheduleWrite) async {
+              try {
+                await scheduleWrite(() async {
+                  started.add(messageId);
+                  if (messageId == 'message-fails') {
+                    throw StateError('injected physical write failure');
+                  }
+                });
+                return true;
+              } catch (_) {
+                return false;
+              }
+            };
+        final service = buildService();
+
+        final failed = service.trySendMessageOnRoute(
+          'first-payload',
+          transportAddress: 'device-a',
+          messageId: 'message-fails',
+          intendedRecipient: 'queued-recipient',
+        );
+        final succeeded = service.trySendMessageOnRoute(
+          'second-payload',
+          transportAddress: 'device-a',
+          messageId: 'message-succeeds',
+          intendedRecipient: 'queued-recipient',
+        );
+
+        expect(failed, isNotNull);
+        expect(succeeded, isNotNull);
+        expect(await failed!, isFalse);
+        expect(await succeeded!, isTrue);
+        expect(started, <String>['message-fails', 'message-succeeds']);
+      },
+    );
+
+    test(
+      'direct and protocol route writes use the same serialized lane',
+      () async {
+        final directWriteStarted = Completer<void>();
+        final directWriteGate = Completer<void>();
+        final directOutcome = Completer<bool>();
+        handler.centralRouteTaskProvider = (_) => (scheduleWrite) async {
+          await scheduleWrite(() async {
+            directWriteStarted.complete();
+            await directWriteGate.future;
+          });
+          return directOutcome.future;
+        };
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000c1c1',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000c2c2',
+        );
+        final address = peripheral.uuid.toString();
+        final connection = BLEClientConnection(
+          address: address,
+          peripheral: peripheral,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 128,
+        );
+        when(
+          connectionManager.clientConnectionForPeer(address),
+        ).thenReturn(connection);
+        final service = buildService();
+
+        final directAttempt = service.trySendMessageOnRoute(
+          'direct-payload',
+          transportAddress: address,
+          messageId: 'direct-message',
+          intendedRecipient: 'queued-recipient',
+        );
+        final protocolAttempt = service.trySendProtocolMessageOnRoute(
+          ProtocolMessage.ping(),
+          transportAddress: address,
+        );
+
+        expect(directAttempt, isNotNull);
+        expect(protocolAttempt, isNotNull);
+        await directWriteStarted.future;
+        expect(
+          writes,
+          isEmpty,
+          reason: 'protocol traffic must wait behind the admitted direct write',
+        );
+
+        directWriteGate.complete();
+        expect(await protocolAttempt!, isTrue);
+        expect(directOutcome.isCompleted, isFalse);
+        expect(writes, isNotEmpty);
+        expect(writes.every((write) => write.deviceId == address), isTrue);
+        directOutcome.complete(true);
+        expect(await directAttempt!, isTrue);
+      },
+    );
+
+    test('route-bound protocol admission rejects an identity alias', () {
+      final characteristic = writableCharacteristic(
+        '00000000-0000-0000-0000-00000000d1d1',
+      );
+      final peripheral = fakePeripheralFromString(
+        '00000000-0000-0000-0000-00000000d2d2',
+      );
+      final connection = BLEClientConnection(
+        address: peripheral.uuid.toString(),
+        peripheral: peripheral,
+        connectedAt: DateTime.now(),
+        messageCharacteristic: characteristic,
+        mtu: 128,
+      );
+      when(
+        connectionManager.clientConnectionForPeer('session-alias'),
+      ).thenReturn(connection);
+      final service = buildService();
+
+      final attempt = service.trySendProtocolMessageOnRoute(
+        ProtocolMessage.ping(),
+        transportAddress: 'session-alias',
+      );
+
+      expect(attempt, isNull);
+      expect(writes, isEmpty);
+    });
+
+    test(
+      'route-bound protocol admission writes only to the exact client',
+      () async {
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000d3d3',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000d4d4',
+        );
+        final address = peripheral.uuid.toString();
+        final connection = BLEClientConnection(
+          address: address,
+          peripheral: peripheral,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 128,
+        );
+        when(
+          connectionManager.clientConnectionForPeer(address),
+        ).thenReturn(connection);
+        final service = buildService();
+
+        final attempt = service.trySendProtocolMessageOnRoute(
+          ProtocolMessage.ping(),
+          transportAddress: address,
+        );
+
+        expect(attempt, isNotNull);
+        expect(await attempt!, isTrue);
+        expect(writes, isNotEmpty);
+        expect(writes.every((write) => write.deviceId == address), isTrue);
+      },
+    );
+
+    test(
+      'route loss after protocol admission fails without using another link',
+      () async {
+        final characteristic = writableCharacteristic(
+          '00000000-0000-0000-0000-00000000d5d5',
+        );
+        final peripheral = fakePeripheralFromString(
+          '00000000-0000-0000-0000-00000000d6d6',
+        );
+        final address = peripheral.uuid.toString();
+        final connection = BLEClientConnection(
+          address: address,
+          peripheral: peripheral,
+          connectedAt: DateTime.now(),
+          messageCharacteristic: characteristic,
+          mtu: 128,
+        );
+        when(
+          connectionManager.clientConnectionForPeer(address),
+        ).thenReturnInOrder([connection, null]);
+        final service = buildService();
+
+        final attempt = service.trySendProtocolMessageOnRoute(
+          ProtocolMessage.ping(),
+          transportAddress: address,
+        );
+
+        expect(
+          attempt,
+          isNotNull,
+          reason: 'the exact route accepted admission',
+        );
+        expect(await attempt!, isFalse);
+        expect(writes, isEmpty);
+      },
+    );
+
     test(
       'unresolvable peer id never falls back to the sole active link',
       () async {
@@ -1231,7 +1577,7 @@ class _MockBLEConnectionManagerWithHandshake extends MockBLEConnectionManager {
 }
 
 class _ForwardingHarnessHandler extends Mock
-    implements IBLEMessageHandlerFacade {
+    implements IBLEMessageHandlerFacade, IRouteBoundBleMessageHandlerFacade {
   Function(
     Uint8List data,
     String fragmentId,
@@ -1244,6 +1590,57 @@ class _ForwardingHarnessHandler extends Mock
   ForwardReassembledPayload? forwardPayload;
   String? nextProcessResult;
   Object? nextProcessError;
+  Future<bool>? centralRouteOutcome;
+  Future<bool>? peripheralRouteOutcome;
+  RouteBoundBleSendTask? Function(String messageId)? centralRouteTaskProvider;
+  RouteBoundBleSendTask? Function(String messageId)?
+  peripheralRouteTaskProvider;
+  final List<({String peerId, String recipientKey, String messageId})>
+  centralRouteAttempts = [];
+  final List<({String peerId, String senderKey, String messageId})>
+  peripheralRouteAttempts = [];
+
+  @override
+  RouteBoundBleSendTask? prepareMessageToPeer({
+    required String peerId,
+    required String recipientKey,
+    required String content,
+    required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) {
+    final task =
+        centralRouteTaskProvider?.call(messageId ?? '') ??
+        (centralRouteOutcome == null ? null : (_) => centralRouteOutcome!);
+    if (task == null) return null;
+    centralRouteAttempts.add((
+      peerId: peerId,
+      recipientKey: recipientKey,
+      messageId: messageId ?? '',
+    ));
+    return task;
+  }
+
+  @override
+  RouteBoundBleSendTask? preparePeripheralMessageToPeer({
+    required String peerId,
+    required String senderKey,
+    required String content,
+    String? messageId,
+  }) {
+    final task =
+        peripheralRouteTaskProvider?.call(messageId ?? '') ??
+        (peripheralRouteOutcome == null
+            ? null
+            : (_) => peripheralRouteOutcome!);
+    if (task == null) return null;
+    peripheralRouteAttempts.add((
+      peerId: peerId,
+      senderKey: senderKey,
+      messageId: messageId ?? '',
+    ));
+    return task;
+  }
 
   @override
   Future<String?> processReceivedData({
@@ -1304,4 +1701,17 @@ class _ForwardingHarnessHandler extends Mock
     )?
     callback,
   ) {}
+}
+
+Future<void> _waitUntil(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for test condition');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }

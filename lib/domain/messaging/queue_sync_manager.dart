@@ -9,6 +9,13 @@ import 'offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/utils/string_extensions.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
+/// Returns the exact IDs admitted into the queue-owned transport attempt path.
+typedef QueueSyncSendMessagesCallback =
+    FutureOr<Set<String>> Function(
+      List<QueuedMessage> messages,
+      String toNodeId,
+    );
+
 /// Manages queue synchronization between mesh network nodes
 class QueueSyncManager {
   static final _logger = Logger('QueueSyncManager');
@@ -45,7 +52,7 @@ class QueueSyncManager {
 
   // Callbacks
   Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest;
-  Function(List<QueuedMessage> messages, String toNodeId)? onSendMessages;
+  QueueSyncSendMessagesCallback? onSendMessages;
   Function(String nodeId, QueueSyncResult result)? onSyncCompleted;
   Function(String nodeId, String error)? onSyncFailed;
 
@@ -58,7 +65,7 @@ class QueueSyncManager {
   /// Initialize the sync manager
   Future<void> initialize({
     Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest,
-    Function(List<QueuedMessage> messages, String toNodeId)? onSendMessages,
+    QueueSyncSendMessagesCallback? onSendMessages,
     Function(String nodeId, QueueSyncResult result)? onSyncCompleted,
     Function(String nodeId, String error)? onSyncFailed,
   }) async {
@@ -159,19 +166,10 @@ class QueueSyncManager {
       final excessMessages = _messageQueue.getExcessMessages(inboundIds);
 
       if (excessMessages.isNotEmpty) {
-        if (onSendMessages != null) {
-          _logger.info(
-            'Dispatching ${excessMessages.length} queued message(s) to $truncatedNodeId via sync response',
-          );
-          onSendMessages!.call(
-            List<QueuedMessage>.from(excessMessages),
-            fromNodeId,
-          );
-        } else {
-          _logger.warning(
-            'Queue sync found ${excessMessages.length} payload(s) for $truncatedNodeId but no send callback is configured',
-          );
-        }
+        _logger.info(
+          'Dispatching ${excessMessages.length} queued message(s) to $truncatedNodeId via sync response',
+        );
+        await _dispatchMessages(excessMessages, fromNodeId);
       } else {
         _logger.fine(
           'No queued payloads to send back to $truncatedNodeId during sync',
@@ -290,23 +288,21 @@ class QueueSyncManager {
       // BIDIRECTIONAL SYNC (Phase 1): Send OUR excess messages to the peer.
       // The responder already sent us their excess in handleSyncRequest().
       // Now we reciprocate so both sides converge in a single round.
-      int reverseMessagesSent = 0;
-      if (responseMessage.messageIds.isNotEmpty && onSendMessages != null) {
-        final ourExcess = _messageQueue.getExcessMessages(
-          responseMessage.messageIds,
+      int reverseMessagesAdmitted = 0;
+      final ourExcess = _messageQueue.getExcessMessages(
+        responseMessage.messageIds,
+      );
+      if (ourExcess.isNotEmpty) {
+        _logger.info(
+          '📤 Reverse-sending ${ourExcess.length} excess messages to '
+          '$fromDeviceAddress',
         );
-        if (ourExcess.isNotEmpty) {
-          _logger.info(
-            '📤 Reverse-sending ${ourExcess.length} excess messages to '
-            '$fromDeviceAddress',
-          );
-          onSendMessages!.call(
-            List<QueuedMessage>.from(ourExcess),
-            fromDeviceAddress,
-          );
-          reverseMessagesSent = ourExcess.length;
-          _messagesTransferred += reverseMessagesSent;
-        }
+        final admittedIds = await _dispatchMessages(
+          ourExcess,
+          fromDeviceAddress,
+        );
+        reverseMessagesAdmitted = admittedIds.length;
+        _messagesTransferred += reverseMessagesAdmitted;
       }
 
       final result = QueueSyncResult.success(
@@ -352,6 +348,36 @@ class QueueSyncManager {
       onSyncFailed?.call(targetNodeId, failure.error!);
       return result;
     }
+  }
+
+  Future<Set<String>> _dispatchMessages(
+    List<QueuedMessage> messages,
+    String toNodeId,
+  ) async {
+    final sendMessages = onSendMessages;
+    if (sendMessages == null) {
+      throw StateError(
+        'Queue sync cannot dispatch ${messages.length} message(s) to '
+        '$toNodeId because no send callback is configured',
+      );
+    }
+
+    final requestedIds = messages.map((message) => message.id).toSet();
+    final admittedIds = await sendMessages(
+      List<QueuedMessage>.from(messages),
+      toNodeId,
+    );
+    final missingIds = requestedIds.difference(admittedIds);
+    final unexpectedIds = admittedIds.difference(requestedIds);
+    if (missingIds.isNotEmpty || unexpectedIds.isNotEmpty) {
+      throw StateError(
+        'Queue sync dispatch receipt mismatch for $toNodeId: '
+        'missing=${missingIds.toList()}, '
+        'unexpected=${unexpectedIds.toList()}',
+      );
+    }
+
+    return admittedIds;
   }
 
   String? _pendingKeyForResponse(

@@ -936,16 +936,17 @@ class AppCore {
   }
 
   /// Handle message send callback
-  void _handleMessageSend(String messageId) {
+  OfflineQueueSendDisposition _handleMessageSend(String messageId) {
     // Guard: ensure mesh layer is initialized; otherwise surface an error.
     if (!_isInitialized) {
       _logger.severe(
         '❌ Cannot send message ${messageId.shortId()}...: mesh not initialized',
       );
-      return;
+      return OfflineQueueSendDisposition.deferred;
     }
     // In production this is replaced by MeshQueueSyncCoordinator binding.
     _logger.info('Sending message: ${messageId.shortId()}...');
+    return OfflineQueueSendDisposition.deferred;
   }
 
   /// Check connectivity for message queue

@@ -115,6 +115,7 @@ void main() {
       } catch (e) {
         // Initialization error expected in test
       }
+      messageQueue.setOffline();
 
       // Queue a message
       final messageId = await messageQueue.queueMessage(

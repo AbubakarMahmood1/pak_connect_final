@@ -18,7 +18,8 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 /// - Query messages by ID, status, or peer
 /// - Manage message lifecycle (pending, sending, delivered, failed)
 /// - Track retry attempts and delivery status
-class MessageQueueRepository implements IMessageQueueRepository {
+class MessageQueueRepository
+    implements IMessageQueueRepository, IConditionalMessageQueueRepository {
   static final _logger = Logger('MessageQueueRepository');
   static IDatabaseProvider? _defaultDatabaseProvider;
 
@@ -142,6 +143,127 @@ class MessageQueueRepository implements IMessageQueueRepository {
   @override
   Future<void> deleteMessageFromStorage(String messageId) {
     return deleteMessagesFromStorage([messageId]);
+  }
+
+  /// Atomically transition one delivery attempt only while its persisted
+  /// ownership token still matches. This prevents a disposed queue from
+  /// overwriting or deleting a successor queue's newer attempt.
+  @override
+  Future<QueueStateTransitionResult> transitionStateIfCurrent({
+    required QueuedMessage expected,
+    required QueuedMessage? replacement,
+    bool includePriority = false,
+  }) async {
+    final predicate = _statePredicate(expected);
+    final replacementColumns = replacement == null
+        ? null
+        : Map<String, Object?>.unmodifiable(
+            _deliveryStateColumns(
+              replacement,
+              includePriority: includePriority,
+            ),
+          );
+    try {
+      final db = await _getDatabase();
+      return await db.transaction((txn) async {
+        final changed = replacement == null
+            ? await txn.delete(
+                'offline_message_queue',
+                where: predicate.where,
+                whereArgs: predicate.args,
+              )
+            : await txn.update(
+                'offline_message_queue',
+                replacementColumns!,
+                where: predicate.where,
+                whereArgs: predicate.args,
+              );
+
+        if (changed == 1) {
+          return QueueStateTransitionResult(
+            applied: true,
+            current: replacement == null
+                ? null
+                : queuedMessageFromDb(
+                    (await txn.query(
+                      'offline_message_queue',
+                      where: 'message_id = ?',
+                      whereArgs: [expected.id],
+                      limit: 1,
+                    )).single,
+                  ),
+          );
+        }
+
+        final rows = await txn.query(
+          'offline_message_queue',
+          where: 'message_id = ?',
+          whereArgs: [expected.id],
+          limit: 1,
+        );
+        return QueueStateTransitionResult(
+          applied: false,
+          current: rows.isEmpty ? null : queuedMessageFromDb(rows.single),
+        );
+      });
+    } catch (e) {
+      _logger.warning(
+        'Failed conditional queue transition for '
+        '${expected.id.shortId()}...: $e',
+      );
+      rethrow;
+    }
+  }
+
+  /// Atomically admit a peer-synced row without overwriting an active attempt
+  /// or reviving a message that was durably deleted.
+  @override
+  Future<QueueStateTransitionResult> insertMessageIfAbsentAndNotDeleted(
+    QueuedMessage message,
+  ) async {
+    final row = Map<String, Object?>.unmodifiable(queuedMessageToDb(message));
+    try {
+      final db = await _getDatabase();
+      return await db.transaction((txn) async {
+        final tombstone = await txn.query(
+          'deleted_message_ids',
+          columns: const <String>['message_id'],
+          where: 'message_id = ?',
+          whereArgs: [message.id],
+          limit: 1,
+        );
+        if (tombstone.isNotEmpty) {
+          return const QueueStateTransitionResult(
+            applied: false,
+            current: null,
+          );
+        }
+
+        await txn.insert(
+          'offline_message_queue',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        final changes = await txn.rawQuery('SELECT changes() AS count');
+        final inserted = (changes.single['count'] as int) == 1;
+        final rows = await txn.query(
+          'offline_message_queue',
+          where: 'message_id = ?',
+          whereArgs: [message.id],
+          limit: 1,
+        );
+        return QueueStateTransitionResult(
+          applied: inserted,
+          current: rows.isEmpty ? null : queuedMessageFromDb(rows.single),
+        );
+      });
+    } catch (e) {
+      _logger.warning(
+        'Failed atomic synced-message admission for '
+        '${message.id.shortId()}...: $e',
+      );
+      rethrow;
+    }
   }
 
   /// Delete messages from persistent storage in one transaction.
@@ -516,6 +638,39 @@ class MessageQueueRepository implements IMessageQueueRepository {
       'sender_rate_count': message.senderRateCount,
       'created_at': now,
       'updated_at': now,
+    };
+  }
+
+  ({String where, List<Object?> args}) _statePredicate(QueuedMessage expected) {
+    final lastAttemptAt = expected.lastAttemptAt?.millisecondsSinceEpoch;
+    return (
+      where:
+          'message_id = ? AND status = ? AND attempts = ? AND '
+          '${lastAttemptAt == null ? 'last_attempt_at IS NULL' : 'last_attempt_at = ?'}',
+      args: <Object?>[
+        expected.id,
+        expected.status.index,
+        expected.attempts,
+        ?lastAttemptAt,
+      ],
+    );
+  }
+
+  Map<String, Object?> _deliveryStateColumns(
+    QueuedMessage message, {
+    required bool includePriority,
+  }) {
+    return <String, Object?>{
+      if (includePriority) 'priority': message.priority.index,
+      'retry_count': message.attempts,
+      'status': message.status.index,
+      'attempts': message.attempts,
+      'last_attempt_at': message.lastAttemptAt?.millisecondsSinceEpoch,
+      'next_retry_at': message.nextRetryAt?.millisecondsSinceEpoch,
+      'delivered_at': message.deliveredAt?.millisecondsSinceEpoch,
+      'failed_at': message.failedAt?.millisecondsSinceEpoch,
+      'failure_reason': message.failureReason,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
     };
   }
 

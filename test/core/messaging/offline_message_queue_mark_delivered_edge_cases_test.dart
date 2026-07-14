@@ -69,10 +69,23 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
+ Future<void> saveQueueSnapshotToStorage(
+ Iterable<QueuedMessage> messages,
+ ) async {
+ saveCalled = true;
+ }
+
+ @override
  Future<void> loadDeletedMessageIds() async {}
 
  @override
+ Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
+
+ @override
  Future<void> saveDeletedMessageIds() async {}
+
+ @override
+ Future<void> markMessagesDeleted(Iterable<String> messageIds) async {}
 
  @override
  QueuedMessage? getMessageById(String messageId) =>
@@ -511,7 +524,7 @@ void main() {
  await queue.setOnline();
  await queue.retryFailedMessagesForChat('chat-online');
  final msg = fakeRepo._messages.firstWhere((m) => m.id == 'foc1');
- expect(msg.status, QueuedMessageStatus.pending);
+ expect(msg.status, QueuedMessageStatus.retrying);
  });
 
  test('retryFailedMessagesForChat with no matching chat is no-op', () async {

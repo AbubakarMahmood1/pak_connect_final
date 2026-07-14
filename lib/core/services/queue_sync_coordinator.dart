@@ -187,10 +187,31 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
       ..nextRetryAt = null
       ..lastAttemptAt = null;
 
-    // Persist before publishing to the in-memory queue. A failed sync write
-    // must not create a ghost message that can be delivered but not reloaded.
-    await repository.saveMessageToStorage(candidate);
-    repository.insertMessageByPriority(candidate);
+    // Production storage checks the durable active row and tombstone in one
+    // transaction. This prevents a stale sync view from reverting a newer
+    // send attempt or reviving a locally deleted message.
+    QueuedMessage admitted = candidate;
+    if (repository is IConditionalMessageQueueRepository) {
+      final result = await (repository as IConditionalMessageQueueRepository)
+          .insertMessageIfAbsentAndNotDeleted(candidate);
+      if (!result.applied) {
+        final current = result.current;
+        if (current == null) {
+          _deletedMessageIds.add(MessageId(message.id));
+          _logger.fine('Sync skip - message has a durable tombstone');
+        } else if (repository.getMessageById(message.id) == null) {
+          repository.insertMessageByPriority(current);
+          invalidateHashCache();
+        }
+        return false;
+      }
+      admitted = result.current ?? candidate;
+    } else {
+      // Explicit in-memory/test repositories do not share durable state.
+      await repository.saveMessageToStorage(candidate);
+    }
+
+    repository.insertMessageByPriority(admitted);
     invalidateHashCache();
 
     _logger.info('🔄 Synced new message: ${_previewId(message.id)}...');

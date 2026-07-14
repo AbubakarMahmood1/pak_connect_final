@@ -126,24 +126,97 @@ void main() {
     expect(deletedIds, {const MessageId('message-1')});
     expect(coordinator.calculateQueueHash(), hashBefore);
   });
+
+  test(
+    'durable tombstone conflict is learned without publishing a row',
+    () async {
+      final repository = _FailingQueueRepository(
+        failSave: false,
+        atomicResult: const QueueStateTransitionResult(
+          applied: false,
+          current: null,
+        ),
+      );
+      final coordinator = QueueSyncCoordinator(repository: repository);
+      final message = _message('durably-deleted');
+
+      expect(await coordinator.addSyncedMessage(message), isFalse);
+      expect(repository.messages, isEmpty);
+      expect(coordinator.isMessageDeleted(message.id), isTrue);
+    },
+  );
+
+  test('newer durable attempt is reconciled instead of overwritten', () async {
+    final current = _message('newer-attempt')
+      ..status = QueuedMessageStatus.sending
+      ..attempts = 2
+      ..lastAttemptAt = DateTime.utc(2026, 7, 13, 14);
+    final repository = _FailingQueueRepository(
+      failSave: false,
+      atomicResult: QueueStateTransitionResult(
+        applied: false,
+        current: current,
+      ),
+    );
+    final coordinator = QueueSyncCoordinator(repository: repository);
+
+    expect(
+      await coordinator.addSyncedMessage(_message('newer-attempt')),
+      isFalse,
+    );
+    expect(repository.messages, hasLength(1));
+    expect(repository.messages.single.status, QueuedMessageStatus.sending);
+    expect(repository.messages.single.attempts, 2);
+  });
 }
 
-class _FailingQueueRepository extends Fake implements IMessageQueueRepository {
+QueuedMessage _message(String id) => QueuedMessage(
+  id: id,
+  chatId: 'chat-$id',
+  content: 'content-$id',
+  recipientPublicKey: 'recipient',
+  senderPublicKey: 'sender',
+  priority: MessagePriority.normal,
+  queuedAt: DateTime.utc(2026, 7, 13),
+  maxRetries: 5,
+);
+
+class _FailingQueueRepository extends Fake
+    implements IMessageQueueRepository, IConditionalMessageQueueRepository {
   _FailingQueueRepository({
     this.failSave = true,
     this.failMarkDeleted = false,
     this.failPrune = false,
     this.failTombstoneSnapshot = false,
+    this.atomicResult,
   });
 
   final bool failSave;
   final bool failMarkDeleted;
   final bool failPrune;
   final bool failTombstoneSnapshot;
+  final QueueStateTransitionResult? atomicResult;
   final List<QueuedMessage> messages = [];
 
   @override
+  Future<QueueStateTransitionResult> insertMessageIfAbsentAndNotDeleted(
+    QueuedMessage message,
+  ) async {
+    if (failSave) throw StateError('sync persistence failed');
+    return atomicResult ??
+        QueueStateTransitionResult(applied: true, current: message);
+  }
+
+  @override
   List<QueuedMessage> getAllMessages() => List.unmodifiable(messages);
+
+  @override
+  QueuedMessage? getMessageById(String messageId) {
+    for (final message in messages) {
+      if (message.id == messageId) return message;
+    }
+    return null;
+  }
 
   @override
   void insertMessageByPriority(QueuedMessage message) {

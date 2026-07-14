@@ -139,7 +139,7 @@ Future<({QueueSyncMessage request, Future<QueueSyncResult> completion})>
 _beginPendingRound(
   QueueSyncManager manager,
   String target, {
-  void Function(List<QueuedMessage>, String)? onSendMessages,
+  QueueSyncSendMessagesCallback? onSendMessages,
   void Function(String, QueueSyncResult)? onSyncCompleted,
   void Function(String, String)? onSyncFailed,
 }) async {
@@ -486,8 +486,8 @@ void main() {
   // -----------------------------------------------------------------------
   // handleSyncRequest — excess without send callback
   // -----------------------------------------------------------------------
-  group('handleSyncRequest — excess without callback logs warning', () {
-    test('no send callback with excess messages', () async {
+  group('handleSyncRequest — excess without callback fails', () {
+    test('no send callback with excess messages returns error', () async {
       await manager.initialize(); // no onSendMessages
       fakeQueue.needsSync = true;
       fakeQueue.missingIds = ['m1'];
@@ -506,7 +506,8 @@ void main() {
         msg,
         'other-node-1234567890',
       );
-      expect(response.type, QueueSyncResponseType.success);
+      expect(response.type, QueueSyncResponseType.error);
+      expect(response.error, contains('no send callback'));
     });
 
     test('no excess and no missing returns alreadySynced', () async {

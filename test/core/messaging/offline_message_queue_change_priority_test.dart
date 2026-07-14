@@ -53,7 +53,17 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
+ Future<void> saveQueueSnapshotToStorage(
+ Iterable<QueuedMessage> messages,
+ ) async {
+ saveCalled = true;
+ }
+
+ @override
  Future<void> loadDeletedMessageIds() async {}
+
+ @override
+ Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
 
  @override
  Future<void> saveDeletedMessageIds() async {}
@@ -483,7 +493,7 @@ void main() {
  await queue.retryFailedMessages();
  // Should not throw
  final f3 = fakeRepo._messages.firstWhere((m) => m.id == 'f3');
- expect(f3.status, QueuedMessageStatus.pending);
+ expect(f3.status, QueuedMessageStatus.retrying);
  });
 
  test('retryFailedMessagesForChat only affects target chat', () async {
@@ -521,7 +531,11 @@ void main() {
  queuePersistenceManager: _FakePersistenceManager(),
  retryScheduler: fakeScheduler,
 );
- await queue.initialize(onSendMessage: (id) => sentMessageIds.add(id));
+ await queue.initialize(onSendMessage: (id) {
+ sentMessageIds.add(id);
+ return OfflineQueueSendDisposition.delivered;
+ });
+ await queue.setOnline();
  });
 
  tearDown(() {
@@ -537,8 +551,8 @@ void main() {
  fakeRepo._messages.add(_makeMessage(id: 'pm3',
  recipientPublicKey: 'peer_A',
  isRelayMessage: true,
-),
-);
+ ),
+ );
 
  await queue.flushQueueForPeer('peer_A');
 
@@ -840,7 +854,10 @@ void main() {
  await queue.initialize(onMessageQueued: (m) => queued = m,
  onMessageDelivered: (m) => delivered = m,
  onStatsUpdated: (s) => stats = s,
- onSendMessage: (id) => sentId = id,
+ onSendMessage: (id) {
+ sentId = id;
+ return OfflineQueueSendDisposition.delivered;
+ },
  onConnectivityCheck: () => connectivityChecked = true,
 );
 

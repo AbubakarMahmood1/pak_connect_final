@@ -413,7 +413,6 @@ class _BleMessagingTransportHelper {
               'No usable BLE link (central=$hasCentralLink, peripheral=$hasPeripheralLink, peer=${peerId ?? "default"}, state=${_owner._connectionManager.connectionState.name})';
           _owner._logger.warning('⚠️ Protocol message send skipped: $msg');
           if (isHandshakeMessage) {
-            _owner._isProcessingWriteQueue = false;
             completer.completeError(HandshakeSendException(msg));
             return;
           }
@@ -455,7 +454,6 @@ class _BleMessagingTransportHelper {
                     }),
               );
             }
-            _owner._isProcessingWriteQueue = false;
             completer.completeError(HandshakeSendException(msg));
             return;
           }
@@ -559,9 +557,8 @@ class _BleMessagingTransportHelper {
           final msg =
               'Handshake write failed (platform status 133/IllegalArgument)';
           _owner._logger.warning(
-            '⚠️ Detected platform write failure (status 133 / IllegalArgument) — aborting queue and awaiting reconnection',
+            '⚠️ Detected platform write failure (status 133 / IllegalArgument) — awaiting reconnection',
           );
-          _owner._isProcessingWriteQueue = false;
           completer.completeError(HandshakeSendException(msg));
           return;
         }
@@ -582,24 +579,29 @@ class _BleMessagingTransportHelper {
     if (_owner._isProcessingWriteQueue || _owner._writeQueue.isEmpty) return;
 
     _owner._isProcessingWriteQueue = true;
-
-    // No link pre-check here: each queued write validates its own route
-    // (including peer-targeted client/server links the legacy global checks
-    // cannot see) and completes its completer with success or error. A
-    // pre-check that dropped writes left their completers dangling forever.
-    while (_owner._writeQueue.isNotEmpty) {
-      final write = _owner._writeQueue.removeAt(0);
-      try {
-        await write();
-      } catch (e) {
-        // Write failed; stop processing so caller can handle.
-        _owner._isProcessingWriteQueue = false;
-        rethrow;
+    try {
+      // No link pre-check here: each queued write validates its own route
+      // (including peer-targeted client/server links the legacy global checks
+      // cannot see) and completes its completer with success or error. A
+      // pre-check that dropped writes left their completers dangling forever.
+      while (_owner._writeQueue.isNotEmpty) {
+        final write = _owner._writeQueue.removeAt(0);
+        try {
+          await write();
+        } catch (error, stackTrace) {
+          // A queue item owns its caller-facing error completion. Keep the
+          // lane alive so one failed write cannot strand later admissions.
+          _owner._logger.warning(
+            'Serialized BLE write escaped its error boundary: $error',
+            error,
+            stackTrace,
+          );
+        }
+        // Small delay between writes to prevent GATT overload.
+        await Future.delayed(const Duration(milliseconds: 50));
       }
-      // Small delay between writes to prevent GATT overload
-      await Future.delayed(const Duration(milliseconds: 50));
+    } finally {
+      _owner._isProcessingWriteQueue = false;
     }
-
-    _owner._isProcessingWriteQueue = false;
   }
 }

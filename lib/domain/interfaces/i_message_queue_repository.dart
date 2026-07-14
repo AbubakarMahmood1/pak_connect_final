@@ -1,6 +1,40 @@
 import 'package:pak_connect/domain/entities/queue_enums.dart';
 import 'package:pak_connect/domain/entities/queued_message.dart';
 
+/// Result of an optimistic durable queue-state transition.
+class QueueStateTransitionResult {
+  const QueueStateTransitionResult({
+    required this.applied,
+    required this.current,
+  });
+
+  /// Whether the expected state still owned the row and was transitioned.
+  final bool applied;
+
+  /// Durable row observed at the end of the transaction, or `null` when the
+  /// row no longer exists.
+  final QueuedMessage? current;
+}
+
+/// Optional repository capability for cross-instance delivery handoff.
+///
+/// Implementations compare the durable delivery state identified by status,
+/// attempt count, and last-attempt timestamp. The replacement updates only
+/// delivery-state columns; a `null` replacement conditionally deletes the row.
+abstract interface class IConditionalMessageQueueRepository {
+  /// Insert a peer-synced row only when neither the active row nor its durable
+  /// deletion tombstone exists. On a tombstone conflict, [current] is `null`.
+  Future<QueueStateTransitionResult> insertMessageIfAbsentAndNotDeleted(
+    QueuedMessage message,
+  );
+
+  Future<QueueStateTransitionResult> transitionStateIfCurrent({
+    required QueuedMessage expected,
+    required QueuedMessage? replacement,
+    bool includePriority = false,
+  });
+}
+
 /// Interface for message queue database operations.
 ///
 /// Responsibility: CRUD operations for offline message queue storage.

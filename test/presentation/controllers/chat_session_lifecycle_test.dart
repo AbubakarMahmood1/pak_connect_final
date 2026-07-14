@@ -263,7 +263,7 @@ class _ControlledInitializationQueue extends InMemoryOfflineMessageQueue {
     Function(QueuedMessage message)? onMessageDelivered,
     Function(QueuedMessage message, String reason)? onMessageFailed,
     Function(QueueStatistics stats)? onStatsUpdated,
-    Function(String messageId)? onSendMessage,
+    OfflineQueueSendCallback? onSendMessage,
     Function()? onConnectivityCheck,
   }) async {
     initializationStarted.complete();

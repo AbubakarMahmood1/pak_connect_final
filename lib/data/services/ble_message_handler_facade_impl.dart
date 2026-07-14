@@ -32,7 +32,8 @@ import '../../domain/models/protocol_message.dart' as domain_models;
 /// (simplified interface) and BLEMessageHandler (complex BLE implementation).
 /// MeshNetworkingService only requires initialization and callback management.
 /// Methods with incompatible BLE-specific signatures are stubbed (Phase 3B work).
-class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
+class BLEMessageHandlerFacadeImpl
+    implements IBLEMessageHandlerFacade, IRouteBoundBleMessageHandlerFacade {
   static BLEStateManager? Function()? _legacyStateManagerResolver;
   static ISharedMessageQueueProvider? Function()? _sharedQueueProviderResolver;
 
@@ -718,6 +719,128 @@ class BLEMessageHandlerFacadeImpl implements IBLEMessageHandlerFacade {
       _logger.warning('⚠️ sendMessage failed via facade: $e');
       return false;
     }
+  }
+
+  @override
+  RouteBoundBleSendTask? prepareMessageToPeer({
+    required String peerId,
+    required String recipientKey,
+    required String content,
+    required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
+  }) {
+    final adapter = _ensureWriteAdapter();
+    final manager = _connectionManager;
+    final centralManager = _getCentralManager;
+    if (adapter == null || manager == null || centralManager == null) {
+      return null;
+    }
+
+    final candidate = manager.clientConnectionForPeer(peerId);
+    final connection = candidate?.address == peerId ? candidate : null;
+    final characteristic = connection?.messageCharacteristic;
+    if (connection == null || characteristic == null) return null;
+
+    return (scheduleWrite) async {
+      try {
+        return await adapter.sendCentralMessage(
+          centralManager: centralManager(),
+          connectedDevice: connection.peripheral,
+          messageCharacteristic: characteristic,
+          recipientKey: recipientKey,
+          content: content,
+          mtuSize: connection.mtu ?? 20,
+          messageId: messageId,
+          originalIntendedRecipient: originalIntendedRecipient,
+          writeScheduler: (write) => scheduleWrite(() async {
+            final liveCandidate = manager.clientConnectionForPeer(peerId);
+            final liveConnection = liveCandidate?.address == peerId
+                ? liveCandidate
+                : null;
+            if (liveConnection == null ||
+                liveConnection.connectedAt != connection.connectedAt ||
+                !identical(liveConnection.peripheral, connection.peripheral) ||
+                !identical(
+                  liveConnection.messageCharacteristic,
+                  characteristic,
+                )) {
+              throw StateError(
+                'Exact-route central send to $peerId cancelled: route changed',
+              );
+            }
+            await write();
+          }),
+        );
+      } catch (error, stackTrace) {
+        _logger.warning(
+          'Exact-route central send to $peerId failed: $error',
+          error,
+          stackTrace,
+        );
+        return false;
+      }
+    };
+  }
+
+  @override
+  RouteBoundBleSendTask? preparePeripheralMessageToPeer({
+    required String peerId,
+    required String senderKey,
+    required String content,
+    String? messageId,
+  }) {
+    final adapter = _ensureWriteAdapter();
+    final manager = _connectionManager;
+    final peripheralManager = _getPeripheralManager;
+    if (adapter == null || manager == null || peripheralManager == null) {
+      return null;
+    }
+
+    final candidate = manager.serverConnectionForPeer(peerId);
+    final connection = candidate?.address == peerId ? candidate : null;
+    final characteristic = connection?.subscribedCharacteristic;
+    if (connection == null || characteristic == null) return null;
+
+    return (scheduleWrite) async {
+      try {
+        return await adapter.sendPeripheralMessage(
+          peripheralManager: peripheralManager(),
+          connectedCentral: connection.central,
+          messageCharacteristic: characteristic,
+          senderKey: senderKey,
+          content: content,
+          mtuSize: connection.mtu ?? 20,
+          messageId: messageId,
+          writeScheduler: (write) => scheduleWrite(() async {
+            final liveCandidate = manager.serverConnectionForPeer(peerId);
+            final liveConnection = liveCandidate?.address == peerId
+                ? liveCandidate
+                : null;
+            if (liveConnection == null ||
+                liveConnection.connectedAt != connection.connectedAt ||
+                !identical(liveConnection.central, connection.central) ||
+                !identical(
+                  liveConnection.subscribedCharacteristic,
+                  characteristic,
+                )) {
+              throw StateError(
+                'Exact-route peripheral send to $peerId cancelled: '
+                'route changed',
+              );
+            }
+            await write();
+          }),
+        );
+      } catch (error, stackTrace) {
+        _logger.warning(
+          'Exact-route peripheral send to $peerId failed: $error',
+          error,
+          stackTrace,
+        );
+        return false;
+      }
+    };
   }
 
   @override

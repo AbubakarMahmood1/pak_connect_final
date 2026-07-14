@@ -16,7 +16,7 @@ Future<({QueueSyncMessage request, Future<QueueSyncResult> completion})>
 _beginPendingRound(
   QueueSyncManager manager,
   String target, {
-  void Function(List<QueuedMessage>, String)? onSendMessages,
+  QueueSyncSendMessagesCallback? onSendMessages,
 }) async {
   late QueueSyncMessage request;
   await manager.initialize(
@@ -195,6 +195,7 @@ void main() {
           'node_B',
           onSendMessages: (messages, toNodeId) {
             sentBatches.add((List.of(messages), toNodeId));
+            return messages.map((message) => message.id).toSet();
           },
         );
 
@@ -233,6 +234,7 @@ void main() {
           'node_B',
           onSendMessages: (messages, toNodeId) {
             sentBatches.add((messages, toNodeId));
+            return messages.map((message) => message.id).toSet();
           },
         );
 
@@ -261,6 +263,7 @@ void main() {
         await syncManager.initialize(
           onSendMessages: (messages, toNodeId) {
             sentBatches.add((List.of(messages), toNodeId));
+            return messages.map((message) => message.id).toSet();
           },
         );
 
@@ -316,6 +319,7 @@ void main() {
               for (final m in messages) {
                 queueB.addMessage(m);
               }
+              return messages.map((message) => message.id).toSet();
             },
           );
 
@@ -324,6 +328,7 @@ void main() {
               for (final m in messages) {
                 queueA.addMessage(m);
               }
+              return messages.map((message) => message.id).toSet();
             },
           );
 
@@ -393,6 +398,7 @@ void main() {
               for (final m in messages) {
                 queueB.addMessage(m);
               }
+              return messages.map((message) => message.id).toSet();
             },
           );
 
@@ -401,6 +407,7 @@ void main() {
               for (final m in messages) {
                 queueA.addMessage(m);
               }
+              return messages.map((message) => message.id).toSet();
             },
           );
 
@@ -453,6 +460,7 @@ void main() {
             for (final m in messages) {
               queueA.addMessage(m);
             }
+            return messages.map((message) => message.id).toSet();
           },
         );
 

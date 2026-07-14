@@ -1,11 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
 import 'package:pak_connect/core/messaging/offline_queue_facade.dart';
-import 'package:pak_connect/domain/entities/queue_enums.dart';
-import 'package:pak_connect/domain/entities/queue_statistics.dart';
-import 'package:pak_connect/domain/entities/queued_message.dart';
 import 'package:pak_connect/domain/interfaces/i_database_provider.dart';
 import 'package:pak_connect/domain/interfaces/i_repository_provider.dart';
+import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
 
@@ -24,7 +22,7 @@ class _SpyOfflineMessageQueue extends OfflineMessageQueue {
     Function(QueuedMessage message)? onMessageDelivered,
     Function(QueuedMessage message, String reason)? onMessageFailed,
     Function(QueueStatistics stats)? onStatsUpdated,
-    Function(String messageId)? onSendMessage,
+    OfflineQueueSendCallback? onSendMessage,
     Function()? onConnectivityCheck,
     IRepositoryProvider? repositoryProvider,
     IDatabaseProvider? databaseProvider,

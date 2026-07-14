@@ -381,6 +381,7 @@ void main() {
         syncManager1.onSendMessages = (messages, nodeId) {
           delivered = messages;
           deliveredNode = nodeId;
+          return messages.map((message) => message.id).toSet();
         };
 
         final syncMessage = QueueSyncMessage.createRequest(

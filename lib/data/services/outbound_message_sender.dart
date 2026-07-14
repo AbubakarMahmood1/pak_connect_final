@@ -9,6 +9,7 @@ import '../../domain/models/protocol_message.dart';
 import '../../domain/models/crypto_header.dart';
 import '../../domain/models/encryption_method.dart';
 import '../../domain/interfaces/i_security_service.dart';
+import '../../domain/interfaces/i_ble_message_handler_facade.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_state_manager.dart';
 import 'package:pak_connect/domain/services/security_service_locator.dart';
@@ -135,6 +136,7 @@ class OutboundMessageSender {
     String? recipientId,
     bool useEphemeralAddressing = false,
     String? originalIntendedRecipient,
+    BleWriteScheduler? writeScheduler,
     required ContactRepository contactRepository,
     required BLEStateManager stateManager,
     Function(bool)? onMessageOperationChanged,
@@ -142,6 +144,7 @@ class OutboundMessageSender {
     void Function(MessageId messageId, bool success)? onMessageSentIds,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
+    Completer<bool>? ackCompleter;
 
     try {
       onMessageOperationChanged?.call(true);
@@ -190,79 +193,90 @@ class OutboundMessageSender {
         '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for message: $msgId',
       );
 
-      final ackCompleter = _ackTracker.track(
-        msgId,
-        onTimeout: (timedOutId) {
-          _logger.warning('Message timeout: $timedOutId');
-        },
-      );
-
-      if (useBinaryEnvelope) {
-        await sendBinaryPayload(
-          data: jsonBytes,
-          mtuSize: mtuSize,
-          originalType: BinaryPayloadType.protocolMessage,
-          recipientId: finalRecipientId,
-          sendChunk: (chunkData) async {
-            if (_centralWrite != null) {
-              await _centralWrite(
-                centralManager: centralManager,
-                peripheral: connectedDevice,
-                characteristic: messageCharacteristic,
-                value: chunkData,
-              );
-            } else {
-              await centralManager.writeCharacteristic(
-                connectedDevice,
-                messageCharacteristic,
-                value: chunkData,
-                type: GATTCharacteristicWriteType.withResponse,
-              );
-            }
+      Future<void> writePayload() async {
+        ackCompleter ??= _ackTracker.track(
+          msgId,
+          onTimeout: (timedOutId) {
+            _logger.warning('Message timeout: $timedOutId');
           },
         );
-      } else if (singleChunk != null) {
-        await _chunkSender.sendChunks(
-          messageId: msgId,
-          fragments: [singleChunk],
-          sendChunk: (chunkData) async {
-            if (_centralWrite != null) {
-              await _centralWrite(
-                centralManager: centralManager,
-                peripheral: connectedDevice,
-                characteristic: messageCharacteristic,
-                value: chunkData,
+        if (useBinaryEnvelope) {
+          await sendBinaryPayload(
+            data: jsonBytes,
+            mtuSize: mtuSize,
+            originalType: BinaryPayloadType.protocolMessage,
+            recipientId: finalRecipientId,
+            sendChunk: (chunkData) async {
+              if (_centralWrite != null) {
+                await _centralWrite(
+                  centralManager: centralManager,
+                  peripheral: connectedDevice,
+                  characteristic: messageCharacteristic,
+                  value: chunkData,
+                );
+              } else {
+                await centralManager.writeCharacteristic(
+                  connectedDevice,
+                  messageCharacteristic,
+                  value: chunkData,
+                  type: GATTCharacteristicWriteType.withResponse,
+                );
+              }
+            },
+          );
+        } else if (singleChunk != null) {
+          await _chunkSender.sendChunks(
+            messageId: msgId,
+            fragments: [singleChunk],
+            sendChunk: (chunkData) async {
+              if (_centralWrite != null) {
+                await _centralWrite(
+                  centralManager: centralManager,
+                  peripheral: connectedDevice,
+                  characteristic: messageCharacteristic,
+                  value: chunkData,
+                );
+              } else {
+                await centralManager.writeCharacteristic(
+                  connectedDevice,
+                  messageCharacteristic,
+                  value: chunkData,
+                  type: GATTCharacteristicWriteType.withResponse,
+                );
+              }
+            },
+            onBeforeSend: (index, chunk) {
+              _logger.fine('📨 SEND STEP 5.1: Converting chunk 1/1 to bytes');
+              _logger.fine(
+                '📨 SEND STEP 5.1a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]',
               );
-            } else {
-              await centralManager.writeCharacteristic(
-                connectedDevice,
-                messageCharacteristic,
-                value: chunkData,
-                type: GATTCharacteristicWriteType.withResponse,
+              _logger.fine(
+                '📨 SEND STEP 5.1b: Chunk 1 → ${chunk.toBytes().length} bytes',
               );
-            }
-          },
-          onBeforeSend: (index, chunk) {
-            _logger.fine('📨 SEND STEP 5.1: Converting chunk 1/1 to bytes');
-            _logger.fine(
-              '📨 SEND STEP 5.1a: Chunk format: ${chunk.messageId}|${chunk.chunkIndex}|${chunk.totalChunks}|${chunk.isBinary ? "1" : "0"}|[${chunk.content.length} chars]',
-            );
-            _logger.fine(
-              '📨 SEND STEP 5.1b: Chunk 1 → ${chunk.toBytes().length} bytes',
-            );
-          },
-          onAfterSend: (index, _) {
-            _logger.fine(
-              '📨 SEND STEP 6.1✅: Chunk written to BLE successfully',
-            );
-          },
-        );
+            },
+            onAfterSend: (index, _) {
+              _logger.fine(
+                '📨 SEND STEP 6.1✅: Chunk written to BLE successfully',
+              );
+            },
+          );
+        }
       }
 
+      if (writeScheduler == null) {
+        await writePayload();
+      } else {
+        await writeScheduler(writePayload);
+      }
+
+      final trackedAck = ackCompleter;
+      if (trackedAck == null) {
+        throw StateError('BLE write scheduler returned without dispatching');
+      }
       _logger.info(
         'Message send dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"}), waiting for ACK...',
       );
-      final success = await ackCompleter.future;
+      final success = await trackedAck.future;
       onMessageSent?.call(msgId, success);
       onMessageSentIds?.call(MessageId(msgId), success);
       return success;
@@ -296,6 +310,7 @@ class OutboundMessageSender {
     void Function(String messageId, bool success)? onMessageSent,
     void Function(MessageId messageId, bool success)? onMessageSentIds,
     bool awaitAck = false,
+    BleWriteScheduler? writeScheduler,
   }) async {
     final msgId = messageId ?? DateTime.now().millisecondsSinceEpoch.toString();
     Completer<bool>? ackCompleter;
@@ -344,74 +359,85 @@ class OutboundMessageSender {
         '${useBinaryEnvelope ? "Using binary envelope" : "Single-chunk fast path"} for peripheral message: $msgId',
       );
 
-      if (awaitAck) {
-        ackCompleter = _ackTracker.track(
-          msgId,
-          onTimeout: (timedOutId) {
-            _logger.warning('Peripheral message timeout: $timedOutId');
-          },
-        );
+      Future<void> writePayload() async {
+        if (awaitAck) {
+          ackCompleter ??= _ackTracker.track(
+            msgId,
+            onTimeout: (timedOutId) {
+              _logger.warning('Peripheral message timeout: $timedOutId');
+            },
+          );
+        }
+        if (useBinaryEnvelope) {
+          await sendBinaryPayload(
+            data: jsonBytes,
+            mtuSize: mtuSize,
+            originalType: BinaryPayloadType.protocolMessage,
+            recipientId: finalRecipientId,
+            sendChunk: (chunkData) async {
+              if (_peripheralWrite != null) {
+                await _peripheralWrite(
+                  peripheralManager: peripheralManager,
+                  central: connectedCentral,
+                  characteristic: messageCharacteristic,
+                  value: chunkData,
+                  withoutResponse: true,
+                );
+              } else {
+                await peripheralManager.notifyCharacteristic(
+                  connectedCentral,
+                  messageCharacteristic,
+                  value: chunkData,
+                );
+              }
+            },
+          );
+        } else if (singleChunk != null) {
+          await _chunkSender.sendChunks(
+            messageId: msgId,
+            fragments: [singleChunk],
+            sendChunk: (chunkData) async {
+              if (_peripheralWrite != null) {
+                await _peripheralWrite(
+                  peripheralManager: peripheralManager,
+                  central: connectedCentral,
+                  characteristic: messageCharacteristic,
+                  value: chunkData,
+                  withoutResponse: true,
+                );
+              } else {
+                await peripheralManager.notifyCharacteristic(
+                  connectedCentral,
+                  messageCharacteristic,
+                  value: chunkData,
+                );
+              }
+            },
+            onBeforeSend: (index, chunk) {
+              _logger.info('Sending peripheral chunk 1/1 for message: $msgId');
+              _logger.fine(
+                'Peripheral chunk size: ${chunk.toBytes().length} bytes',
+              );
+            },
+          );
+        }
       }
 
-      if (useBinaryEnvelope) {
-        await sendBinaryPayload(
-          data: jsonBytes,
-          mtuSize: mtuSize,
-          originalType: BinaryPayloadType.protocolMessage,
-          recipientId: finalRecipientId,
-          sendChunk: (chunkData) async {
-            if (_peripheralWrite != null) {
-              await _peripheralWrite(
-                peripheralManager: peripheralManager,
-                central: connectedCentral,
-                characteristic: messageCharacteristic,
-                value: chunkData,
-                withoutResponse: true,
-              );
-            } else {
-              await peripheralManager.notifyCharacteristic(
-                connectedCentral,
-                messageCharacteristic,
-                value: chunkData,
-              );
-            }
-          },
-        );
-      } else if (singleChunk != null) {
-        await _chunkSender.sendChunks(
-          messageId: msgId,
-          fragments: [singleChunk],
-          sendChunk: (chunkData) async {
-            if (_peripheralWrite != null) {
-              await _peripheralWrite(
-                peripheralManager: peripheralManager,
-                central: connectedCentral,
-                characteristic: messageCharacteristic,
-                value: chunkData,
-                withoutResponse: true,
-              );
-            } else {
-              await peripheralManager.notifyCharacteristic(
-                connectedCentral,
-                messageCharacteristic,
-                value: chunkData,
-              );
-            }
-          },
-          onBeforeSend: (index, chunk) {
-            _logger.info('Sending peripheral chunk 1/1 for message: $msgId');
-            _logger.fine(
-              'Peripheral chunk size: ${chunk.toBytes().length} bytes',
-            );
-          },
-        );
+      if (writeScheduler == null) {
+        await writePayload();
+      } else {
+        await writeScheduler(writePayload);
       }
 
+      final trackedAck = ackCompleter;
+      if (awaitAck && trackedAck == null) {
+        throw StateError('BLE write scheduler returned without dispatching');
+      }
       _logger.info(
         'Peripheral message dispatched for $msgId (${useBinaryEnvelope ? "binary envelope" : "chunk path"})'
         '${awaitAck ? ", waiting for ACK" : ""}',
       );
-      final success = ackCompleter == null ? true : await ackCompleter.future;
+      final success = trackedAck == null ? true : await trackedAck.future;
       onMessageSent?.call(msgId, success);
       onMessageSentIds?.call(MessageId(msgId), success);
       return success;

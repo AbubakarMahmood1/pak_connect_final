@@ -226,6 +226,134 @@ void main() {
       });
     },
   );
+
+  test(
+    'conditional state transitions never overwrite or resurrect a newer attempt',
+    () async {
+      final pending = _message('conditional-attempt');
+      await seedQueue(pending);
+      final attemptedAt = DateTime.utc(2026, 7, 13, 12);
+      final sending = _message('conditional-attempt')
+        ..status = QueuedMessageStatus.sending
+        ..attempts = 1
+        ..lastAttemptAt = attemptedAt;
+
+      final admitted = await repository.transitionStateIfCurrent(
+        expected: pending,
+        replacement: sending,
+      );
+      expect(admitted.applied, isTrue);
+      expect(admitted.current?.status, QueuedMessageStatus.sending);
+      expect(admitted.current?.attempts, 1);
+
+      final staleUpdate = await repository.transitionStateIfCurrent(
+        expected: pending,
+        replacement: _message('conditional-attempt')
+          ..status = QueuedMessageStatus.failed,
+      );
+      expect(staleUpdate.applied, isFalse);
+      expect(staleUpdate.current?.status, QueuedMessageStatus.sending);
+      expect(staleUpdate.current?.attempts, 1);
+
+      final staleDelete = await repository.transitionStateIfCurrent(
+        expected: pending,
+        replacement: null,
+      );
+      expect(staleDelete.applied, isFalse);
+      expect(
+        (await queueRows()).single['status'],
+        QueuedMessageStatus.sending.index,
+      );
+
+      final deleted = await repository.transitionStateIfCurrent(
+        expected: sending,
+        replacement: null,
+      );
+      expect(deleted.applied, isTrue);
+      expect(deleted.current, isNull);
+      expect(await queueRows(), isEmpty);
+
+      final absentUpdate = await repository.transitionStateIfCurrent(
+        expected: sending,
+        replacement: _message('conditional-attempt'),
+      );
+      expect(absentUpdate.applied, isFalse);
+      expect(absentUpdate.current, isNull);
+      expect(await queueRows(), isEmpty);
+    },
+  );
+
+  test(
+    'delivery transition preserves a concurrent priority-only edit',
+    () async {
+      final attemptedAt = DateTime.utc(2026, 7, 13, 12);
+      final sending = _message('priority-preserved')
+        ..status = QueuedMessageStatus.sending
+        ..attempts = 2
+        ..lastAttemptAt = attemptedAt;
+      await seedQueue(sending);
+      await database.update(
+        'offline_message_queue',
+        {'priority': MessagePriority.urgent.index},
+        where: 'message_id = ?',
+        whereArgs: [sending.id],
+      );
+      final retrying = _message('priority-preserved')
+        ..status = QueuedMessageStatus.retrying
+        ..attempts = 2
+        ..lastAttemptAt = attemptedAt
+        ..nextRetryAt = attemptedAt.add(const Duration(seconds: 5));
+
+      final result = await repository.transitionStateIfCurrent(
+        expected: sending,
+        replacement: retrying,
+      );
+
+      expect(result.applied, isTrue);
+      expect(result.current?.status, QueuedMessageStatus.retrying);
+      expect(result.current?.priority, MessagePriority.urgent);
+      final row = (await queueRows()).single;
+      expect(row['status'], QueuedMessageStatus.retrying.index);
+      expect(row['priority'], MessagePriority.urgent.index);
+    },
+  );
+
+  test(
+    'synced admission cannot overwrite an attempt or revive a tombstone',
+    () async {
+      await database.insert('deleted_message_ids', {
+        'message_id': 'sync-tombstoned',
+        'deleted_at': 1,
+      });
+      final tombstoned = await repository.insertMessageIfAbsentAndNotDeleted(
+        _message('sync-tombstoned'),
+      );
+      expect(tombstoned.applied, isFalse);
+      expect(tombstoned.current, isNull);
+
+      final sending = _message('sync-existing')
+        ..status = QueuedMessageStatus.sending
+        ..attempts = 3
+        ..lastAttemptAt = DateTime.utc(2026, 7, 13, 13);
+      await seedQueue(sending);
+      final conflict = await repository.insertMessageIfAbsentAndNotDeleted(
+        _message('sync-existing'),
+      );
+      expect(conflict.applied, isFalse);
+      expect(conflict.current?.status, QueuedMessageStatus.sending);
+      expect(conflict.current?.attempts, 3);
+
+      final fresh = await repository.insertMessageIfAbsentAndNotDeleted(
+        _message('sync-fresh'),
+      );
+      expect(fresh.applied, isTrue);
+      expect(fresh.current?.status, QueuedMessageStatus.pending);
+      expect((await queueRows()).map((row) => row['message_id']).toSet(), {
+        'sync-existing',
+        'sync-fresh',
+      });
+    },
+  );
 }
 
 QueuedMessage _message(String id) => QueuedMessage(

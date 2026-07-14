@@ -31,6 +31,8 @@ void main() {
       // Initialize queue
       queue = OfflineMessageQueue();
       await queue.initialize();
+      queue.onSendMessage = (_) => OfflineQueueSendDisposition.deferred;
+      await queue.setOnline();
 
       // Setup coordinator (no actual send)
       coordinator = HandshakeCoordinator(
@@ -161,11 +163,6 @@ void main() {
     test('flushQueueForPeer processes messages in priority order', () async {
       final deliveredMessages = <String>[];
 
-      // Mock send callback to track order
-      queue.onSendMessage = (messageId) {
-        deliveredMessages.add(messageId);
-      };
-
       // Queue messages with different priorities
       await queue.queueMessage(
         chatId: 'chat',
@@ -191,6 +188,16 @@ void main() {
         priority: MessagePriority.normal,
       );
 
+      // Let the queue's initial deferred delivery attempts settle before
+      // changing the transport disposition for the explicit flush.
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      // Mock send callback to track the explicit flush order.
+      queue.onSendMessage = (messageId) {
+        deliveredMessages.add(messageId);
+        return OfflineQueueSendDisposition.delivered;
+      };
+
       // Flush queue
       await queue.flushQueueForPeer(peerEphemeralId);
 
@@ -205,10 +212,6 @@ void main() {
       () async {
         int sendCount = 0;
 
-        queue.onSendMessage = (messageId) {
-          sendCount++;
-        };
-
         // Queue a message
         await queue.queueMessage(
           chatId: 'chat',
@@ -216,6 +219,15 @@ void main() {
           recipientPublicKey: peerEphemeralId,
           senderPublicKey: myPublicKey,
         );
+
+        // Avoid racing the queueMessage-triggered deferred attempt with the
+        // explicit handshake flush below.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        queue.onSendMessage = (messageId) {
+          sendCount++;
+          return OfflineQueueSendDisposition.delivered;
+        };
 
         // Flush twice (simulating duplicate handshake events)
         await queue.flushQueueForPeer(peerEphemeralId);

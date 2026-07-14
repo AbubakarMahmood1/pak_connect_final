@@ -1,6 +1,6 @@
 /// Supplementary MeshQueueSyncCoordinator coverage targeting
 /// private callback methods: _handleSendMessage, _handleConnectivityCheck,
-/// _handleConnectionChange, _deliverQueuedMessagesToDevice, _syncQueueWithDevice,
+/// _handleConnectionChange, queue-owned delivery re-drive, _syncQueueWithDevice,
 /// _handleIncomingQueueSync, and _handleMessageDelivered persistence.
 library;
 
@@ -10,11 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
+import 'package:pak_connect/domain/models/protocol_message.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_network_health_monitor.dart';
 import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dart';
 
@@ -22,7 +24,8 @@ import 'package:pak_connect/domain/services/mesh/mesh_queue_sync_coordinator.dar
 // Fakes — extended versions that capture queue callbacks
 // ---------------------------------------------------------------------------
 
-class _FakeConnectionService extends Fake implements IConnectionService {
+class _FakeConnectionService extends Fake
+    implements IConnectionService, IRouteBoundMeshBleService {
   final StreamController<String> _messages = StreamController.broadcast();
   final StreamController<ConnectionInfo> _connections =
       StreamController.broadcast();
@@ -31,8 +34,14 @@ class _FakeConnectionService extends Fake implements IConnectionService {
   String? _sessionId = 'recipient-1';
   final List<String> deviceAddresses = ['device-1'];
   bool sendResult = true;
+  bool throwOnSend = false;
   int sendCallCount = 0;
   int peripheralSendCount = 0;
+  int protocolSendCount = 0;
+  int routeSendCount = 0;
+  int routeProtocolSendCount = 0;
+  final List<String> routeTransportAddresses = [];
+  final Map<String, Completer<bool>> routeOutcomes = {};
   final List<QueueSyncMessage> sentSyncMessages = [];
   Future<bool> Function(QueueSyncMessage, String)? _syncHandler;
 
@@ -75,6 +84,7 @@ class _FakeConnectionService extends Fake implements IConnectionService {
     String? originalIntendedRecipient,
   }) async {
     sendCallCount++;
+    if (throwOnSend) throw StateError('central send failed');
     return sendResult;
   }
 
@@ -84,7 +94,43 @@ class _FakeConnectionService extends Fake implements IConnectionService {
     String? messageId,
   }) async {
     peripheralSendCount++;
+    if (throwOnSend) throw StateError('peripheral send failed');
     return sendResult;
+  }
+
+  @override
+  Future<bool> sendProtocolMessage(ProtocolMessage message) async {
+    protocolSendCount++;
+    if (throwOnSend) throw StateError('protocol send failed');
+    return sendResult;
+  }
+
+  @override
+  Future<bool>? trySendMessageOnRoute(
+    String message, {
+    required String transportAddress,
+    required String messageId,
+    required String intendedRecipient,
+  }) {
+    if (!_canSend || !deviceAddresses.contains(transportAddress)) return null;
+    routeSendCount++;
+    routeTransportAddresses.add(transportAddress);
+    if (throwOnSend) return Future<bool>.error(StateError('route send failed'));
+    return routeOutcomes[messageId]?.future ?? Future<bool>.value(sendResult);
+  }
+
+  @override
+  Future<bool>? trySendProtocolMessageOnRoute(
+    ProtocolMessage message, {
+    required String transportAddress,
+  }) {
+    if (!_canSend || !deviceAddresses.contains(transportAddress)) return null;
+    routeProtocolSendCount++;
+    routeTransportAddresses.add(transportAddress);
+    if (throwOnSend) {
+      return Future<bool>.error(StateError('route protocol send failed'));
+    }
+    return Future<bool>.value(sendResult);
   }
 
   @override
@@ -147,13 +193,18 @@ class _CallbackCapturingQueue extends Fake
   int retryAllCount = 0;
   final List<String> failedIds = [];
   final List<String> deliveredIds = [];
+  final List<String> retriedIds = [];
+  final List<Set<String>> attemptedIdBatches = [];
+  Set<String>? attemptReceiptOverride;
+  int setOnlineCount = 0;
+  void Function(String messageId)? beforePreparedStart;
 
   // Captured callbacks
   Function(QueuedMessage message)? capturedOnMessageQueued;
   Function(QueuedMessage message)? capturedOnMessageDelivered;
   Function(QueuedMessage message, String reason)? capturedOnMessageFailed;
   Function(QueueStatistics stats)? capturedOnStatsUpdated;
-  Function(String messageId)? capturedOnSendMessage;
+  OfflineQueueSendCallback? capturedOnSendMessage;
   Function()? capturedOnConnectivityCheck;
 
   @override
@@ -170,7 +221,7 @@ class _CallbackCapturingQueue extends Fake
   set onStatsUpdated(Function(QueueStatistics stats)? callback) =>
       capturedOnStatsUpdated = callback;
   @override
-  set onSendMessage(Function(String messageId)? callback) =>
+  set onSendMessage(OfflineQueueSendCallback? callback) =>
       capturedOnSendMessage = callback;
   @override
   set onConnectivityCheck(Function()? callback) =>
@@ -255,6 +306,42 @@ class _CallbackCapturingQueue extends Fake
   }
 
   @override
+  Future<bool> retryMessage(String messageId) async {
+    final message = getMessageById(messageId);
+    if (message == null) {
+      return false;
+    }
+    retriedIds.add(messageId);
+    message.status = QueuedMessageStatus.pending;
+    return true;
+  }
+
+  @override
+  Future<Set<String>> attemptMessages(
+    Iterable<String> messageIds, {
+    OfflineQueuePrepareSendCallback? prepareSend,
+  }) async {
+    final requestedIds = messageIds.toSet();
+    attemptedIdBatches.add(requestedIds);
+    final override = attemptReceiptOverride;
+    if (override != null) return override;
+
+    final attempted = <String>{};
+    for (final messageId in requestedIds) {
+      if (getMessageById(messageId) == null) continue;
+      if (prepareSend == null) {
+        attempted.add(messageId);
+        continue;
+      }
+      final prepared = await prepareSend(messageId);
+      beforePreparedStart?.call(messageId);
+      final outcome = prepared?.tryStart();
+      if (outcome != null) attempted.add(messageId);
+    }
+    return attempted;
+  }
+
+  @override
   Future<void> markMessageFailed(String messageId, String reason) async {
     failedIds.add(messageId);
     final msg = getMessageById(messageId);
@@ -272,7 +359,10 @@ class _CallbackCapturingQueue extends Fake
   }
 
   @override
-  Future<void> setOnline() async => online = true;
+  Future<void> setOnline() async {
+    setOnlineCount++;
+    online = true;
+  }
 
   @override
   void setOffline() => online = false;
@@ -306,6 +396,7 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
   bool shouldThrowOnInitiate = false;
   int cancelCount = 0;
   final Set<String> pendingSyncTargets = {};
+  QueueSyncSendMessagesCallback? sendMessages;
 
   QueueSyncResponse syncRequestResponse = QueueSyncResponse.alreadySynced();
   QueueSyncResult syncResponseResult = QueueSyncResult.success(
@@ -319,11 +410,12 @@ class _FakeSyncManager extends Fake implements QueueSyncManagerContract {
   @override
   Future<void> initialize({
     Function(QueueSyncMessage message, String fromNodeId)? onSyncRequest,
-    Function(List<QueuedMessage> messages, String toNodeId)? onSendMessages,
+    QueueSyncSendMessagesCallback? onSendMessages,
     Function(String nodeId, QueueSyncResult result)? onSyncCompleted,
     Function(String nodeId, String error)? onSyncFailed,
   }) async {
     initCalled = true;
+    sendMessages = onSendMessages;
   }
 
   @override
@@ -390,6 +482,9 @@ QueuedMessage _testMessage({
   String content = 'hello',
   MessagePriority priority = MessagePriority.normal,
   DateTime? queuedAt,
+  bool isRelayMessage = false,
+  RelayMetadata? relayMetadata,
+  String? originalMessageId,
 }) => QueuedMessage(
   id: id,
   chatId: 'chat-1',
@@ -400,6 +495,9 @@ QueuedMessage _testMessage({
   status: QueuedMessageStatus.pending,
   queuedAt: queuedAt ?? DateTime(2024, 1, 1),
   maxRetries: 3,
+  isRelayMessage: isRelayMessage,
+  relayMetadata: relayMetadata,
+  originalMessageId: originalMessageId,
 );
 
 // ---------------------------------------------------------------------------
@@ -444,6 +542,12 @@ void main() {
     );
   }
 
+  Future<OfflineQueueSendDisposition> invokeSend(String messageId) async {
+    final callback = queue.capturedOnSendMessage;
+    expect(callback, isNotNull);
+    return Future<OfflineQueueSendDisposition>.value(callback!(messageId));
+  }
+
   // ─────────── _handleSendMessage via onSendMessage callback ───────────
   group('_handleSendMessage (via queue callback)', () {
     test('sends message via central when no peripheral connection', () async {
@@ -451,12 +555,13 @@ void main() {
 
       queue.addTestMessage(_testMessage(id: 'msg-1'));
 
-      // Trigger _handleSendMessage via the captured callback
-      queue.capturedOnSendMessage?.call('msg-1');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-1');
 
+      expect(disposition, OfflineQueueSendDisposition.delivered);
       expect(bleService.sendCallCount, 1);
       expect(bleService.peripheralSendCount, 0);
+      expect(queue.deliveredIds, isEmpty);
+      expect(queue.failedIds, isEmpty);
     });
 
     test('defers direct send when multiple BLE routes are active', () async {
@@ -464,9 +569,9 @@ void main() {
       bleService.deviceAddresses.add('device-2');
       queue.addTestMessage(_testMessage(id: 'msg-multi-link'));
 
-      queue.capturedOnSendMessage?.call('msg-multi-link');
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-multi-link');
 
+      expect(disposition, OfflineQueueSendDisposition.deferred);
       expect(bleService.sendCallCount, 0);
       expect(bleService.peripheralSendCount, 0);
       expect(queue.failedIds, isNot(contains('msg-multi-link')));
@@ -482,21 +587,26 @@ void main() {
 
       queue.addTestMessage(_testMessage(id: 'msg-2'));
 
-      queue.capturedOnSendMessage?.call('msg-2');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-2');
 
+      expect(disposition, OfflineQueueSendDisposition.delivered);
       expect(bleService.peripheralSendCount, 1);
       expect(bleService.sendCallCount, 0);
+      expect(queue.deliveredIds, isEmpty);
     });
 
-    test('marks failed when message not in queue', () async {
-      await initCoordinator();
+    test(
+      'returns false without mutating queue when message is absent',
+      () async {
+        await initCoordinator();
 
-      queue.capturedOnSendMessage?.call('nonexistent');
-      await Future.delayed(const Duration(milliseconds: 50));
+        final disposition = await invokeSend('nonexistent');
 
-      expect(queue.failedIds, contains('nonexistent'));
-    });
+        expect(disposition, OfflineQueueSendDisposition.failed);
+        expect(queue.failedIds, isEmpty);
+        expect(queue.deliveredIds, isEmpty);
+      },
+    );
 
     test('keeps message pending when canSendMessages is false', () async {
       bleService.canSendMessages = false;
@@ -504,9 +614,9 @@ void main() {
 
       queue.addTestMessage(_testMessage(id: 'msg-no-conn'));
 
-      queue.capturedOnSendMessage?.call('msg-no-conn');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-no-conn');
 
+      expect(disposition, OfflineQueueSendDisposition.deferred);
       expect(queue.failedIds, isNot(contains('msg-no-conn')));
       expect(
         queue.getMessageById('msg-no-conn')?.status,
@@ -514,16 +624,85 @@ void main() {
       );
     });
 
-    test('marks failed when BLE send returns false', () async {
+    test('returns false without mutating queue when BLE send fails', () async {
       bleService.sendResult = false;
       await initCoordinator();
 
       queue.addTestMessage(_testMessage(id: 'msg-fail'));
 
-      queue.capturedOnSendMessage?.call('msg-fail');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-fail');
 
-      expect(queue.failedIds, contains('msg-fail'));
+      expect(disposition, OfflineQueueSendDisposition.failed);
+      expect(queue.failedIds, isEmpty);
+      expect(queue.deliveredIds, isEmpty);
+    });
+
+    test(
+      'returns false without mutating queue when transport throws',
+      () async {
+        bleService.throwOnSend = true;
+        await initCoordinator();
+        queue.addTestMessage(_testMessage(id: 'msg-throws'));
+
+        final disposition = await invokeSend('msg-throws');
+
+        expect(disposition, OfflineQueueSendDisposition.failed);
+        expect(queue.failedIds, isEmpty);
+        expect(queue.deliveredIds, isEmpty);
+      },
+    );
+
+    test('returns true when relay transport accepts the envelope', () async {
+      await initCoordinator();
+      final metadata = RelayMetadata.create(
+        originalMessageContent: 'inner payload',
+        priority: MessagePriority.normal,
+        originalSender: 'origin',
+        finalRecipient: 'final-recipient',
+        currentNodeId: 'sender-1',
+      );
+      queue.addTestMessage(
+        _testMessage(
+          id: 'relay-envelope',
+          content: 'inner payload',
+          isRelayMessage: true,
+          relayMetadata: metadata,
+          originalMessageId: 'original-message',
+        ),
+      );
+
+      final disposition = await invokeSend('relay-envelope');
+
+      expect(disposition, OfflineQueueSendDisposition.awaitingAck);
+      expect(bleService.protocolSendCount, 1);
+      expect(queue.failedIds, isEmpty);
+      expect(queue.deliveredIds, isEmpty);
+    });
+
+    test('returns false for an ambiguous relay route', () async {
+      bleService.deviceAddresses.add('device-2');
+      await initCoordinator();
+      final metadata = RelayMetadata.create(
+        originalMessageContent: 'inner payload',
+        priority: MessagePriority.normal,
+        originalSender: 'origin',
+        finalRecipient: 'final-recipient',
+        currentNodeId: 'sender-1',
+      );
+      queue.addTestMessage(
+        _testMessage(
+          id: 'relay-ambiguous',
+          content: 'inner payload',
+          isRelayMessage: true,
+          relayMetadata: metadata,
+          originalMessageId: 'original-message',
+        ),
+      );
+
+      final disposition = await invokeSend('relay-ambiguous');
+
+      expect(disposition, OfflineQueueSendDisposition.deferred);
+      expect(bleService.protocolSendCount, 0);
     });
 
     test(
@@ -538,9 +717,9 @@ void main() {
           _testMessage(id: 'msg-mismatch', recipientPublicKey: 'intended-peer'),
         );
 
-        queue.capturedOnSendMessage?.call('msg-mismatch');
-        await Future.delayed(const Duration(milliseconds: 50));
+        final disposition = await invokeSend('msg-mismatch');
 
+        expect(disposition, OfflineQueueSendDisposition.deferred);
         expect(bleService.sendCallCount, 0);
         expect(bleService.peripheralSendCount, 0);
         expect(queue.failedIds, isNot(contains('msg-mismatch')));
@@ -551,7 +730,7 @@ void main() {
       },
     );
 
-    test('sends when current peer is an approved relay', () async {
+    test('does not treat an arbitrary peer as an approved relay', () async {
       bleService.currentSessionId = 'relay-peer';
       coordinator = MeshQueueSyncCoordinator(
         bleService: bleService,
@@ -565,9 +744,9 @@ void main() {
         _testMessage(id: 'msg-relay', recipientPublicKey: 'final-recipient'),
       );
 
-      queue.capturedOnSendMessage?.call('msg-relay');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-relay');
 
+      expect(disposition, OfflineQueueSendDisposition.deferred);
       expect(bleService.sendCallCount, 0);
       expect(queue.failedIds, isNot(contains('msg-relay')));
       expect(
@@ -584,11 +763,12 @@ void main() {
         _testMessage(id: 'msg-match', recipientPublicKey: 'intended-peer'),
       );
 
-      queue.capturedOnSendMessage?.call('msg-match');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-match');
 
+      expect(disposition, OfflineQueueSendDisposition.delivered);
       expect(bleService.sendCallCount, 1);
       expect(queue.failedIds, isNot(contains('msg-match')));
+      expect(queue.deliveredIds, isEmpty);
     });
 
     test('sends when theirEphemeralId matches recipient', () async {
@@ -600,9 +780,9 @@ void main() {
         _testMessage(id: 'msg-eph', recipientPublicKey: 'intended-peer'),
       );
 
-      queue.capturedOnSendMessage?.call('msg-eph');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-eph');
 
+      expect(disposition, OfflineQueueSendDisposition.delivered);
       expect(bleService.sendCallCount, 1);
     });
 
@@ -615,10 +795,24 @@ void main() {
         _testMessage(id: 'msg-pkey', recipientPublicKey: 'intended-peer'),
       );
 
-      queue.capturedOnSendMessage?.call('msg-pkey');
-      await Future.delayed(const Duration(milliseconds: 50));
+      final disposition = await invokeSend('msg-pkey');
 
+      expect(disposition, OfflineQueueSendDisposition.delivered);
       expect(bleService.sendCallCount, 1);
+    });
+
+    test('returns false after coordinator disposal clears the queue', () async {
+      await initCoordinator();
+      queue.addTestMessage(_testMessage(id: 'after-dispose'));
+      final callback = queue.capturedOnSendMessage!;
+
+      await coordinator.dispose();
+      final disposition = await Future<OfflineQueueSendDisposition>.value(
+        callback('after-dispose'),
+      );
+
+      expect(disposition, OfflineQueueSendDisposition.failed);
+      expect(bleService.sendCallCount, 0);
     });
   });
 
@@ -698,7 +892,7 @@ void main() {
 
   // ─────────── _handleConnectionChange via stream ───────────
   group('_handleConnectionChange (via connection stream)', () {
-    test('sets online and delivers on ready connection', () async {
+    test('sets queue online on a ready connection', () async {
       queue.addTestMessage(
         _testMessage(id: 'pending-1', recipientPublicKey: 'recipient-1'),
       );
@@ -715,6 +909,12 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 100));
 
       expect(queue.online, isTrue);
+      expect(queue.setOnlineCount, 1);
+      expect(
+        bleService.sendCallCount,
+        0,
+        reason: 'connection handling must not bypass the queue attempt owner',
+      );
     });
 
     test('sets offline and cancels syncs on disconnect', () async {
@@ -761,9 +961,9 @@ void main() {
     });
   });
 
-  // ─────────── _deliverQueuedMessagesToDevice (via connection) ───────────
-  group('_deliverQueuedMessagesToDevice (via connection change)', () {
-    test('delivers direct messages sorted by priority', () async {
+  // ─────────── queue-owned connection delivery ───────────
+  group('queue-owned connection delivery', () {
+    test('does not invoke transport directly for pending messages', () async {
       final highPri = _testMessage(
         id: 'high-1',
         recipientPublicKey: 'recipient-1',
@@ -788,10 +988,12 @@ void main() {
           awaitingHandshake: false,
         ),
       );
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 100));
 
-      // Both messages should be sent (high priority first due to sorting)
-      expect(bleService.sendCallCount, 2);
+      expect(queue.setOnlineCount, 1);
+      expect(bleService.sendCallCount, 0);
+      expect(queue.getMessageById('high-1'), same(highPri));
+      expect(queue.getMessageById('normal-1'), same(normalPri));
     });
 
     test('skips messages not addressed to connected device', () async {
@@ -810,7 +1012,121 @@ void main() {
       );
       await Future.delayed(const Duration(milliseconds: 100));
 
-      // No direct messages and relay returns false → no sends
+      expect(queue.setOnlineCount, 1);
+      expect(bleService.sendCallCount, 0);
+    });
+  });
+
+  group('queue-sync delivery re-drive', () {
+    test('attempts exactly the excess IDs through the queue owner', () async {
+      final message = _testMessage(id: 'sync-excess');
+      queue.addTestMessage(message);
+      await initCoordinator();
+
+      final receipt = await syncManager.sendMessages!([message], 'device-1');
+
+      expect(receipt, {'sync-excess'});
+      expect(queue.attemptedIdBatches, [
+        {'sync-excess'},
+      ]);
+      expect(queue.setOnlineCount, 0);
+      expect(queue.retriedIds, isEmpty);
+      expect(bleService.routeSendCount, 1);
+      expect(bleService.routeTransportAddresses, ['device-1']);
+      expect(
+        bleService.sendCallCount,
+        0,
+        reason: 'sync coordination must not call transport directly',
+      );
+    });
+
+    test(
+      'does not re-drive payloads for an ambiguous or wrong route',
+      () async {
+        final message = _testMessage(id: 'wrong-sync-route');
+        queue.addTestMessage(message);
+        await initCoordinator();
+
+        final receipt = await syncManager.sendMessages!([message], 'device-2');
+
+        expect(receipt, isEmpty);
+        expect(queue.attemptedIdBatches, isEmpty);
+        expect(queue.retriedIds, isEmpty);
+        expect(queue.setOnlineCount, 0);
+        expect(bleService.sendCallCount, 0);
+      },
+    );
+
+    test(
+      'receipts four exact-route admissions before outcomes settle',
+      () async {
+        final messages = List<QueuedMessage>.generate(
+          4,
+          (index) => _testMessage(id: 'sync-pending-$index'),
+        );
+        for (final message in messages) {
+          queue.addTestMessage(message);
+          bleService.routeOutcomes[message.id] = Completer<bool>();
+        }
+        await initCoordinator();
+
+        final receipt = await Future<Set<String>>.value(
+          syncManager.sendMessages!(messages, 'device-1'),
+        ).timeout(const Duration(milliseconds: 250));
+
+        expect(receipt, messages.map((message) => message.id).toSet());
+        expect(bleService.routeSendCount, 4);
+        expect(
+          bleService.routeOutcomes.values.every(
+            (outcome) => !outcome.isCompleted,
+          ),
+          isTrue,
+        );
+
+        for (final outcome in bleService.routeOutcomes.values) {
+          outcome.complete(true);
+        }
+        await Future<void>.delayed(Duration.zero);
+      },
+    );
+
+    test('a route swap before transport admission is not receipted', () async {
+      final message = _testMessage(id: 'sync-route-swap');
+      queue
+        ..addTestMessage(message)
+        ..beforePreparedStart = (_) {
+          bleService.deviceAddresses
+            ..clear()
+            ..add('device-2');
+        };
+      await initCoordinator();
+
+      final receipt = await syncManager.sendMessages!([message], 'device-1');
+
+      expect(receipt, isEmpty);
+      expect(bleService.routeSendCount, 0);
+      expect(bleService.routeTransportAddresses, isEmpty);
+      expect(bleService.sendCallCount, 0);
+    });
+
+    test('propagates a partial queue admission receipt', () async {
+      final first = _testMessage(id: 'sync-first');
+      final second = _testMessage(id: 'sync-second');
+      queue
+        ..addTestMessage(first)
+        ..addTestMessage(second)
+        ..attemptReceiptOverride = {'sync-first'};
+      await initCoordinator();
+
+      final receipt = await syncManager.sendMessages!([
+        first,
+        second,
+      ], 'device-1');
+
+      expect(receipt, {'sync-first'});
+      expect(queue.attemptedIdBatches, [
+        {'sync-first', 'sync-second'},
+      ]);
       expect(bleService.sendCallCount, 0);
     });
   });
@@ -912,6 +1228,31 @@ void main() {
       expect(bleService.sentSyncMessages, hasLength(1));
     });
 
+    test(
+      'returns false when an inbound sync request cannot dispatch',
+      () async {
+        syncManager.syncRequestResponse = QueueSyncResponse.error(
+          'dispatch receipt mismatch',
+        );
+        await initCoordinator();
+        coordinator.enableQueueSyncHandling();
+
+        final result = await bleService.invokeSyncHandler(
+          QueueSyncMessage(
+            nodeId: 'peer-error',
+            queueHash: 'h-error',
+            messageIds: const ['m-error'],
+            syncTimestamp: DateTime.now(),
+            syncType: QueueSyncType.request,
+          ),
+          'peer-error',
+        );
+
+        expect(result, isFalse);
+        expect(bleService.sentSyncMessages, isEmpty);
+      },
+    );
+
     test('handles sync response type', () async {
       await initCoordinator();
       coordinator.enableQueueSyncHandling();
@@ -928,6 +1269,28 @@ void main() {
       final result = await bleService.invokeSyncHandler(syncResp, 'peer-2');
 
       expect(result, isTrue);
+    });
+
+    test('returns false when processing a sync response fails', () async {
+      syncManager.syncResponseResult = QueueSyncResult.error(
+        'partial reverse dispatch',
+      );
+      await initCoordinator();
+      coordinator.enableQueueSyncHandling();
+      syncManager.pendingSyncTargets.add('peer-failed-response');
+
+      final result = await bleService.invokeSyncHandler(
+        QueueSyncMessage(
+          nodeId: 'peer-failed-response',
+          queueHash: 'h-failed-response',
+          messageIds: const ['m2'],
+          syncTimestamp: DateTime.now(),
+          syncType: QueueSyncType.response,
+        ),
+        'peer-failed-response',
+      );
+
+      expect(result, isFalse);
     });
 
     test('returns false when manager is null', () async {

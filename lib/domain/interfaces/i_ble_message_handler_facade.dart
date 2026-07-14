@@ -233,6 +233,32 @@ abstract interface class IBLEMessageHandlerFacade {
   void dispose();
 }
 
+/// Optional adapter capability that resolves and writes only to an exact BLE
+/// connection record. Implementations must not fall back to a global/current
+/// connection when [peerId] is absent or stale.
+typedef BleWriteOperation = Future<void> Function();
+typedef BleWriteScheduler = Future<void> Function(BleWriteOperation write);
+typedef RouteBoundBleSendTask =
+    Future<bool> Function(BleWriteScheduler scheduleWrite);
+
+abstract interface class IRouteBoundBleMessageHandlerFacade {
+  RouteBoundBleSendTask? prepareMessageToPeer({
+    required String peerId,
+    required String recipientKey,
+    required String content,
+    required Duration timeout,
+    String? messageId,
+    String? originalIntendedRecipient,
+  });
+
+  RouteBoundBleSendTask? preparePeripheralMessageToPeer({
+    required String peerId,
+    required String senderKey,
+    required String content,
+    String? messageId,
+  });
+}
+
 /// Typed helpers to keep wire payloads string-based while allowing callers to use value objects.
 extension BleMessageHandlerFacadeIds on IBLEMessageHandlerFacade {
   Future<bool> sendMessageWithIds({
