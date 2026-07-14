@@ -1,6 +1,6 @@
 # PakConnect device validation status
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Current environment
 
@@ -28,9 +28,10 @@ Use only these labels:
 
 | Item | Status | Evidence/notes |
 |---|---|---|
-| `flutter analyze --no-pub` | PASS | Clean on 2026-07-13 with Flutter 3.41.5 / Dart 3.11.3 |
-| Desktop full unit/widget suite | PASS | 5,690 tests, 0 failures, 3m22s; 9,601,513-byte `flutter_test_latest.log`, SHA-256 `94800A24EAE98A7EE0D154D911ADD87F91E33B75E734859864F55D13F475E166` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 233,187,740 bytes; SHA-256 `2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233`; its exact code/build-input tree is committed as baseline `9f0a055` |
+| `flutter analyze --no-pub` | PASS | Clean for baseline `d5f6d7e` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
+| Desktop full unit/widget suite | PASS | 5,691 passed, 0 failed; reporter 6m30s; measured wall 401,348 ms; 9,172,538-byte `flutter_test_latest.log`, SHA-256 `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC` |
+| Coverage artifact | PASS | `coverage/lcov.info`; 426,841 bytes; SHA-256 `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8` |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,109,632 bytes; SHA-256 `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`; its exact code/build-input tree is committed as baseline `d5f6d7e` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -41,15 +42,17 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `9f0a05531bd13def03b01812b297c7315929ff0f`
-(`9f0a055`). A documentation-only descendant is acceptable if
-`git diff 9f0a055..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
+Code baseline for the next run: `d5f6d7edded25dc6e935bd366e7a7e8be08b7901`
+(`d5f6d7e`) on `codex/archive-delete-contract`. A documentation-only descendant
+is acceptable if
+`git diff d5f6d7e..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
 is empty. Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The previous verified baseline `9cccd01`, older baseline `a5c2b08`, and
-superseded candidate `fcb3013` remain historical provenance only. Do not use
-an older commit for a new device run.
+The immediate prior checkpoints `18be950` and `9f0a055`, previous verified
+baseline `9cccd01`, older baseline `a5c2b08`, and superseded candidate
+`fcb3013` remain historical provenance only. Do not use an older commit for a
+new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
@@ -70,6 +73,7 @@ an older commit for a new device run.
 | Doze/battery-saver observation | BLOCKED | Forced-idle state is recorded; any pending row survives and delivers once after unforce/resume, without claiming native background delivery |
 | Route disappears mid-send | BLOCKED | Sender fails promptly and retains/retries queue item; no false success |
 | Manual reconnect | BLOCKED | Finds the other PakConnect advertiser and reconnects |
+| Bluetooth off/on reconnect target | BLOCKED | Record the connected platform peripheral UUID before and after cycling Bluetooth on each phone. Stable UUID may auto-reconnect only to that exact target; rotation must ignore other advertisers and safely time out until manual identity-verified reconnect |
 | Multi-link inventory/routing | BLOCKED | All links listed; control frames use exact route/MTU; ambiguous direct payloads defer until per-link identity/ACK binding exists |
 | Relay A -> B -> C | BLOCKED | Requires three phones. Final C delivery decodes the signed encrypted v2 inner `ProtocolMessage`, authenticates/decrypts and persists it before the routed ACK; processing failure emits no ACK and does not mark the message seen; a duplicate completed delivery resends the ACK without redelivery |
 | Log/privacy inspection | BLOCKED | No keys, plaintext payload previews, passphrases or SQLCipher key material in logs |

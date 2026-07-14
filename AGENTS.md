@@ -23,8 +23,8 @@ Core characteristics:
 - Riverpod 3.0 state management
 
 Primary stack:
-- Flutter 3.38.4+ (CI pinned to 3.44.4)
-- Dart 3.10.3+
+- Flutter 3.44.4+ (canonical CI and lockfile toolchain: Flutter 3.44.4)
+- Dart 3.10.3+ language floor; canonical Flutter 3.44.4 bundles Dart 3.12.2
 - Riverpod 3.0
 - Noise Protocol (XX/KK patterns)
 - SQLite + SQLCipher

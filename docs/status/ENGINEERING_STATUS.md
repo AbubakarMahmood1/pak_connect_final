@@ -1,17 +1,18 @@
 # PakConnect engineering status
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Current verdict
 
 The canonical source is reconciled, statically clean, green across the full
-desktop suite, and produces an Android debug APK. The post-patch suite passes
-5,539 tests; the lower count versus the 5,748 baseline is explained by the
-deliberate removal of six isolated dead implementations and their dedicated
-test clusters, with later focused regressions added. Real BLE,
-SQLCipher-at-rest, native background behavior,
-release signing and installation remain device/environment-gated, so this is
-not yet a signed or hardware-validated release.
+desktop suite, and produces an Android debug APK. The current local suite
+passes 5,691 tests after the deliberate removal of isolated dead
+implementations and the addition of focused durability, route-ownership and
+archive regressions. Real BLE, SQLCipher-at-rest, native background behavior,
+release signing and installation remain device/environment-gated. The latest
+public `main` Flutter workflow is red and the local fix has not been exercised
+by GitHub Actions yet, so this is neither a signed/hardware-validated release
+nor a publicly green CI head.
 
 ## Authority and preservation
 
@@ -19,18 +20,28 @@ not yet a signed or hardware-validated release.
 - The compressed working copy was checkpointed and archived before retirement;
   the verified bundle, not a second checkout, is recovery authority.
 - PR #71 merged the reconciliation through normal merge commit `f9b90c9`.
-  Canonical local `main` and `origin/main` were synchronized after merge.
-- Verified code/build-input device-test baseline:
-  `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3` (`9cccd01`). A
-  documentation-only descendant is acceptable only when its build-input diff
-  from this commit is empty.
-- The former baseline `a5c2b08` (`fix: harden runtime and prune unreachable
-  code`) and its test/APK hashes remain historical provenance, not the baseline
-  for the next device run.
+  PR #72 later advanced public `main` to `1d484eb`.
+- The only active worktree is on local branch
+  `codex/archive-delete-contract`, currently 18 commits ahead and zero behind
+  `origin/main` after this documentation closeout. The branch name is
+  historical residue; it contains the
+  subsequent durability and exact-route hardening chain and has not been
+  pushed.
+- Verified runtime/build-input and device-test baseline:
+  `d5f6d7edded25dc6e935bd366e7a7e8be08b7901` (`d5f6d7e`) on
+  `codex/archive-delete-contract`.
+- `9f0a055` and its first documentation-only status descendant `18be950` are
+  previous-baseline provenance only, not authority for a new device run.
+- The former baselines `9cccd01` and `a5c2b08` remain historical provenance,
+  not baselines for a new device run.
 - Candidate `fcb3013` is also historical: Flutter 3.44 analysis required an
   equivalent null-aware syntax cleanup, which is included in `9cccd01`.
-- The public mainline contains the preserved runtime,
-  guidance, two-device-prep and Fable audit commits.
+- The public mainline contains the earlier reconciled runtime and guidance,
+  but not the 17-commit local durability/route hardening chain or its current
+  documentation-only descendant.
+- Public `main` has no branch protection/ruleset. The current branch has not
+  been pushed, no PR exists for this head, and no exact-head GitHub verification
+  has run.
 - The former compressed checkout is not an authorized worktree and must not be
   recreated as a parallel working copy.
 
@@ -38,10 +49,10 @@ not yet a signed or hardware-validated release.
 
 | Check | Evidence | Status |
 |---|---|---|
-| Flutter/Dart toolchain | Flutter 3.41.5 stable, Dart 3.11.3 | Green |
+| Flutter/Dart toolchain | Flutter 3.44.4 stable, Dart 3.12.2 | Green |
 | Static analysis before current patch | `flutter analyze --no-pub` | Green |
 | Pre-patch full desktop suite | 5,748 tests, 0 failures, about 4m42s | Green baseline |
-| Current static analysis | `flutter analyze --no-pub`, clean on 2026-07-13 | Green |
+| Current static analysis | `flutter analyze --no-pub`, clean on 2026-07-14 with Flutter 3.44.4 | Green |
 | Dart reachability enforcement | 437 libraries; 433 runtime, 4 reviewed test-only, 0 unreviewed | Green |
 | Facade/reconnect regression | 121 focused tests | Green |
 | Queue correlation, route containment and shared ACK | 169 focused tests | Green |
@@ -54,8 +65,10 @@ not yet a signed or hardware-validated release.
 | Change-log/friend-reveal promotion suite | 273 tests | Green |
 | Broadcast-list service/provider/UI suite | 52 tests | Green |
 | Full-run failure regressions | 38 model/fragment tests + 36 app widget/smoke tests | Green |
-| Current full desktop suite | 5,539 tests, 0 failures, 5m20s; 9,515,985-byte `flutter_test_latest.log`, SHA-256 `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE` | Green |
-| Android debug APK | 203,988,403 bytes; SHA-256 `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50` | Green build |
+| Current full desktop suite | 5,691 tests, 0 failures; reporter 6m30s, measured 401,348 ms; 9,172,538-byte `flutter_test_latest.log`, SHA-256 `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`; 426,841-byte `coverage/lcov.info`, SHA-256 `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8` | Green locally |
+| Android debug APK | 205,109,632 bytes; SHA-256 `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A` | Green local build |
+| Latest public-main Flutter workflow | Run `29215130687` on `1d484eb`: 5,537 passed, 2 failed because `database_helper_set_test_name_test.dart` and `database_backup_service_test.dart` contended for `pak_connect.db` | Red public head |
+| Local CI-race correction | Commit `4fd8aec` preserves each suite's isolated test database; current full suite is green | Awaiting exact-head GitHub Actions |
 | Android device matrix | No phone attached | Device-gated |
 | SQLCipher at-rest proof | Desktop loader falls back to plaintext | Device-gated |
 
@@ -63,7 +76,7 @@ Desktop logs can contain expected SQLite loader fallback notices and explicit
 plaintext-test events. Those are known harness behavior; they must not be
 mistaken for production encryption evidence.
 
-## Promoted hardening in the current patch
+## Earlier reconciliation hardening (through `9cccd01`)
 
 | Area | Result |
 |---|---|
@@ -95,6 +108,29 @@ mistaken for production encryption evidence.
 | Documentation portability | Local Markdown link audit reports zero broken relative targets; machine-specific compressed-checkpoint links were replaced with canonical links or explicit historical provenance |
 | Fragment cleanup determinism | Expiry uses an inclusive boundary, so zero-timeout cleanup cannot retain an assembly created in the same clock tick |
 | Widget harness teardown | App shell tests use a lightweight connection contract mock, hold initialization at the loading boundary, and unmount providers before closing streams; full-suite workers no longer hang |
+
+## Subsequent local hardening (through `9f0a055`)
+
+| Area | Result |
+|---|---|
+| Archive deletion | Repository and UI/service flows serialize durable delete ownership; success is not published before the archive row is gone |
+| Archive restoration | One owner performs strict decode, conflict validation, live reconstruction and archive deletion in a single transaction; rollback preserves both sides |
+| Automatic reconnect | Power-cycle/health retries preserve and scan only for the prior platform peripheral UUID; missing/rotated targets fail closed rather than dialing the first advertiser |
+| Runtime rebootstrap | Initialization generations prevent a disposed/older AppCore attempt from publishing services or cleaning up a newer attempt |
+| Queue availability | Production queue initialization/load/write failures reject admission; volatile fallback requires an explicit test/relay policy |
+| Relay ACK route | Routed acknowledgements are bound to the authenticated inbound route and cannot complete unrelated relay ownership |
+| Durable queue ownership | Pending-to-sending admission, recovery, retry, ACK/delete and post-dispose finalization use conditional `(status, attempts, lastAttemptAt)` ownership; covered old/new instances cannot overwrite, delete or resurrect each other |
+| Peer-synced insertion | One transaction admits a peer row only when neither an active row nor durable tombstone owns its message ID |
+| Queue-sync receipts | Transport callbacks return exact durably admitted IDs; absent, empty, partial or unexpected receipts fail the round |
+| Physical write route | Central/peripheral sends pin connection incarnation plus physical peer/characteristic handles, revalidate inside one shared GATT lane, and start ACK timing only when the scheduled write executes |
+| Parallel database tests | Suite-specific database names survive helper tests, eliminating the two known shared-`pak_connect.db` CI collisions locally |
+
+## Current baseline delta (`18be950..d5f6d7e`)
+
+| Commit | Result |
+|---|---|
+| `63d426a` | Android notification naming and UI now state the actual boundary: the handler posts to the system tray while PakConnect is running; it does not claim killed-process receipt or native background execution |
+| `d5f6d7e` | CI and package authority now use Flutter 3.44.4 with lockfile-enforced dependency resolution; Android preserves `android.builtInKotlin=false` and `android.newDsl=false` compatibility flags pending a separate toolchain migration |
 
 ## Confirmed live capabilities
 
@@ -131,14 +167,15 @@ mistaken for production encryption evidence.
 
 ## Immediate sequence
 
-1. Use code baseline `9cccd01` (or its documentation-only descendant) as the
-   device-evidence ID.
-2. Install its debug APK and execute
+1. Publish the local hardening chain through a normal non-force branch/PR and
+   require fresh Flutter and CodeQL checks on the exact PR head before merge.
+2. Use runtime/device baseline `d5f6d7e` as the device-evidence ID.
+3. Install its debug APK and execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` when two phones are
    available.
-3. Complete the SQLCipher-at-rest proof on a production-like Android build.
-4. Supply/verify release signing and build/install the signed release APK.
-5. Design per-link handshake identity and ACK binding before enabling
+4. Complete the SQLCipher-at-rest proof on a production-like Android build.
+5. Supply/verify release signing and build/install the signed release APK.
+6. Design per-link handshake identity and ACK binding before enabling
    multi-link user-payload delivery.
-6. Attach every hardware result and redacted log reference to
+7. Attach every hardware result and redacted log reference to
    `docs/testing/DEVICE_VALIDATION_STATUS.md`.

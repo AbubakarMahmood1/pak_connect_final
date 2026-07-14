@@ -18,7 +18,9 @@ Long-term storage for old messages. Archived chats are moved from active databas
 Low-power wireless communication protocol for short-range data transfer. PakConnect uses BLE for peer-to-peer messaging without internet.
 
 ### Central Mode
-BLE role where device scans for and connects to peripheral devices. PakConnect operates in both central and peripheral modes simultaneously.
+BLE role where a device scans for and connects to peripherals. PakConnect
+composes central and peripheral role paths; simultaneous physical-radio
+behavior remains device-gated.
 
 ### ChaCha20-Poly1305
 Modern AEAD cipher combining ChaCha20 stream cipher with Poly1305 MAC. Faster than AES on devices without hardware AES acceleration.
@@ -33,7 +35,9 @@ Peer user with whom encryption session has been established. Identified by publi
 Key exchange algorithm allowing two parties to establish shared secret over insecure channel. PakConnect uses X25519 DH.
 
 ### Dual-Role BLE
-Operating as both BLE central (scanner/connector) and peripheral (advertiser/acceptor) simultaneously. Required for mesh networking.
+Architecture that composes BLE central (scanner/connector) and peripheral
+(advertiser/acceptor) paths. PakConnect requires physical-device evidence
+before claiming reliable simultaneous operation.
 
 ### Ephemeral ID
 Temporary identifier rotated periodically for privacy. Used for BLE advertising without revealing permanent identity.
@@ -133,7 +137,9 @@ derivation, integrity operations, and the missing-ID inbound fallback; normal
 originating paths use opaque IDs.
 
 ### SQLCipher
-SQLite extension providing transparent AES-256 database encryption. Used to protect local data at rest.
+SQLite extension providing transparent database encryption. PakConnect has a
+mobile SQLCipher credential/path and a desktop-test plaintext fallback; direct
+at-rest proof on Android/iOS remains device-gated.
 
 ### Static Key
 Long-term X25519 keypair. Identity key for user, persistent key for MEDIUM+ contacts.
@@ -213,16 +219,15 @@ Elliptic curve Diffie-Hellman key exchange using Curve25519. Standard DH algorit
 ## Prerequisites
 
 ### Required Software
-- **Flutter SDK**: 3.38.4 or higher (CI pinned to 3.44.4)
-- **Dart SDK**: 3.10.3 or higher (bundled with Flutter)
+- **Flutter SDK**: 3.44.4 or higher (CI and lockfile authority pinned to 3.44.4)
+- **Dart SDK**: 3.10.3 language floor; canonical Flutter bundles Dart 3.12.2
 - **Git**: Version control
 
 ### Platform-Specific Tools
 
 #### Android Development
 - **Android Studio**: 2023.1+ (Hedgehog or later)
-- **Android SDK**: API 36 compile/target with the locally verified Flutter
-  3.41.5 SDK; recheck against the CI Flutter 3.44.4 pin
+- **Android SDK**: API 36 compile/target with the canonical Flutter 3.44.4 SDK
 - **Minimum Android SDK**: API 24 (`flutter.minSdkVersion`)
 - **Android NDK**: 28.2.13676358
 - **Java Development Kit (JDK)**: Version 17 (pinned in CI)
@@ -765,7 +770,7 @@ notification, file, or Bluetooth metadata.
 
 ## Code Style
 
-- **Language**: Dart 3.10.3+ with null safety
+- **Language**: Dart 3.10.3+ language floor with null safety; canonical SDK 3.12.2
 - **Formatting**: `dart format` (official formatter)
 - **Linting**: `flutter analyze` must pass with zero errors
 - **Style authority**: `dart format lib test` and `analysis_options.yaml`

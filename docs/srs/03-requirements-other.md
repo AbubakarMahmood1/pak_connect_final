@@ -86,9 +86,8 @@ or higher.
 
 **Rationale**:
 - `android/app/build.gradle.kts` inherits `flutter.minSdkVersion`.
-- The reconciliation environment's Flutter 3.41.5 SDK resolves that value to
-  API 24. CI is pinned to Flutter 3.44.4, and the resolved platform values must
-  be rechecked when that pin changes.
+- The canonical Flutter 3.44.4 SDK resolves that value to API 24. The resolved
+  platform values must be rechecked when the Flutter pin changes.
 - Device validation should still include the oldest Android version the project
   intends to advertise.
 
@@ -114,7 +113,7 @@ or higher.
 artifact for the intended build mode and a documented data-retention target.
 
 **Current evidence**:
-- The verified debug APK for baseline `9cccd01` is 203,988,403 bytes; installed
+- The verified debug APK for baseline `d5f6d7e` is 205,109,632 bytes; installed
   size can be larger.
 - A 20-30 MB release binary is only a future optimization target until a
   signed release artifact is measured.
@@ -137,11 +136,11 @@ artifact for the intended build mode and a documented data-retention target.
 ## 3.4.3 Installation Requirements
 
 ### OR-10: Flutter SDK Version
-**Requirement**: Development requires Flutter SDK 3.38.4 or higher; CI is
-pinned to Flutter 3.44.4.
+**Requirement**: Development and CI require Flutter SDK 3.44.4 or higher; CI
+and the committed lockfile are verified against Flutter 3.44.4.
 
-**Reference**: `pubspec.yaml` (`sdk: ">=3.10.3 <4.0.0"`,
-`flutter: ">=3.38.4"`)
+**Reference**: `pubspec.yaml` (`sdk: ">=3.10.3 <4.0.0"` language floor,
+`flutter: ">=3.44.4"`; the canonical Flutter release bundles Dart 3.12.2)
 
 ---
 
@@ -149,8 +148,8 @@ pinned to Flutter 3.44.4.
 **Requirement**: Building the application requires platform-specific toolchains.
 
 **Android**:
-- Android SDK 36 (`flutter.compileSdkVersion` / `flutter.targetSdkVersion` in
-  the locally verified Flutter 3.41.5 toolchain; recheck against CI 3.44.4)
+- Android SDK 36 (`flutter.compileSdkVersion` /
+  `flutter.targetSdkVersion` in the canonical Flutter 3.44.4 toolchain)
 - NDK 28.2.13676358
 - Java 17 (JDK; pinned in CI)
 - Kotlin plugin 2.1.0 / Android Gradle Plugin 8.9.1

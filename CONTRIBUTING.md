@@ -8,8 +8,10 @@ members only.
 
 ## Development Environment Setup
 
-- Flutter 3.38.4 or higher (CI is pinned to 3.44.4)
-- Dart 3.10.3 or higher
+- Flutter 3.44.4 or higher (verified revision
+  `ad70ec4617166f1c38e5d2bfd388af71fda14f06`; CI and lockfile authority are
+  pinned to 3.44.4)
+- Dart language level 3.10.3 or higher (Flutter 3.44.4 bundles Dart 3.12.2)
 - Android or iOS physical hardware for Bluetooth Low Energy (BLE) testing — emulators do not support BLE
 - Ensure `flutter doctor` reports no critical issues before beginning work
 
@@ -57,9 +59,26 @@ threshold. Static analysis and the reachability review are fatal on every
 workflow run. Physical-device tests under `integration_test/` are a separate
 manual gate and are not run by CI.
 
-The separate `codeql.yml` workflow runs for pull requests targeting `main` and
-on its weekly schedule. It analyzes Android Java/Kotlin and GitHub Actions
-definitions; it does not analyze Dart code.
+The separate `codeql.yml` workflow runs for pull requests targeting `main`,
+pushes to `main`, manual dispatches, and its weekly schedule. It analyzes
+Android Java/Kotlin and GitHub Actions definitions; it does not analyze Dart
+code.
+
+The current verified local authority is branch
+`codex/archive-delete-contract` at runtime/device baseline
+`d5f6d7edded25dc6e935bd366e7a7e8be08b7901`. Its coverage run passed 5,691
+tests (reporter 6m30s; measured command wall 401,348 ms) and produced:
+
+- `flutter_test_latest.log`: 9,172,538 bytes; SHA-256
+  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`;
+- `coverage/lcov.info`: 426,841 bytes; SHA-256
+  `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8`;
+- debug Android APK: 205,109,632 bytes; SHA-256
+  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`.
+
+These are local code/build artifacts, not physical BLE, mobile
+SQLCipher-at-rest, background-delivery, signed-release, or public-CI evidence.
+Public `main` remains red and currently has no active branch-protection rule.
 
 If code is genuinely device-bound (for example, a platform-channel wrapper),
 document the limitation and the required device evidence in the pull request.
@@ -81,7 +100,8 @@ The following areas require extra care and closer review. Changes here should be
 
 - All development happens on feature branches cut from `main`
 - Branch naming convention: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`
-- A pull request is required to merge into `main` — direct pushes are not permitted
+- A pull request is required by project policy to merge into `main`; the branch
+  is currently unprotected, so GitHub does not enforce that policy server-side
 - PRs require at least one approval before merge
 - Resolve all review comments before requesting re-review
 

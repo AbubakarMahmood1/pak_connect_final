@@ -21,7 +21,7 @@
 
 ## Technology Stack
 
-- **Platform**: Flutter 3.38.4+, Dart 3.10.3+
+- **Platform**: Flutter 3.44.4+; Dart 3.10.3+ language floor (canonical SDK: 3.12.2)
 - **State Management**: Riverpod 3.0
 - **Cryptography**:
   - X25519 (Elliptic Curve Diffie-Hellman)

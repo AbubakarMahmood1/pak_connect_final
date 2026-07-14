@@ -2,28 +2,33 @@
 
 This is the executable run sheet for the live matrix in
 [DEVICE_VALIDATION_STATUS.md](DEVICE_VALIDATION_STATUS.md). Run it from the
-repository root in Windows PowerShell. Use only `PASS`, `FAIL`, `BLOCKED`, and
-`NOT RUN` in the final record.
+repository root in PowerShell 7 or newer. Use only `PASS`, `FAIL`, `BLOCKED`,
+and `NOT RUN` in the final record.
 
 The fixed code/test/tooling baseline is:
 
-- commit: `9f0a05531bd13def03b01812b297c7315929ff0f`
-- short commit: `9f0a055`
+- commit: `d5f6d7edded25dc6e935bd366e7a7e8be08b7901`
+- short commit: `d5f6d7e`
 - branch used to prepare the baseline: `codex/archive-delete-contract`
-- local verification toolchain: Flutter 3.41.5 / Dart 3.11.3
-- analyzer: clean on 2026-07-13
-- full desktop suite: 5,690 passed, 0 failed, 3m22s
-- full-suite log: 9,601,513 bytes; SHA-256
-  `94800A24EAE98A7EE0D154D911ADD87F91E33B75E734859864F55D13F475E166`
+- local verification toolchain: Flutter 3.44.4 revision
+  `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2
+- analyzer: clean on 2026-07-14
+- full desktop suite: 5,691 passed, 0 failed; reporter 6m30s; measured wall
+  401,348 ms
+- full-suite log: 9,172,538 bytes; SHA-256
+  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`
+- coverage artifact: `coverage/lcov.info`; 426,841 bytes; SHA-256
+  `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8`
 - verified debug APK: `build/app/outputs/flutter-apk/app-debug.apk`
-- verified debug APK size: `233187740` bytes
+- verified debug APK size: `205109632` bytes
 - verified debug APK SHA-256:
-  `2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233`
+  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`
 
 A documentation-only descendant is acceptable. Any changed build input is a
 hard stop until the new code has its own baseline and desktop verification.
-The previous `9cccd01` and `a5c2b08` baselines and `fcb3013` candidate remain
-historical provenance only; no older commit is valid for this run.
+The immediate prior checkpoints `18be950` and `9f0a055`, previous `9cccd01`
+and `a5c2b08` baselines, and `fcb3013` candidate remain historical provenance
+only; no older commit is valid for this run.
 
 ## Honest two-device boundary
 
@@ -55,12 +60,29 @@ is run.
 Open a PowerShell terminal at the repository root and run:
 
 ```powershell
-$Baseline = '9f0a055'
-$ExpectedBaseline = '9f0a05531bd13def03b01812b297c7315929ff0f'
-$Package = 'com.pakconnect.app'
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+if ($PSVersionTable.PSVersion -lt [version]'7.0') {
+  throw 'This run sheet requires PowerShell 7 or newer.'
+}
 
-$ResolvedBaseline = (git rev-parse $Baseline).Trim()
-if ($LASTEXITCODE -ne 0 -or $ResolvedBaseline -ne $ExpectedBaseline) {
+$Baseline = 'd5f6d7e'
+$ExpectedBaseline = 'd5f6d7edded25dc6e935bd366e7a7e8be08b7901'
+$Package = 'com.pakconnect.app'
+$PuroEnvironment = 'ci-3-44-4'
+$ExpectedFlutterVersion = '3.44.4'
+$ExpectedFlutterRevision = 'ad70ec4617166f1c38e5d2bfd388af71fda14f06'
+$ExpectedDartVersion = '3.12.2'
+
+$PuroCommand = (Get-Command puro -ErrorAction Stop).Source
+function Invoke-BaselineFlutter {
+  & $PuroCommand --no-progress -e $PuroEnvironment flutter @args
+}
+
+$ResolvedBaselineOutput = git rev-parse $Baseline 2>&1
+if ($LASTEXITCODE -ne 0) { throw "Missing baseline: $Baseline" }
+$ResolvedBaseline = ($ResolvedBaselineOutput | Out-String).Trim()
+if ($ResolvedBaseline -ne $ExpectedBaseline) {
   throw "Wrong or missing baseline: $ResolvedBaseline"
 }
 
@@ -87,11 +109,44 @@ if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
   throw "Build-input worktree is not clean:`n$($BuildInputStatus -join "`n")"
 }
 
+$InitialStatus = @(git status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0 -or $InitialStatus.Count -gt 0) {
+  throw "The full worktree must be clean before device evidence begins:`n$($InitialStatus -join "`n")"
+}
+
+$ChecklistPath = (Resolve-Path -LiteralPath `
+  'docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md').Path
+$ChecklistHash = (Get-FileHash -LiteralPath $ChecklistPath -Algorithm SHA256).Hash
+
 git status --short
 git log -2 --oneline --decorate
-flutter --version
-flutter doctor -v
+
+$FlutterMachineRaw = (Invoke-BaselineFlutter --version --machine 2>&1 |
+  Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Pinned flutter --version --machine failed.' }
+try {
+  $FlutterMachine = $FlutterMachineRaw | ConvertFrom-Json
+} catch {
+  throw "Could not parse pinned Flutter machine output:`n$FlutterMachineRaw"
+}
+
+$ParsedFlutterVersion = [string]$FlutterMachine.frameworkVersion
+$ParsedFlutterRevision = [string]$FlutterMachine.frameworkRevision
+$ParsedDartVersion = [string]$FlutterMachine.dartSdkVersion
+if ($ParsedFlutterVersion -ne $ExpectedFlutterVersion -or
+    $ParsedFlutterRevision -ne $ExpectedFlutterRevision -or
+    $ParsedDartVersion -ne $ExpectedDartVersion) {
+  throw "Toolchain drift: Flutter $ParsedFlutterVersion ($ParsedFlutterRevision), Dart $ParsedDartVersion. Promote a new baseline instead."
+}
+
+$FlutterVersionOutput = (Invoke-BaselineFlutter --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Pinned flutter --version failed.' }
+
+$FlutterVersionOutput
+Invoke-BaselineFlutter doctor -v
+if ($LASTEXITCODE -ne 0) { throw 'Pinned flutter doctor failed.' }
 adb --version
+if ($LASTEXITCODE -ne 0) { throw 'adb --version failed.' }
 ```
 
 Checklist:
@@ -100,7 +155,10 @@ Checklist:
 - [ ] Baseline is an ancestor of `HEAD`.
 - [ ] The build-input diff command exits zero with no output.
 - [ ] The worktree is clean before device evidence begins.
-- [ ] Flutter reports the expected toolchain; any drift is saved in evidence.
+- [ ] Puro environment `ci-3-44-4` resolves exact Flutter 3.44.4 revision
+  `ad70ec4617166f1c38e5d2bfd388af71fda14f06` with bundled Dart 3.12.2.
+  Any drift is a hard stop requiring a new baseline.
+- [ ] Full toolchain output and the exact checklist hash are saved in evidence.
 - [ ] Android toolchain and licenses are healthy.
 
 Do not switch branches, pull, merge, rebase, or change dependencies during the
@@ -120,9 +178,22 @@ New-Item -ItemType Directory -Force $Evidence | Out-Null
 "head=$((git rev-parse HEAD).Trim())" | Add-Content "$Evidence\session_metadata.txt"
 "branch=$((git branch --show-current).Trim())" | Add-Content "$Evidence\session_metadata.txt"
 "started=$((Get-Date).ToString('o'))" | Add-Content "$Evidence\session_metadata.txt"
-flutter --version 2>&1 | Tee-Object "$Evidence\flutter_version.txt"
-flutter doctor -v 2>&1 | Tee-Object "$Evidence\flutter_doctor.txt"
+"flutter_version=$ParsedFlutterVersion" | Add-Content "$Evidence\session_metadata.txt"
+"flutter_revision=$ParsedFlutterRevision" | Add-Content "$Evidence\session_metadata.txt"
+"dart_version=$ParsedDartVersion" | Add-Content "$Evidence\session_metadata.txt"
+"flutter_root=$($FlutterMachine.flutterRoot)" | Add-Content "$Evidence\session_metadata.txt"
+"puro_environment=$PuroEnvironment" | Add-Content "$Evidence\session_metadata.txt"
+"checklist_sha256=$ChecklistHash" | Add-Content "$Evidence\session_metadata.txt"
+$FlutterMachineRaw | Set-Content "$Evidence\flutter_version_machine.json"
+$FlutterVersionOutput | Set-Content "$Evidence\flutter_version.txt"
+Copy-Item -LiteralPath $ChecklistPath `
+  "$Evidence\TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md"
+Set-Content "$Evidence\git_status_start.txt" -Value ($InitialStatus -join "`n")
+Invoke-BaselineFlutter doctor -v 2>&1 |
+  Tee-Object "$Evidence\flutter_doctor.txt"
+if ($LASTEXITCODE -ne 0) { throw 'Pinned flutter doctor capture failed.' }
 adb devices -l 2>&1 | Tee-Object "$Evidence\adb_devices.txt"
+if ($LASTEXITCODE -ne 0) { throw 'Initial adb device capture failed.' }
 
 function Mark([string]$Text) {
   "$((Get-Date).ToString('o')) $Text" |
@@ -183,10 +254,10 @@ before continuing instead of relabeling the mismatch.
 
 ```powershell
 $DebugApk = Join-Path (Get-Location) 'build\app\outputs\flutter-apk\app-debug.apk'
-$ExpectedDebugBytes = 233187740
-$ExpectedDebugHash = '2BE09F03FEE607D757260B1F1B582626D0A2EB73611C21393B9CDEEBB4B6B233'
+$ExpectedDebugBytes = 205109632
+$ExpectedDebugHash = '9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A'
 if (-not (Test-Path $DebugApk)) {
-  flutter build apk --debug --no-pub
+  Invoke-BaselineFlutter build apk --debug --no-pub
   if ($LASTEXITCODE -ne 0) { throw 'Debug APK build failed.' }
 }
 
@@ -233,8 +304,23 @@ Mark 'FUNCTIONAL LOG CAPTURE START'
 Terminal A:
 
 ```powershell
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 $DeviceA = '<device-A-serial>'
 $Evidence = '<absolute evidence directory from step 1>'
+if ($DeviceA.Contains('<') -or $Evidence.Contains('<')) {
+  throw 'Replace the Device A and evidence-directory placeholders.'
+}
+$Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+$SerialLine = Select-String -LiteralPath "$Evidence\device_A_metadata.txt" `
+  -Pattern '^serial=' | Select-Object -First 1
+if ($null -eq $SerialLine -or $SerialLine.Line.Substring(7) -ne $DeviceA) {
+  throw 'Device A does not match the saved A/B mapping.'
+}
+$DeviceState = (adb -s $DeviceA get-state 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $DeviceState -ne 'device') {
+  throw "Device A is not ready: $DeviceState"
+}
 adb -s $DeviceA logcat -v threadtime 2>&1 |
   Tee-Object "$Evidence\functional_device_A.log"
 ```
@@ -242,8 +328,23 @@ adb -s $DeviceA logcat -v threadtime 2>&1 |
 Terminal B:
 
 ```powershell
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 $DeviceB = '<device-B-serial>'
 $Evidence = '<absolute evidence directory from step 1>'
+if ($DeviceB.Contains('<') -or $Evidence.Contains('<')) {
+  throw 'Replace the Device B and evidence-directory placeholders.'
+}
+$Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+$SerialLine = Select-String -LiteralPath "$Evidence\device_B_metadata.txt" `
+  -Pattern '^serial=' | Select-Object -First 1
+if ($null -eq $SerialLine -or $SerialLine.Line.Substring(7) -ne $DeviceB) {
+  throw 'Device B does not match the saved A/B mapping.'
+}
+$DeviceState = (adb -s $DeviceB get-state 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $DeviceState -ne 'device') {
+  throw "Device B is not ready: $DeviceState"
+}
 adb -s $DeviceB logcat -v threadtime 2>&1 |
   Tee-Object "$Evidence\functional_device_B.log"
 ```
@@ -417,16 +518,49 @@ picker's resize/compression. A tiny icon does not exercise fragmentation.
 5. Save directory listings and SHA-256 values for app-private payloads:
 
 ```powershell
-adb -s $DeviceA shell run-as $Package sh -c 'ls -lt app_flutter/binary_payloads; sha256sum app_flutter/binary_payloads/*.bin' |
-  Set-Content "$Evidence\media_hashes_A.txt"
-adb -s $DeviceB shell run-as $Package sh -c 'ls -lt app_flutter/binary_payloads; sha256sum app_flutter/binary_payloads/*.bin' |
-  Set-Content "$Evidence\media_hashes_B.txt"
+$MediaAOutput = adb -s $DeviceA shell run-as $Package sh -c `
+  'ls -lt app_flutter/binary_payloads; sha256sum app_flutter/binary_payloads/*.bin' 2>&1
+$MediaAExit = $LASTEXITCODE
+($MediaAOutput | Out-String) | Set-Content "$Evidence\media_hashes_A.txt"
+
+$MediaBOutput = adb -s $DeviceB shell run-as $Package sh -c `
+  'ls -lt app_flutter/binary_payloads; sha256sum app_flutter/binary_payloads/*.bin' 2>&1
+$MediaBExit = $LASTEXITCODE
+($MediaBOutput | Out-String) | Set-Content "$Evidence\media_hashes_B.txt"
+
+@(
+  "device_A_exit=$MediaAExit"
+  "device_B_exit=$MediaBExit"
+) | Set-Content "$Evidence\media_hash_exit_codes.txt"
+
+$HashPattern = '(?i)\b[a-f0-9]{64}\b'
+$MediaAHashes = @([regex]::Matches(($MediaAOutput -join "`n"), $HashPattern).Value |
+  ForEach-Object { $_.ToUpperInvariant() } | Select-Object -Unique)
+$MediaBHashes = @([regex]::Matches(($MediaBOutput -join "`n"), $HashPattern).Value |
+  ForEach-Object { $_.ToUpperInvariant() } | Select-Object -Unique)
+
+if ($MediaAExit -ne 0 -or $MediaBExit -ne 0 -or
+    $MediaAHashes.Count -eq 0 -or $MediaBHashes.Count -eq 0) {
+  $MediaByteEqualityStatus = 'BLOCKED'
+  Mark 'MEDIA_BYTE_EQUALITY RESULT: BLOCKED - run-as/sha256sum failed or produced no digest'
+} else {
+  $CommonMediaHashes = @($MediaAHashes | Where-Object { $MediaBHashes -contains $_ })
+  if ($CommonMediaHashes.Count -eq 0) {
+    $MediaByteEqualityStatus = 'FAIL'
+    Mark 'MEDIA_BYTE_EQUALITY RESULT: FAIL - no common sender/receiver digest'
+  } else {
+    $MediaByteEqualityStatus = 'PASS'
+    Mark "MEDIA_BYTE_EQUALITY RESULT: PASS - common sha256=$($CommonMediaHashes -join ',')"
+  }
+}
 ```
 
 The new sender and receiver `.bin` files can have different filenames, but
 they must have one common SHA-256 digest. That common digest is the byte-perfect
-reassembly proof. If `run-as` or `sha256sum` is unavailable, record `BLOCKED`
-for byte equality rather than substituting a visual check.
+reassembly proof. The script records native exit codes and requires at least one
+digest from each phone before comparison. If `run-as` or `sha256sum` is
+unavailable, keep byte equality `BLOCKED` rather than substituting a visual
+check.
 
 6. Extract MTU/fragment evidence:
 
@@ -459,21 +593,38 @@ Mark 'ROUTE_LOSS_MID_SEND RESULT: PASS|FAIL - <failure latency and retry result>
 
 ### 9.1 Offline queue and reconnect
 
-1. Turn Bluetooth off on B and wait until A's chat reports `Offline` or shows
+1. In A's log, record the full platform peripheral UUID associated with B from
+   `Found device advertising our service:` or `Scanning for reconnect target`.
+   Call it `B-UUID-BEFORE`; it is a routing hint, not B's authenticated
+   identity.
+2. Turn Bluetooth off on B and wait until A's chat reports `Offline` or shows
    `Reconnect Now`.
-2. A sends, in order:
+3. A sends, in order:
    `PK-OFFLINE-<Stamp>-01`, `PK-OFFLINE-<Stamp>-02`, and
    `PK-OFFLINE-<Stamp>-03`.
-3. Confirm all three remain pending on A and none claims delivery.
-4. Wait 30 seconds, turn Bluetooth on on B, and bring B to the foreground.
-5. On A tap `Reconnect Now` once if automatic reconnect has not started.
-6. Within 60 seconds, B must receive all three in order and exactly once; A
+4. Confirm all three remain pending on A and none claims delivery.
+5. Wait 30 seconds, turn Bluetooth on on B, and bring B to the foreground.
+6. Inspect A's log for the reconnect target and discovered UUIDs:
+
+   ```powershell
+   Select-String -Path "$Evidence\functional_device_A.log" `
+     -Pattern 'Scanning for reconnect target|Ignoring nonmatching reconnect advertiser|Found device advertising our service'
+   ```
+
+   Record B's post-cycle UUID as `B-UUID-AFTER`.
+7. If `B-UUID-AFTER` equals `B-UUID-BEFORE`, automatic reconnect may connect
+   only to that exact UUID. If it differs, automatic reconnect must ignore
+   other advertisers and safely time out; then tap `Reconnect Now` once and
+   verify B through the paired chat identity. A first-advertiser fallback is a
+   failure.
+8. Within 60 seconds of a valid reconnect, B must receive all three in order and exactly once; A
    must transition them out of pending only after delivery/ACK.
-7. Leave both apps open another 60 seconds to detect late duplicates.
+9. Leave both apps open another 60 seconds to detect late duplicates.
 
 ```powershell
 Mark 'OFFLINE_QUEUE RESULT: PASS|FAIL - <delivery order, latency, duplicates>'
 Mark 'MANUAL_RECONNECT RESULT: PASS|FAIL - <target identity and latency>'
+Mark 'RECONNECT_UUID RESULT: PASS|FAIL - <before UUID, after UUID, automatic timeout/connect behavior>'
 ```
 
 The reconnect is a failure if it binds the chat to any identity other than the
@@ -531,28 +682,55 @@ Do not claim a native killed-process background service from this result.
 ### 9.4 Doze/battery-saver observation
 
 Run this last among messaging scenarios so forced idle cannot contaminate
-earlier timing:
+earlier timing. Run the guarded block below. While it pauses, send
+`PK-DOZE-<Stamp>-01` from A and record whether it is delivered, queued, or
+fails; then press Enter. Do not close this terminal while B is forced idle.
 
 ```powershell
-adb -s $DeviceB shell dumpsys deviceidle force-idle 2>&1 |
-  Tee-Object "$Evidence\device_B_force_idle_start.txt"
-Mark 'DEVICE B FORCE-IDLE START'
-```
+$ForceIdleConfirmed = $false
+try {
+  $ForceIdleOutput = adb -s $DeviceB shell dumpsys deviceidle force-idle 2>&1
+  $ForceIdleExit = $LASTEXITCODE
+  ($ForceIdleOutput | Out-String) |
+    Tee-Object "$Evidence\device_B_force_idle_start.txt"
+  if ($ForceIdleExit -ne 0 -or
+      ($ForceIdleOutput -join "`n") -notmatch '(?i)forced.+idle') {
+    Mark 'DOZE RESULT: BLOCKED - force-idle was not confirmed'
+    throw 'Device B did not confirm forced idle.'
+  }
 
-Send `PK-DOZE-<Stamp>-01` from A and record whether it is delivered, queued, or
-fails. If the command output does not confirm forced idle, mark the forced-idle
-subcase `BLOCKED`; ordinary screen-off behavior is not a substitute. Then
-always clean up and resume B:
+  $ForceIdleConfirmed = $true
+  Mark 'DEVICE B FORCE-IDLE START'
+  Read-Host 'Send PK-DOZE from A, record the observation, then press Enter to unforce B'
+} finally {
+  $UnforceOutput = adb -s $DeviceB shell dumpsys deviceidle unforce 2>&1
+  $UnforceExit = $LASTEXITCODE
+  ($UnforceOutput | Out-String) |
+    Tee-Object "$Evidence\device_B_force_idle_unforce.txt"
 
-```powershell
-adb -s $DeviceB shell dumpsys deviceidle unforce 2>&1 |
-  Tee-Object "$Evidence\device_B_force_idle_end.txt"
-adb -s $DeviceB shell am start -n "$Package/.MainActivity"
-Mark 'DEVICE B FORCE-IDLE END'
+  $IdleEndOutput = adb -s $DeviceB shell dumpsys deviceidle get deep 2>&1
+  $IdleEndExit = $LASTEXITCODE
+  ($IdleEndOutput | Out-String) |
+    Tee-Object "$Evidence\device_B_force_idle_end.txt"
+
+  if ($UnforceExit -ne 0 -or $IdleEndExit -ne 0 -or
+      ($IdleEndOutput -join "`n") -notmatch '(?i)ACTIVE') {
+    throw 'Failed to prove Device B returned to ACTIVE after force-idle.'
+  }
+
+  adb -s $DeviceB shell am start -n "$Package/.MainActivity"
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to relaunch Device B after unforce.' }
+  Mark 'DEVICE B FORCE-IDLE END - ACTIVE CONFIRMED'
+}
 ```
 
 Confirm any pending message delivers once after resume. Record the observed
 behavior; no current claim promises killed/dozing background delivery.
+
+If the terminal is closed or the host loses power while B is forced idle, run
+`adb -s <device-B-serial> shell dumpsys deviceidle unforce` from a new terminal
+before any further scenario, then save `dumpsys deviceidle get deep` showing
+`ACTIVE`. The interrupted row remains `FAIL` or `BLOCKED`; do not retry over it.
 
 ## 10. Concurrent versus strict-TDM profile comparison
 
@@ -561,19 +739,28 @@ the APK, then use the same prebuilt APK on A and B. This avoids concurrent
 Gradle builds producing different binaries.
 
 ```powershell
-flutter build apk --profile --no-pub
+Invoke-BaselineFlutter build apk --profile --no-pub
 if ($LASTEXITCODE -ne 0) { throw 'Concurrent profile build failed.' }
 $ConcurrentApk = "$Evidence\pakconnect_${Baseline}_concurrent_profile.apk"
 Copy-Item 'build\app\outputs\flutter-apk\app-profile.apk' $ConcurrentApk
-Get-FileHash $ConcurrentApk -Algorithm SHA256 |
-  Format-List | Out-File "$Evidence\concurrent_profile_hash.txt"
+$ConcurrentHash = (Get-FileHash $ConcurrentApk -Algorithm SHA256).Hash
+@(
+  'mode=concurrent'
+  "apk=$ConcurrentApk"
+  "sha256=$ConcurrentHash"
+) | Set-Content "$Evidence\concurrent_profile_artifact.txt"
 
-flutter build apk --profile --no-pub --dart-define=PAKCONNECT_STRICT_TDM=true
+Invoke-BaselineFlutter build apk --profile --no-pub `
+  --dart-define=PAKCONNECT_STRICT_TDM=true
 if ($LASTEXITCODE -ne 0) { throw 'Strict-TDM profile build failed.' }
 $StrictApk = "$Evidence\pakconnect_${Baseline}_strict_tdm_profile.apk"
 Copy-Item 'build\app\outputs\flutter-apk\app-profile.apk' $StrictApk
-Get-FileHash $StrictApk -Algorithm SHA256 |
-  Format-List | Out-File "$Evidence\strict_tdm_profile_hash.txt"
+$StrictHash = (Get-FileHash $StrictApk -Algorithm SHA256).Hash
+@(
+  'mode=strict_tdm'
+  "apk=$StrictApk"
+  "sha256=$StrictHash"
+) | Set-Content "$Evidence\strict_tdm_profile_artifact.txt"
 ```
 
 Do 20 normal attempts and then 20 strict-TDM attempts. Use the same phone
@@ -602,8 +789,23 @@ Mark 'CONCURRENT PROFILE COMPARISON START'
 Concurrent log terminal A:
 
 ```powershell
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 $DeviceA = '<device-A-serial>'
 $Evidence = '<absolute evidence directory from step 1>'
+if ($DeviceA.Contains('<') -or $Evidence.Contains('<')) {
+  throw 'Replace the Device A and evidence-directory placeholders.'
+}
+$Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+$SerialLine = Select-String -LiteralPath "$Evidence\device_A_metadata.txt" `
+  -Pattern '^serial=' | Select-Object -First 1
+if ($null -eq $SerialLine -or $SerialLine.Line.Substring(7) -ne $DeviceA) {
+  throw 'Device A does not match the saved A/B mapping.'
+}
+$DeviceState = (adb -s $DeviceA get-state 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $DeviceState -ne 'device') {
+  throw "Device A is not ready: $DeviceState"
+}
 adb -s $DeviceA logcat -v threadtime 2>&1 |
   Tee-Object "$Evidence\concurrent_device_A.log"
 ```
@@ -611,8 +813,23 @@ adb -s $DeviceA logcat -v threadtime 2>&1 |
 Concurrent log terminal B:
 
 ```powershell
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 $DeviceB = '<device-B-serial>'
 $Evidence = '<absolute evidence directory from step 1>'
+if ($DeviceB.Contains('<') -or $Evidence.Contains('<')) {
+  throw 'Replace the Device B and evidence-directory placeholders.'
+}
+$Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+$SerialLine = Select-String -LiteralPath "$Evidence\device_B_metadata.txt" `
+  -Pattern '^serial=' | Select-Object -First 1
+if ($null -eq $SerialLine -or $SerialLine.Line.Substring(7) -ne $DeviceB) {
+  throw 'Device B does not match the saved A/B mapping.'
+}
+$DeviceState = (adb -s $DeviceB get-state 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $DeviceState -ne 'device') {
+  throw "Device B is not ready: $DeviceState"
+}
 adb -s $DeviceB logcat -v threadtime 2>&1 |
   Tee-Object "$Evidence\concurrent_device_B.log"
 ```
@@ -622,11 +839,78 @@ two log terminals. Clear logcat again, mark `STRICT TDM PROFILE COMPARISON
 START`, and repeat the same two commands with filenames
 `strict_tdm_device_A.log` and `strict_tdm_device_B.log`.
 
-2. In separate interactive terminals, launch the same preserved APK:
+2. In each of two separate interactive terminals, fill the mode, label, serial,
+   and evidence directory. The script derives the only accepted APK for that
+   mode, verifies its saved SHA-256, and records the exact device/artifact
+   pairing. Run it once for A and once for B:
 
 ```powershell
-flutter run --no-pub -d <device-A-serial> --profile --use-application-binary='<absolute mode APK>'
-flutter run --no-pub -d <device-B-serial> --profile --use-application-binary='<absolute mode APK>'
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$Mode = '<concurrent-or-strict_tdm>'
+$Label = '<A-or-B>'
+$Device = '<matching-device-serial>'
+$Evidence = '<absolute evidence directory from step 1>'
+
+if ($Mode -notin @('concurrent', 'strict_tdm') -or
+    $Label -notin @('A', 'B') -or $Device.Contains('<') -or
+    $Evidence.Contains('<')) {
+  throw 'Replace every profile-launch placeholder with the saved run values.'
+}
+$Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+
+if ($Mode -eq 'concurrent') {
+  $ProfileApkName = 'pakconnect_d5f6d7e_concurrent_profile.apk'
+  $ArtifactRecordName = 'concurrent_profile_artifact.txt'
+} else {
+  $ProfileApkName = 'pakconnect_d5f6d7e_strict_tdm_profile.apk'
+  $ArtifactRecordName = 'strict_tdm_profile_artifact.txt'
+}
+$ProfileApk = (Resolve-Path -LiteralPath (Join-Path $Evidence $ProfileApkName) `
+  -ErrorAction Stop).Path
+$ArtifactRecord = Join-Path $Evidence $ArtifactRecordName
+$RecordedPathLine = Select-String -LiteralPath $ArtifactRecord `
+  -Pattern '^apk=' | Select-Object -First 1
+$RecordedHashLine = Select-String -LiteralPath $ArtifactRecord `
+  -Pattern '^sha256=' | Select-Object -First 1
+if ($null -eq $RecordedPathLine -or $null -eq $RecordedHashLine) {
+  throw "Missing artifact identity fields for mode $Mode."
+}
+$RecordedPath = (Resolve-Path -LiteralPath $RecordedPathLine.Line.Substring(4) `
+  -ErrorAction Stop).Path
+$RecordedHash = $RecordedHashLine.Line.Substring(7)
+$ActualHash = (Get-FileHash -LiteralPath $ProfileApk -Algorithm SHA256).Hash
+if ($RecordedPath -ne $ProfileApk -or $RecordedHash -ne $ActualHash) {
+  throw "Profile artifact identity mismatch for mode $Mode."
+}
+
+$SerialLine = Select-String -LiteralPath "$Evidence\device_${Label}_metadata.txt" `
+  -Pattern '^serial=' | Select-Object -First 1
+if ($null -eq $SerialLine -or $SerialLine.Line.Substring(7) -ne $Device) {
+  throw "Device $Label does not match the saved A/B mapping."
+}
+$DeviceState = (adb -s $Device get-state 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $DeviceState -ne 'device') {
+  throw "Device $Label is not ready: $DeviceState"
+}
+
+@(
+  "started=$((Get-Date).ToString('o'))"
+  "mode=$Mode"
+  "label=$Label"
+  "serial=$Device"
+  "apk=$ProfileApk"
+  "sha256=$ActualHash"
+) | Add-Content "$Evidence\${Mode}_device_${Label}_launch.txt"
+
+& puro --no-progress -e ci-3-44-4 flutter run --no-pub -d $Device `
+  --profile --use-application-binary=$ProfileApk
+$ProfileRunExit = $LASTEXITCODE
+@(
+  "ended=$((Get-Date).ToString('o'))"
+  "exit=$ProfileRunExit"
+) | Add-Content "$Evidence\${Mode}_device_${Label}_launch.txt"
+if ($ProfileRunExit -ne 0) { throw "Profile run failed on Device $Label." }
 ```
 
 3. Wait up to 60 seconds for ready state.
@@ -708,7 +992,8 @@ Run this after messaging because the integration-test install may replace or
 clear normal app state:
 
 ```powershell
-flutter test --no-pub integration_test/security/database_encryption_device_test.dart `
+Invoke-BaselineFlutter test --no-pub `
+  integration_test/security/database_encryption_device_test.dart `
   -d $DeviceA 2>&1 | Tee-Object "$Evidence\sqlcipher_device_A.txt"
 if ($LASTEXITCODE -ne 0) { throw 'Android SQLCipher device proof failed.' }
 ```
@@ -736,29 +1021,47 @@ added on a new baseline.
 After stopping log capture, run:
 
 ```powershell
-$Logs = Get-ChildItem $Evidence -Filter '*.log'
-
-$PayloadNeedles = @(
-  'PK-A2B-', 'PK-B2A-', 'PK-UNICODE-', 'PK-KK-', 'PK-OFFLINE-',
-  'PK-RESUME-', 'PK-RELAUNCH-', 'PK-DOZE-'
+$ExpectedLogNames = @(
+  'functional_device_A.log', 'functional_device_B.log',
+  'concurrent_device_A.log', 'concurrent_device_B.log',
+  'strict_tdm_device_A.log', 'strict_tdm_device_B.log'
 )
-Select-String -Path $Logs.FullName -SimpleMatch -Pattern $PayloadNeedles |
-  Set-Content "$Evidence\privacy_payload_hits.txt"
+$LogGateProblems = @()
+foreach ($LogName in $ExpectedLogNames) {
+  $LogPath = Join-Path $Evidence $LogName
+  if (-not (Test-Path -LiteralPath $LogPath -PathType Leaf)) {
+    $LogGateProblems += "missing=$LogName"
+  } elseif ((Get-Item -LiteralPath $LogPath).Length -eq 0) {
+    $LogGateProblems += "empty=$LogName"
+  }
+}
 
-Select-String -Path $Logs.FullName `
-  -Pattern 'private[_ ]?key|passphrase|password|SQLCipher.{0,20}key|encryption.{0,20}key|FATAL EXCEPTION|nonce|replay|authentication failed|decrypt.*failed|status 133' `
-  -Context 1,1 | Set-Content "$Evidence\privacy_and_failure_review.txt"
+if ($LogGateProblems.Count -gt 0) {
+  $PrivacyScanComplete = $false
+  $LogGateProblems | Set-Content "$Evidence\privacy_scan_blockers.txt"
+  Mark "LOG_PRIVACY RESULT: BLOCKED - $($LogGateProblems -join ', ')"
+} else {
+  $PrivacyScanComplete = $true
+  $Logs = $ExpectedLogNames | ForEach-Object {
+    Get-Item -LiteralPath (Join-Path $Evidence $_)
+  }
 
-Get-ChildItem $Evidence -File |
-  Where-Object Name -ne 'evidence_hashes.txt' |
-  Get-FileHash -Algorithm SHA256 |
-  Format-Table -AutoSize | Out-File "$Evidence\evidence_hashes.txt"
+  $PayloadHits = @(Select-String -Path $Logs.FullName -SimpleMatch -Pattern 'PK-')
+  $PayloadHits | Out-File "$Evidence\privacy_payload_hits.txt"
+
+  $ReviewHits = @(Select-String -Path $Logs.FullName `
+    -Pattern 'private[_ ]?key|passphrase|password|SQLCipher.{0,20}key|encryption.{0,20}key|FATAL EXCEPTION|nonce|replay|authentication failed|decrypt.*failed|status 133' `
+    -Context 1,1)
+  $ReviewHits | Out-File "$Evidence\privacy_and_failure_review.txt"
+}
 ```
 
-Review every hit in context. The payload-hit file must be empty for plaintext
-content. A label such as `private key unavailable` may be harmless; actual key
-bytes, passphrases, passwords, SQLCipher credentials, or plaintext payload
-previews are a failure.
+The privacy row cannot pass unless `$PrivacyScanComplete` is true. Review every
+hit in context. The payload-hit file must be empty for plaintext content; the
+broad `PK-` prefix includes functional and both profile-mode payloads. A label
+such as `private key unavailable` may be harmless; actual key bytes,
+passphrases, passwords, SQLCipher credentials, or plaintext payload previews
+are a failure.
 
 Stop the run and preserve evidence immediately if any of these occurs:
 
@@ -800,18 +1103,28 @@ and evidence-session name into [DEVICE_VALIDATION_STATUS.md](DEVICE_VALIDATION_S
 | Foreground -> background -> resume |  | debug |  |  | No killed/dozing-delivery claim |
 | Route disappears mid-send |  | debug |  |  |  |
 | Manual reconnect |  | debug |  |  |  |
+| Bluetooth off/on reconnect target |  | debug |  |  | Record before/after UUID and exact-target auto-connect or safe-timeout behavior |
 | Multi-link inventory/routing | BLOCKED | needs 3 devices |  |  | Third device required |
 | Relay A -> B -> C | BLOCKED | needs 3 devices |  |  | Third device required |
 | Log/privacy inspection |  | all modes |  |  |  |
 | SQLCipher at-rest proof |  | integration/device |  |  |  |
-| Process death/relaunch |  | debug |  |  |  |
-| Doze observation |  | debug |  |  |  |
+| Sender process death -> relaunch |  | debug |  |  |  |
+| Doze/battery-saver observation |  | debug |  |  |  |
 
 Closeout checks:
 
 ```powershell
+$ResultsPath = Join-Path $Evidence 'results.md'
+if (-not (Test-Path -LiteralPath $ResultsPath -PathType Leaf) -or
+    (Get-Item -LiteralPath $ResultsPath).Length -eq 0) {
+  throw 'Save the completed final result table as results.md before closeout.'
+}
+
 "ended=$((Get-Date).ToString('o'))" | Add-Content "$Evidence\session_metadata.txt"
-adb devices -l | Add-Content "$Evidence\adb_devices_end.txt"
+$AdbEndOutput = adb devices -l 2>&1
+$AdbEndExit = $LASTEXITCODE
+($AdbEndOutput | Out-String) | Set-Content "$Evidence\adb_devices_end.txt"
+if ($AdbEndExit -ne 0) { throw 'Final adb device capture failed.' }
 
 git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
 if ($LASTEXITCODE -ne 0) { throw 'Build inputs drifted during the run.' }
@@ -823,23 +1136,48 @@ if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
   throw "Build-input worktree drifted during the run:`n$($BuildInputStatus -join "`n")"
 }
 
-git status --short
+$GeneratedRegistrantPaths = @(
+  'linux/flutter/generated_plugin_registrant.cc'
+  'linux/flutter/generated_plugin_registrant.h'
+  'linux/flutter/generated_plugins.cmake'
+  'macos/Flutter/GeneratedPluginRegistrant.swift'
+  'windows/flutter/generated_plugin_registrant.cc'
+  'windows/flutter/generated_plugin_registrant.h'
+  'windows/flutter/generated_plugins.cmake'
+)
+$GeneratedStatus = @(git status --porcelain -- $GeneratedRegistrantPaths)
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect generated registrants.' }
+if ($GeneratedStatus.Count -gt 0) {
+  git diff -- $GeneratedRegistrantPaths |
+    Set-Content "$Evidence\generated_registrant_diff.txt"
+  if ($LASTEXITCODE -ne 0) { throw 'Could not save generated-registrant diff.' }
+  git restore -- $GeneratedRegistrantPaths
+  if ($LASTEXITCODE -ne 0) { throw 'Could not restore generated registrants.' }
+}
+
+$FinalStatus = @(git status --porcelain --untracked-files=all)
+Set-Content "$Evidence\git_status_end.txt" -Value ($FinalStatus -join "`n")
+if ($LASTEXITCODE -ne 0 -or $FinalStatus.Count -gt 0) {
+  throw "Worktree drift remains after the run:`n$($FinalStatus -join "`n")"
+}
+
+$ManifestPath = Join-Path $Evidence 'evidence_hashes.txt'
+$ManifestLines = Get-ChildItem -LiteralPath $Evidence -File -Recurse |
+  Where-Object FullName -ne $ManifestPath |
+  Sort-Object FullName |
+  ForEach-Object {
+    $Hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    $RelativePath = [IO.Path]::GetRelativePath($Evidence, $_.FullName)
+    "$Hash  $RelativePath"
+  }
+$ManifestLines | Set-Content -LiteralPath $ManifestPath
 ```
 
-Flutter may regenerate tracked plugin registrants during builds. Inspect their
-diffs; if they are only generated churn and the pre-run worktree was clean,
-restore them before closing the evidence pass:
-
-```powershell
-git restore -- `
-  linux/flutter/generated_plugin_registrant.cc `
-  linux/flutter/generated_plugin_registrant.h `
-  linux/flutter/generated_plugins.cmake `
-  macos/Flutter/GeneratedPluginRegistrant.swift `
-  windows/flutter/generated_plugin_registrant.cc `
-  windows/flutter/generated_plugin_registrant.h `
-  windows/flutter/generated_plugins.cmake
-```
+The run starts from a fully clean worktree, so restoring only the listed
+generated registrants is safe. Their pre-restore diff is retained. The final
+full-worktree gate must be empty, and the evidence manifest is created last so
+it includes the completed result table, end timestamp, final device list, and
+final Git status while excluding only itself.
 
 The recommended next action after this two-device pass is to fix any saved
 `FAIL` before expanding scope. If all executable two-device rows pass, add one

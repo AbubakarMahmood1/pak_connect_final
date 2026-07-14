@@ -1,6 +1,6 @@
 # PakConnect debt register
 
-Last reconciled: 2026-07-13
+Last reconciled: 2026-07-14
 
 This register contains confirmed liabilities that are not silently promoted as
 working features. `Now` means required before the current FYP/portfolio
@@ -9,12 +9,15 @@ before a design decision.
 
 | ID | Priority | Status | Liability and evidence | Decision / exit condition |
 |---|---|---|---|---|
+| DEBT-CI-001 | P1 | Now/publication | Public-main Flutter run `29215130687` failed two parallel suites with SQLite `database is locked`. Local commit `4fd8aec` preserves suite-specific database names and the local full suite is green, but the 17-commit hardening chain is not on GitHub. `main` has no protection/ruleset, and PR #72 merged before its checks completed | Protect `main`, require pull requests plus `test`, Android CodeQL and Actions CodeQL, publish through a normal non-force PR, and close only when exact-head PR checks plus the post-merge main run pass |
+| DEBT-ANDROID-BUILD-001 | P2 | Later/tooling | Flutter 3.44.4 builds remain compatible but warn that Gradle 8.11.1 should move to 8.14+, Android Gradle Plugin 8.9.1 to 8.11.1+, and Kotlin 2.1.0 to 2.2.20+; Flutter also flags a future built-in Kotlin/plugin migration | Preserve the current verified build inputs for this baseline; perform the coordinated Gradle, AGP, Kotlin, and built-in-Kotlin/plugin migration in a separate compatibility-tested change |
 | DEBT-SYNC-001 | P2 | Later | Live change-log replay is intentionally disabled; the dormant prototype carries metadata rather than full rows and has no authenticated transport or convergence contract | Enable only with row payloads, exact authenticated peer routing, partial-failure cursor rules and convergence tests; keep local capture/export/import/prune meanwhile |
 | DEBT-BG-001 | P1 | Later/device | Resume hook flushes pending messages, but there is no native Android WorkManager/service or iOS BGTask execution | Do not claim background delivery while suspended; choose platform design only after device lifecycle evidence |
 | DEBT-SQLCIPHER-001 | P1 | Device | Desktop tests fall back to plaintext SQLite; no current at-rest device proof | Complete the SQLCipher device proof in the validation ledger |
 | DEBT-QUEUE-LINK-001 | P1 | Later/device | Queue-sync payloads now preflight one exact address, pin the physical peer/characteristic through the serialized GATT write, and start ACK timing only when that write executes. Direct queued delivery still fails closed unless one unambiguous link is active, and physical multi-link identity/ACK isolation is unproved | Record `address + connection generation -> verified ephemeral/persistent aliases + Noise-ready` at handshake completion, clear it on exact disconnect, permit concurrent-link delivery only through that binding, and prove A/B isolation with a third device |
 | DEBT-QUEUE-REV-001 | P3 | Investigate | Durable delivery ownership compares `(status, attempts, lastAttemptAt)`. Normal attempts change that token and reset/rebootstrap races are covered, but manual retry can restore `pending/0/null`, so a contrived overlapping-instance ABA cycle is not formally excluded | Add a durable monotonic row revision or attempt UUID only if lifecycle/concurrency evidence exposes the ABA; retain message-ID deduplication and the current CAS handoff meanwhile |
 | DEBT-RECONNECT-001 | P2 | Later | Manual reconnect now works but selects the first PakConnect service advertiser, not a requested contact | Add target hint/contact filtering before claiming reliable multi-peer manual reconnect |
+| DEBT-RECONNECT-UUID-001 | P1 | Device | Automatic reconnect is fail-closed to the previously connected platform peripheral UUID, but Android may rotate that UUID across Bluetooth off/on; no physical trace proves stability or the safe-timeout path | On both phones record the platform UUID before/after Bluetooth cycling. If it rotates, automatic reconnect must ignore other advertisers and time out until a manual identity-verified reconnect; never fall back to the first advertiser |
 | DEBT-BLE-GEN-001 | P2 | Device | BLE plugin inbound events expose address but no native connection generation | Validate same-address rapid reconnect on hardware; upstream/extend plugin if delayed old-link events can cross a new connected event |
 | DEBT-BLE-API-001 | P2 | Investigate | BLE contract surface is large (many interfaces and phase markers), with partial static/service-locator fallbacks | Refactor only along measured ownership seams after two-device stabilization; no pre-test rewrite |
 | DEBT-GROUP-001 | P2 | Later | The shipped feature is now honestly bounded as sender-local broadcast lists: recipients get ordinary direct messages, with no group ID on the wire, synchronized membership, shared transcript/replies, or correlated broadcast receipts | Keep the current label and fail-safe direct-message behavior; implement a true group protocol only with authenticated membership/versioning, inbound persistence/dedup, reply/admin rules, mixed-version handling, and device tests |
@@ -23,7 +26,7 @@ before a design decision.
 | DEBT-RELAY-PRIV-001 | P1 | Later/device | All live outgoing relay callers omit `sealedSender`, no runtime caller generates a stealth envelope, and the production relay factory injects no `MessageCostPolicy`, so PoW is not enforced | Public claims are corrected; enable any feature only through an explicit policy backed by privacy, mixed-version, abuse, performance, and two-device tests |
 | DEBT-PLATFORM-001 | P3 | Environment | Windows desktop build cannot run here because Visual Studio is absent | Not an Android release blocker; validate if Windows is a claimed target |
 
-## Closed in the 2026-07-10/11 hardening pass
+## Closed in the 2026-07-10 through 2026-07-13 hardening passes
 
 - Queue responses can no longer complete the wrong target's pending round via
   a claimed node ID or global alias.

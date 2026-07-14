@@ -229,13 +229,13 @@ membership state, so this is not a synchronized group conversation.
 
 ### FR-7.1: Dual-Role BLE
 **Priority**: Critical
-**Status**: Implemented
+**Status**: Implemented in source; simultaneous physical behavior unverified
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-7.1.1 | Central mode scanning | `BLEService.startScanning()` |
 | FR-7.1.2 | Peripheral mode advertising | `PeripheralInitializer.startAdvertising()` |
-| FR-7.1.3 | Simultaneous central/peripheral | Dual-mode architecture |
+| FR-7.1.3 | Simultaneous central/peripheral | Both role paths are composed; simultaneous Android radio behavior remains device-gated |
 | FR-7.1.4 | MTU negotiation | `BLEConnectionManager.negotiateMTU()` |
 | FR-7.1.5 | Connection management | Configurable limits exist, but the current payload policy is single-link; multi-link capacity remains device-unverified |
 
@@ -320,14 +320,14 @@ membership state, so this is not a synchronized group conversation.
 
 ### FR-10.1: Notification Types
 **Priority**: Medium
-**Status**: Implemented
+**Status**: Partial
 
 | ID | Requirement | Implementation |
 |----|-------------|----------------|
 | FR-10.1.1 | New message notifications | `NotificationService.showMessageNotification()` |
 | FR-10.1.2 | Contact request notifications | `showContactRequestNotification()` |
 | FR-10.1.3 | System notifications | `showSystemNotification()` |
-| FR-10.1.4 | Background notifications (Android) | `BackgroundNotificationHandlerImpl` |
+| FR-10.1.4 | Android system-tray notification while Dart invokes the handler | `BackgroundNotificationHandlerImpl`; no WorkManager/service or killed-process message ingress is implemented |
 | FR-10.1.5 | Notification channels | MESSAGES, CONTACTS, SYSTEM |
 
 ### FR-10.2: Notification Management

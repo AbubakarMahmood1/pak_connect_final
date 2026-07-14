@@ -67,6 +67,84 @@ Before finishing a multi-step task:
 
 ---
 
+# Public-claim and CI truth reconciliation (Codex, 2026-07-14)
+
+## Goal
+
+Reconcile the current local durability/route hardening chain with the public
+README, live status/SRS surfaces and the latest GitHub Actions evidence without
+pushing or claiming hardware validation.
+
+## Constraints
+
+- Keep the canonical repository as the sole active PakConnect worktree.
+- Do not push, force-push, merge, or write directly to public `main` in this
+  pass.
+- Promote a new runtime/device-test baseline because the notification copy,
+  Flutter/lockfile authority, workflow definitions and Android compatibility
+  flags are build-input changes after `9f0a055`.
+- Local green tests do not prove an unrun GitHub workflow; desktop tests do not
+  prove BLE, mobile SQLCipher, background delivery, signed release, iOS or
+  multi-device behavior.
+
+## Facts
+
+- Public `main` is `1d484eb`; publication of the local hardening chain remains
+  intentionally pending.
+- Public Flutter run `29215130687` failed with 5,537 passes and two SQLite
+  `database is locked` failures. Both suites had reverted to the shared
+  production filename `pak_connect.db` while test files ran in parallel.
+- Local commit `4fd8aec` preserves the suites' isolated database names instead
+  of serializing the entire workflow.
+- `63d426a` removes the false killed-process notification claim from runtime
+  copy and adds an Android widget regression.
+- `d5f6d7edded25dc6e935bd366e7a7e8be08b7901` pins the Flutter 3.44.4
+  dependency resolution and workflow behavior, adds CodeQL push/manual
+  triggers, upgrades the artifact action, and records Flutter's Android
+  compatibility flags so a build no longer mutates tracked inputs.
+- Flutter 3.44.4 bundles Dart 3.12.2. The package keeps Dart 3.10.3 as its
+  language floor while Flutter 3.44.4 is the minimum and canonical toolchain.
+- `9f0a055` and docs descendant `18be950` remain previous-baseline provenance,
+  not current device-run authority.
+
+## Approach
+
+1. Audit public claims, GitHub runs and live status documents against current
+   code/configuration.
+2. Split runtime truth and CI/toolchain corrections into independent commits.
+3. Run the exact local coverage command, debug APK build and all fail-closed
+   workflow gates on the final build-input commit.
+4. Repin documentation/status surfaces to the verified baseline.
+5. Verify links, paths, baseline/build-input identity and diff hygiene, then
+   commit the documentation closeout locally.
+
+## Exit evidence
+
+- Baseline `d5f6d7e` passes 5,691 tests with zero failures (reporter 6m30s;
+  measured command wall 401,348ms). `flutter_test_latest.log` is 9,172,538
+  bytes, SHA-256
+  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`.
+- Its debug APK is 205,109,632 bytes, SHA-256
+  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`.
+- Analyzer, dependency-lock enforcement, DI/runtime/reachability/suppression
+  gates, the 108-test strict BLE suite, all 14 crypto-policy cases and
+  `git diff --check` pass on Flutter 3.44.4 / Dart 3.12.2.
+- The first post-upgrade targeted test exposed a stale Flutter 3.41.5 shader
+  artifact; one `flutter clean` removed it and the 18-test file then passed.
+  The first APK build exposed Flutter's two compatibility flags; they were
+  committed before the final full-suite and APK verification.
+- README and live status/SRS documents disclose the red public workflow and
+  pending exact-head GitHub validation.
+- `git diff d5f6d7e..HEAD -- lib test integration_test android ios assets
+  pubspec.yaml pubspec.lock` remains empty after the documentation closeout.
+
+## Remaining boundary
+
+Fresh GitHub Actions, public-branch publication and all physical-device gates
+remain pending until a later explicitly authorized push/PR and device run.
+
+---
+
 # Fail-closed offline queue durability (Codex, 2026-07-13)
 
 ## Goal
@@ -115,7 +193,7 @@ durable queue could not initialize, load, or store that message.
   cancellation/fallback-init hardening; its follow-up regressions are included
   in the 208-test pass.
 - Targeted `flutter analyze --no-pub` and `git diff --check` pass.
-- Full suite and Android debug APK before promoting a new device baseline.
+- Full suite and Android debug APK are green in promoted baseline `9f0a055`.
 
 ## Risks
 
@@ -126,8 +204,8 @@ durable queue could not initialize, load, or store that message.
 
 ## Status
 
-- **Implementation complete:** ready for a bounded commit. The historical
-  device baseline remains unchanged until the full suite and APK are rebuilt.
+- **Complete and promoted:** the fail-closed queue change, full suite and debug
+  APK are included in device baseline `9f0a055`.
 
 ---
 
@@ -178,7 +256,7 @@ through cleanup and cancelling delayed reconnect work when state changes.
 - Reconnect-policy and BLE connection-manager tests.
 - Connection-health-monitor and BLE service/facade tests.
 - `flutter analyze --no-pub`.
-- Full suite and Android debug APK before device-baseline promotion.
+- Full suite and Android debug APK are green in promoted baseline `9f0a055`.
 
 ## Risks
 
@@ -197,8 +275,8 @@ through cleanup and cancelling delayed reconnect work when state changes.
 - **Device boundary:** validate whether each Android phone keeps the same
   exposed peripheral UUID across Bluetooth off/on. Rotation must produce a
   safe timeout/manual identity-verified reconnect, not first-advertiser dial.
-- **Remaining verification:** full suite and Android debug APK are required
-  before promoting a new device-test baseline.
+- **Promoted verification:** full suite and Android debug APK are green in
+  device baseline `9f0a055`.
 
 ---
 
@@ -242,7 +320,7 @@ as it was before the attempt.
 
 - Focused archive repository/service/provider tests.
 - `flutter analyze`.
-- Full suite and Android debug APK before promoting a new device baseline.
+- Full suite and Android debug APK are green in promoted baseline `9f0a055`.
 
 ## Risks
 
@@ -261,8 +339,8 @@ as it was before the attempt.
   rollback, cross-chat ID collision, custom target rewrite, stored/actual
   count mismatch, malformed JSON, contact-FK retention/fallback, and archive
   child cleanup. Existing archive mapping semantics remain unchanged.
-- **Remaining verification:** full suite and Android debug APK are required
-  before promoting a new device-test baseline.
+- **Promoted verification:** full suite and Android debug APK are green in
+  device baseline `9f0a055`.
 
 ---
 

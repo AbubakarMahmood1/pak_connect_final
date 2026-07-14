@@ -170,11 +170,11 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-6.2: Environment
 | ID | Requirement | Implementation | Notes |
 |----|-------------|----------------|-------|
-| NFR-6.2.1 | Flutter version | 3.38.4+ | Locked dependency minimum; CI pinned to 3.44.4 |
-| NFR-6.2.2 | Dart version | 3.10.3+ | Locked dependency minimum; null safety |
+| NFR-6.2.1 | Flutter version | 3.44.4+ | Lockfile and CI authority pinned to 3.44.4 |
+| NFR-6.2.2 | Dart version | 3.10.3+ language floor; canonical 3.12.2 | Bundled with Flutter; null safety |
 | NFR-6.2.3 | Android SDK | min 24, compile/target 36 | Resolved by the current Flutter SDK; repo does not pin it |
 | NFR-6.2.4 | iOS deployment target | 12.0+ | Background BLE remains limited |
-| NFR-6.2.5 | Storage requirement | Artifact-derived | Debug APK is 203,988,403 bytes before installed data; release size unverified |
+| NFR-6.2.5 | Storage requirement | Artifact-derived | Baseline `d5f6d7e` debug APK is 205,109,632 bytes before installed data; release size unverified |
 
 ## NFR-7: Efficiency
 

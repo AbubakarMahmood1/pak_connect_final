@@ -1,6 +1,6 @@
 # PakConnect codebase map
 
-Last reconciled: 2026-07-11
+Last reconciled: 2026-07-14
 
 This is the live orientation map for maintainers and reviewers. It describes
 the code that is wired today; historical plans and review reports are not
@@ -23,17 +23,17 @@ architecture authority.
 
 ## Scale snapshot
 
-Physical line and file counts under `lib/` after the bounded reachability
-cleanup on 2026-07-11:
+Physical line and file counts under `lib/` after the bounded reachability and
+route/durability hardening passes:
 
 | Layer | Dart files | Physical lines | Primary responsibility |
 |---|---:|---:|---|
-| `core` | 60 | 15,412 | BLE/security/mesh infrastructure and low-level services |
-| `data` | 89 | 33,201 | SQLCipher/SQLite, repositories, BLE service implementations |
-| `domain` | 200 | 41,708 | Entities, contracts, use cases, messaging and mesh policy |
-| `presentation` | 87 | 30,905 | Flutter UI, controllers, view models and Riverpod providers |
-| `lib/` root | 1 | 423 | Application entry point |
-| Total | 437 | 121,649 | Excludes tests and generated platform files |
+| `core` | 60 | 17,025 | BLE/security/mesh infrastructure and low-level services |
+| `data` | 89 | 34,153 | SQLCipher/SQLite, repositories, BLE service implementations |
+| `domain` | 200 | 42,413 | Entities, contracts, use cases, messaging and mesh policy |
+| `presentation` | 87 | 30,869 | Flutter UI, controllers, view models and Riverpod providers |
+| `lib/` root | 1 | 444 | Application entry point |
+| Total | 437 | 124,904 | Excludes tests and generated platform files |
 
 The practical dependency shape is not four isolated boxes. `domain` is the
 base contract/policy layer; `core` and `data` both depend on it, and
