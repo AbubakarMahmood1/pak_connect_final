@@ -5,30 +5,32 @@ This is the executable run sheet for the live matrix in
 repository root in PowerShell 7 or newer. Use only `PASS`, `FAIL`, `BLOCKED`,
 and `NOT RUN` in the final record.
 
-The fixed code/test/tooling baseline is:
+The fixed build/runtime verification baseline is:
 
-- commit: `d5f6d7edded25dc6e935bd366e7a7e8be08b7901`
-- short commit: `d5f6d7e`
+- commit: `9434384851298c976cda0269f6cef65ebaafed1c`
+- short commit: `9434384`
 - branch used to prepare the baseline: `codex/archive-delete-contract`
 - local verification toolchain: Flutter 3.44.4 revision
   `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2
 - analyzer: clean on 2026-07-14
-- full desktop suite: 5,691 passed, 0 failed; reporter 6m30s; measured wall
-  401,348 ms
-- full-suite log: 9,172,538 bytes; SHA-256
-  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`
-- coverage artifact: `coverage/lcov.info`; 426,841 bytes; SHA-256
-  `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8`
+- full desktop suite: 5,691 passed, 0 failed; reporter 5m37s; measured wall
+  353,083 ms
+- full-suite log: 9,268,167 bytes; SHA-256
+  `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905`
+- coverage artifact: `coverage/lcov.info`; 426,546 bytes; SHA-256
+  `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794`
 - verified debug APK: `build/app/outputs/flutter-apk/app-debug.apk`
-- verified debug APK size: `205109632` bytes
+- verified debug APK size: `205113616` bytes
 - verified debug APK SHA-256:
-  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`
+  `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`
 
-A documentation-only descendant is acceptable. Any changed build input is a
-hard stop until the new code has its own baseline and desktop verification.
-The immediate prior checkpoints `18be950` and `9f0a055`, previous `9cccd01`
-and `a5c2b08` baselines, and `fcb3013` candidate remain historical provenance
-only; no older commit is valid for this run.
+A descendant with no changes in the listed build/runtime verification tree is
+acceptable. Any changed listed input is a hard stop until the new code has its
+own baseline and desktop verification. In the rewritten local history,
+`19c4824` is the combined route/offline implementation commit, `10b1830` is
+its documentation checkpoint, and `b024cab` is the superseded prior runtime
+baseline. They remain historical provenance only; no older commit is valid for
+this run.
 
 ## Honest two-device boundary
 
@@ -53,7 +55,8 @@ Record those two rows as `BLOCKED: third Android device required`; do not infer
 a pass from unit tests or a single A/B link. The full strict-TDM architecture
 decision also remains provisional until the three-device relay comparison in
 [android_ble_tdm_device_runbook.md](../refactoring/android_ble_tdm_device_runbook.md)
-is run.
+is promoted into a baseline-bound extension of this checklist and run. The
+legacy runbook by itself is not evidence.
 
 ## 0. Baseline and workspace gate
 
@@ -66,8 +69,9 @@ if ($PSVersionTable.PSVersion -lt [version]'7.0') {
   throw 'This run sheet requires PowerShell 7 or newer.'
 }
 
-$Baseline = 'd5f6d7e'
-$ExpectedBaseline = 'd5f6d7edded25dc6e935bd366e7a7e8be08b7901'
+$ExpectedBaseline = '9434384851298c976cda0269f6cef65ebaafed1c'
+$BaselineShort = $ExpectedBaseline.Substring(0, 7)
+$Baseline = $BaselineShort
 $Package = 'com.pakconnect.app'
 $PuroEnvironment = 'ci-3-44-4'
 $ExpectedFlutterVersion = '3.44.4'
@@ -92,8 +96,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $BuildInputs = @(
-  'lib', 'test', 'integration_test', 'android', 'ios', 'assets',
-  'pubspec.yaml', 'pubspec.lock'
+  'lib', 'test', 'integration_test', 'android', 'ios', 'linux', 'macos',
+  'web', 'windows', 'assets', 'pubspec.yaml', 'pubspec.lock', '.metadata',
+  'analysis_options.yaml'
 )
 git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
 if ($LASTEXITCODE -ne 0) {
@@ -175,6 +180,7 @@ $Evidence = Join-Path (Get-Location) "validation_outputs\android_two_device_$Sta
 New-Item -ItemType Directory -Force $Evidence | Out-Null
 
 "baseline=$ExpectedBaseline" | Set-Content "$Evidence\session_metadata.txt"
+"baseline_short=$BaselineShort" | Add-Content "$Evidence\session_metadata.txt"
 "head=$((git rev-parse HEAD).Trim())" | Add-Content "$Evidence\session_metadata.txt"
 "branch=$((git branch --show-current).Trim())" | Add-Content "$Evidence\session_metadata.txt"
 "started=$((Get-Date).ToString('o'))" | Add-Content "$Evidence\session_metadata.txt"
@@ -254,8 +260,8 @@ before continuing instead of relabeling the mismatch.
 
 ```powershell
 $DebugApk = Join-Path (Get-Location) 'build\app\outputs\flutter-apk\app-debug.apk'
-$ExpectedDebugBytes = 205109632
-$ExpectedDebugHash = '9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A'
+$ExpectedDebugBytes = 205113616
+$ExpectedDebugHash = '84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059'
 if (-not (Test-Path $DebugApk)) {
   Invoke-BaselineFlutter build apk --debug --no-pub
   if ($LASTEXITCODE -ne 0) { throw 'Debug APK build failed.' }
@@ -269,13 +275,13 @@ if ($DebugItem.Length -ne $ExpectedDebugBytes -or $DebugHash -ne $ExpectedDebugH
 "debug_apk=$($DebugItem.FullName)" | Add-Content "$Evidence\session_metadata.txt"
 "debug_apk_bytes=$($DebugItem.Length)" | Add-Content "$Evidence\session_metadata.txt"
 "debug_apk_sha256=$DebugHash" | Add-Content "$Evidence\session_metadata.txt"
-Copy-Item $DebugApk "$Evidence\pakconnect_${Baseline}_debug.apk"
+Copy-Item $DebugApk "$Evidence\pakconnect_${BaselineShort}_debug.apk"
 
 adb -s $DeviceA uninstall $Package
 adb -s $DeviceB uninstall $Package
-adb -s $DeviceA install "$Evidence\pakconnect_${Baseline}_debug.apk"
+adb -s $DeviceA install "$Evidence\pakconnect_${BaselineShort}_debug.apk"
 if ($LASTEXITCODE -ne 0) { throw 'Install failed on Device A.' }
-adb -s $DeviceB install "$Evidence\pakconnect_${Baseline}_debug.apk"
+adb -s $DeviceB install "$Evidence\pakconnect_${BaselineShort}_debug.apk"
 if ($LASTEXITCODE -ne 0) { throw 'Install failed on Device B.' }
 
 adb -s $DeviceA shell dumpsys package $Package |
@@ -741,7 +747,7 @@ Gradle builds producing different binaries.
 ```powershell
 Invoke-BaselineFlutter build apk --profile --no-pub
 if ($LASTEXITCODE -ne 0) { throw 'Concurrent profile build failed.' }
-$ConcurrentApk = "$Evidence\pakconnect_${Baseline}_concurrent_profile.apk"
+$ConcurrentApk = "$Evidence\pakconnect_${BaselineShort}_concurrent_profile.apk"
 Copy-Item 'build\app\outputs\flutter-apk\app-profile.apk' $ConcurrentApk
 $ConcurrentHash = (Get-FileHash $ConcurrentApk -Algorithm SHA256).Hash
 @(
@@ -753,7 +759,7 @@ $ConcurrentHash = (Get-FileHash $ConcurrentApk -Algorithm SHA256).Hash
 Invoke-BaselineFlutter build apk --profile --no-pub `
   --dart-define=PAKCONNECT_STRICT_TDM=true
 if ($LASTEXITCODE -ne 0) { throw 'Strict-TDM profile build failed.' }
-$StrictApk = "$Evidence\pakconnect_${Baseline}_strict_tdm_profile.apk"
+$StrictApk = "$Evidence\pakconnect_${BaselineShort}_strict_tdm_profile.apk"
 Copy-Item 'build\app\outputs\flutter-apk\app-profile.apk' $StrictApk
 $StrictHash = (Get-FileHash $StrictApk -Algorithm SHA256).Hash
 @(
@@ -858,12 +864,22 @@ if ($Mode -notin @('concurrent', 'strict_tdm') -or
   throw 'Replace every profile-launch placeholder with the saved run values.'
 }
 $Evidence = (Resolve-Path -LiteralPath $Evidence -ErrorAction Stop).Path
+$BaselineShortLine = Select-String -LiteralPath `
+  "$Evidence\session_metadata.txt" -Pattern '^baseline_short=' |
+  Select-Object -First 1
+if ($null -eq $BaselineShortLine) {
+  throw 'Missing baseline short commit in session metadata.'
+}
+$BaselineShort = $BaselineShortLine.Line.Substring(15)
+if ($BaselineShort -notmatch '^[0-9a-f]{7}$') {
+  throw "Invalid baseline short commit in session metadata: $BaselineShort"
+}
 
 if ($Mode -eq 'concurrent') {
-  $ProfileApkName = 'pakconnect_d5f6d7e_concurrent_profile.apk'
+  $ProfileApkName = "pakconnect_${BaselineShort}_concurrent_profile.apk"
   $ArtifactRecordName = 'concurrent_profile_artifact.txt'
 } else {
-  $ProfileApkName = 'pakconnect_d5f6d7e_strict_tdm_profile.apk'
+  $ProfileApkName = "pakconnect_${BaselineShort}_strict_tdm_profile.apk"
   $ArtifactRecordName = 'strict_tdm_profile_artifact.txt'
 }
 $ProfileApk = (Resolve-Path -LiteralPath (Join-Path $Evidence $ProfileApkName) `
@@ -1120,21 +1136,80 @@ if (-not (Test-Path -LiteralPath $ResultsPath -PathType Leaf) -or
   throw 'Save the completed final result table as results.md before closeout.'
 }
 
+$ExpectedResultScenarios = @(
+  'Permissions and Bluetooth readiness'
+  'A scans, B advertises'
+  'B scans, A advertises'
+  'Simultaneous discovery/collision'
+  'Strict-TDM bring-up'
+  'Noise XX first contact'
+  'Noise KK paired reconnect'
+  'A sends text to B'
+  'B sends text to A'
+  'Unicode and pipe-heavy text'
+  'Large/binary media'
+  'Offline queue then reconnect'
+  'Foreground -> background -> resume'
+  'Route disappears mid-send'
+  'Manual reconnect'
+  'Bluetooth off/on reconnect target'
+  'Multi-link inventory/routing'
+  'Relay A -> B -> C'
+  'Log/privacy inspection'
+  'SQLCipher at-rest proof'
+  'Sender process death -> relaunch'
+  'Doze/battery-saver observation'
+)
+$AllowedResultStatuses = @('PASS', 'FAIL', 'BLOCKED', 'NOT RUN')
+$ResultRows = @{}
+foreach ($Line in Get-Content -LiteralPath $ResultsPath) {
+  if ($Line -notmatch '^\|\s*(?<Scenario>[^|]+?)\s*\|\s*(?<Status>[^|]*?)\s*\|\s*(?<Mode>[^|]*?)\s*\|\s*(?<StartEnd>[^|]*?)\s*\|\s*(?<Evidence>[^|]*?)\s*\|\s*(?<Observation>[^|]*?)\s*\|\s*$') {
+    continue
+  }
+  $Scenario = $Matches['Scenario'].Trim()
+  if ($Scenario -notin $ExpectedResultScenarios) { continue }
+  if ($ResultRows.ContainsKey($Scenario)) {
+    throw "Duplicate final-result row: $Scenario"
+  }
+
+  $Status = $Matches['Status'].Trim()
+  $Mode = $Matches['Mode'].Trim()
+  $StartEnd = $Matches['StartEnd'].Trim()
+  $EvidenceCell = $Matches['Evidence'].Trim()
+  $Observation = $Matches['Observation'].Trim()
+  $EditableCells = @(
+    $Status, $Mode, $StartEnd, $EvidenceCell, $Observation
+  ) -join ' | '
+  if ($EditableCells -match '<[^>]+>') {
+    throw "Unreplaced placeholder in final-result row: $Scenario"
+  }
+  if ($Status -notin $AllowedResultStatuses) {
+    throw "Missing or invalid status for final-result row: $Scenario"
+  }
+  if ($Status -in @('PASS', 'FAIL') -and
+      ([string]::IsNullOrWhiteSpace($Mode) -or
+       [string]::IsNullOrWhiteSpace($StartEnd) -or
+       [string]::IsNullOrWhiteSpace($EvidenceCell))) {
+    throw "PASS/FAIL row requires mode, start/end and evidence: $Scenario"
+  }
+  if ($Status -in @('BLOCKED', 'NOT RUN') -and
+      [string]::IsNullOrWhiteSpace($Observation)) {
+    throw "BLOCKED/NOT RUN row requires a reason: $Scenario"
+  }
+  $ResultRows[$Scenario] = $Status
+}
+$MissingResultRows = @(
+  $ExpectedResultScenarios | Where-Object { -not $ResultRows.ContainsKey($_) }
+)
+if ($MissingResultRows.Count -gt 0) {
+  throw "Incomplete final-result table; missing completed rows: $($MissingResultRows -join ', ')"
+}
+
 "ended=$((Get-Date).ToString('o'))" | Add-Content "$Evidence\session_metadata.txt"
 $AdbEndOutput = adb devices -l 2>&1
 $AdbEndExit = $LASTEXITCODE
 ($AdbEndOutput | Out-String) | Set-Content "$Evidence\adb_devices_end.txt"
 if ($AdbEndExit -ne 0) { throw 'Final adb device capture failed.' }
-
-git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
-if ($LASTEXITCODE -ne 0) { throw 'Build inputs drifted during the run.' }
-
-git diff --exit-code $Baseline -- $BuildInputs
-if ($LASTEXITCODE -ne 0) { throw 'Tracked build-input edits appeared during the run.' }
-$BuildInputStatus = @(git status --porcelain -- $BuildInputs)
-if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
-  throw "Build-input worktree drifted during the run:`n$($BuildInputStatus -join "`n")"
-}
 
 $GeneratedRegistrantPaths = @(
   'linux/flutter/generated_plugin_registrant.cc'
@@ -1153,6 +1228,16 @@ if ($GeneratedStatus.Count -gt 0) {
   if ($LASTEXITCODE -ne 0) { throw 'Could not save generated-registrant diff.' }
   git restore -- $GeneratedRegistrantPaths
   if ($LASTEXITCODE -ne 0) { throw 'Could not restore generated registrants.' }
+}
+
+git diff --exit-code "${Baseline}..HEAD" -- $BuildInputs
+if ($LASTEXITCODE -ne 0) { throw 'Build inputs drifted during the run.' }
+
+git diff --exit-code $Baseline -- $BuildInputs
+if ($LASTEXITCODE -ne 0) { throw 'Tracked build-input edits appeared during the run.' }
+$BuildInputStatus = @(git status --porcelain -- $BuildInputs)
+if ($LASTEXITCODE -ne 0 -or $BuildInputStatus.Count -gt 0) {
+  throw "Build-input worktree drifted during the run:`n$($BuildInputStatus -join "`n")"
 }
 
 $FinalStatus = @(git status --porcelain --untracked-files=all)

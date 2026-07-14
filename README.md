@@ -43,17 +43,17 @@ persistence, archive/search, and advanced UI flows are implemented. The
 VM-friendly test suite has a current clean local baseline; device transport,
 mobile SQLCipher, and release-build evidence remain explicit validation gates.
 The current verified local runtime/device baseline is
-`d5f6d7edded25dc6e935bd366e7a7e8be08b7901` on
+`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
 `codex/archive-delete-contract`. It was verified with Flutter 3.44.4 revision
 `ad70ec4617166f1c38e5d2bfd388af71fda14f06` and bundled Dart 3.12.2; the
 project's Dart language floor remains 3.10.3.
 
 | Local baseline evidence | Result |
 |---|---|
-| Full VM-friendly coverage run | 5,691 tests passed; reporter 6m30s; measured command wall 401,348 ms |
-| `flutter_test_latest.log` | 9,172,538 bytes; SHA-256 `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC` |
-| `coverage/lcov.info` | 426,841 bytes; SHA-256 `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8` |
-| Debug Android APK | 205,109,632 bytes; SHA-256 `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A` |
+| Full VM-friendly coverage run | 5,691 tests passed, 0 failed; reporter 5m37s; measured command wall 353,083 ms |
+| `flutter_test_latest.log` | 9,268,167 bytes; SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905` |
+| `coverage/lcov.info` | 426,546 bytes; SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` |
+| Debug Android APK | 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059` |
 
 The physical-device execution gate remains in
 [`docs/testing/DEVICE_VALIDATION_STATUS.md`](docs/testing/DEVICE_VALIDATION_STATUS.md)
@@ -265,7 +265,8 @@ to `main`, pushes to `main`, manual dispatches, and the weekly schedule.
 | [Security Boundaries](docs/security/security_guarantees.md) | Implemented code boundaries, automated evidence, and device-gated limits |
 | [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md) | ServiceRegistry migration and DI consolidation plan |
 | [Testing Strategy](TESTING_STRATEGY.md) | Test philosophy, coverage policy, and CI integration |
-| [Testing Quick Start](docs/testing/QUICK_START_TESTING.md) | How to run tests locally and interpret results |
+| [Exact two-device checklist](docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md) | Baseline-bound Android evidence protocol and result record |
+| [Legacy testing quick start](docs/testing/QUICK_START_TESTING.md) | Convenience menu only; non-evidentiary unless routed through the exact checklist |
 | [Readiness Audit](docs/status/READINESS_AUDIT.md) | Requirement-by-requirement evidence, verdict, risks, and next gate |
 | [SRS Overview](docs/srs/README.md) | Software requirements specification index |
 

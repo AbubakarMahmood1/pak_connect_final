@@ -113,7 +113,7 @@ or higher.
 artifact for the intended build mode and a documented data-retention target.
 
 **Current evidence**:
-- The verified debug APK for baseline `d5f6d7e` is 205,109,632 bytes; installed
+- The verified debug APK for baseline `9434384` is 205,113,616 bytes; installed
   size can be larger.
 - A 20-30 MB release binary is only a future optimization target until a
   signed release artifact is measured.
@@ -298,13 +298,19 @@ that outcome remains gated on controlled three-device evidence.
 **Policy**:
 - Configuration exposes a 100 MiB storage cap and a 12-month maximum age
 - Repository statistics can be compared with the configured storage cap
+- The separate `AutoArchiveScheduler` is configured and started by `AppCore`;
+  when enabled it checks inactivity immediately and then every 24 hours while
+  the app process remains alive, and archives qualifying chats through the
+  normal archive service
 - Automatic cleanup, expiry removal, compression, index rebuild, and
   pre-deletion notification are not currently implemented
 - Manual export recommended for long-term storage
 
-**Status**: Partial. In-process maintenance/policy timers and configuration
-surfaces exist, but maintenance task bodies and policy application are
-placeholders that currently report no work.
+**Status**: Partial. In-process inactivity archiving is implemented and unit
+tested. The advanced policy engine and maintenance timers are separate
+surfaces: policy application/selection remains placeholder logic, and all four
+maintenance task bodies currently report zero work. None of these timers is
+killed-process or doze execution.
 
 **Reference**: `lib/domain/services/archive_management_models.dart`,
 `archive_management_service.dart`, `archive_maintenance.dart`, and
@@ -320,10 +326,12 @@ placeholders that currently report no work.
 - Delete messages older than 1 year (optional, user-configurable)
 - Clean up orphaned Noise sessions (no contact, >7 days old)
 
-**Implementation status**: Maintenance methods exist, but no native/Dart
-background task dependency or registration currently schedules this policy.
-Treat it as an in-process/manual maintenance capability and an unwired
-background requirement, not implemented reboot/killed-process work.
+**Implementation status**: `ArchiveManagementService` can invoke maintenance
+manually or from an in-process periodic timer, but the current cleanup, index
+rebuild, compression and expiry bodies return zero operations/bytes freed and
+maintenance-history persistence is a no-op. No native background worker runs
+them after process death, reboot or doze. Timer invocation is not evidence that
+the maintenance policy was applied.
 
 ---
 

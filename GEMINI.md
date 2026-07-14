@@ -41,6 +41,7 @@ Read the surviving repo docs on demand:
 - `CONTRIBUTING.md` and `README.md` for repo/runtime context
 - `ThreatModel.md`, `docs/security/security_overview.md`, and
   `docs/security/security_guarantees.md` for security-sensitive work
-- `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
-  verification flow
+- `TESTING_STRATEGY.md` for automated verification, and
+  `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` for physical Android
+  evidence; `docs/testing/QUICK_START_TESTING.md` is a legacy helper
 - `docs/srs/README.md` for requirements context

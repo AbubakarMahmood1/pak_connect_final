@@ -1,13 +1,17 @@
 # Quick Start: PakConnect Android Device Validation
 
+> **Legacy execution aid — non-evidentiary by itself.** Do not use this guide,
+> its check marks, or `scripts/real_device_test.sh` to mark a validation row
+> `PASS` unless the run is explicitly routed through
+> [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md)
+> at its pinned baseline. The checklist's gates, payloads, stop conditions,
+> evidence paths, and final result table take precedence over this guide.
+
 **Time to complete:** 70-90 minutes
 **Devices needed:** 2-3 Android devices with BLE
 
 Use `docs/testing/DEVICE_VALIDATION_STATUS.md` as the live evidence matrix.
-This guide is an execution aid; completing the menu does not itself turn a row
-into `PASS` without saved device/build/log evidence. The exact two-phone
-baseline run is
-[TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
+Completing this menu does not itself turn a row into `PASS`.
 
 ---
 

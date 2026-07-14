@@ -66,15 +66,16 @@ code.
 
 The current verified local authority is branch
 `codex/archive-delete-contract` at runtime/device baseline
-`d5f6d7edded25dc6e935bd366e7a7e8be08b7901`. Its coverage run passed 5,691
-tests (reporter 6m30s; measured command wall 401,348 ms) and produced:
+`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`). Its coverage run
+passed 5,691 tests with zero failures (reporter 5m37s; measured command wall
+353,083 ms) and produced:
 
-- `flutter_test_latest.log`: 9,172,538 bytes; SHA-256
-  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`;
-- `coverage/lcov.info`: 426,841 bytes; SHA-256
-  `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8`;
-- debug Android APK: 205,109,632 bytes; SHA-256
-  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`.
+- `flutter_test_latest.log`: 9,268,167 bytes; SHA-256
+  `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905`;
+- `coverage/lcov.info`: 426,546 bytes; SHA-256
+  `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794`;
+- debug Android APK: 205,113,616 bytes; SHA-256
+  `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`.
 
 These are local code/build artifacts, not physical BLE, mobile
 SQLCipher-at-rest, background-delivery, signed-release, or public-CI evidence.

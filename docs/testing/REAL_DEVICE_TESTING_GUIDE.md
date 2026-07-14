@@ -1,15 +1,20 @@
 # PakConnect Real-Device Testing Guide
 
+> **Legacy scenario catalog — non-evidentiary by itself.** A run based only on
+> this guide cannot update `DEVICE_VALIDATION_STATUS.md`. Route any scenario
+> used as evidence through
+> [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md)
+> at its pinned baseline and retain that checklist's exact build identity,
+> stop conditions, artifacts, and final result table. Where the two documents
+> differ, the exact checklist wins.
+
 **Purpose:** Validate BLE, Noise, queue, relay, lifecycle, and mobile storage
 behavior on actual hardware
 **Duration:** 45-90 minutes (depending on device count)
 **Devices:** 2-3 Android devices with BLE support
 
 `docs/testing/DEVICE_VALIDATION_STATUS.md` is the live source of truth. This
-guide supplies procedures; its unchecked/check-mark examples are not evidence.
-For the next baseline-bound two-phone run, use the exact commands, payloads,
-evidence rules, and stop conditions in
-[TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
+guide's unchecked/check-mark examples are goals, not observed results.
 
 ---
 

@@ -20,24 +20,24 @@ behavior, mobile SQLCipher bytes at rest, OS background behavior, release
 signing and installation still require external evidence.
 
 The exact verified runtime/build-input and device-test tree is committed as
-`d5f6d7edded25dc6e935bd366e7a7e8be08b7901` (`d5f6d7e`) on
-`codex/archive-delete-contract`. Public `main` remains at `1d484eb`; the
-current local branch is 18 commits ahead after this documentation closeout and
-has not been pushed. No branch protection/ruleset, pushed branch, PR or
-exact-head GitHub verification exists. Seventeen commits are the local
-durability/route/toolchain hardening chain; the eighteenth is this docs-only
-descendant.
-The previous baseline `9f0a055` and its documentation-only descendant
-`18be950` are provenance only. Former baselines `9cccd01` and `a5c2b08`, plus
-candidate `fcb3013`, are older historical provenance.
+`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
+`codex/archive-delete-contract`. Public `main` remains at `1d484eb`; the local
+branch is ahead of and zero behind it, has not been pushed, and contains only
+closeout changes outside the listed runtime/build-input tree after the verified
+baseline. No branch protection/ruleset, pushed branch, PR or exact-head GitHub
+verification exists.
+The rewritten route-hardening baseline `19c4824`, its status descendant
+`10b1830`, and toolchain checkpoint `b024cab` are provenance only;
+`b024cab` is superseded by `9434384`. Former baselines `9cccd01` and `a5c2b08`,
+plus candidate `fcb3013`, are older historical provenance.
 
 ## Objective evidence matrix
 
 | Requested outcome | Authoritative evidence | Verdict |
 |---|---|---|
-| Establish authoritative repo/version | `docs/status/ENGINEERING_STATUS.md` records remote `AbubakarMahmood/pak_connect`, sole active worktree, local branch `codex/archive-delete-contract`, runtime/device baseline `d5f6d7e`, public head `1d484eb`, Flutter 3.44.4 and Dart 3.12.2 | Proven |
+| Establish authoritative repo/version | `docs/status/ENGINEERING_STATUS.md` records remote `AbubakarMahmood/pak_connect`, sole active worktree, local branch `codex/archive-delete-contract`, runtime/device baseline `9434384`, public head `1d484eb`, Flutter 3.44.4 and Dart 3.12.2 | Proven |
 | Preserve/reconcile the two source copies | Engineering status records the compressed checkpoint as recovery evidence and the canonical repo as the only active worktree | Proven |
-| Inventory modules and ownership | `docs/architecture/CODEBASE_MAP.md` maps 437 libraries, layers, runtime owners, high-scrutiny surfaces and invariants | Proven at whole-library/owner level |
+| Inventory modules and ownership | `docs/architecture/CODEBASE_MAP.md` defines the accepted owner/layer boundary: all 437 libraries are included in layer counts and reachability evaluation, live behavior is routed through named owners/invariants, and the four non-runtime libraries have machine-readable owners and exit conditions | Proven at the accepted whole-library/owner boundary; member-level liveness is not implied |
 | Map runtime interactions | `docs/architecture/RUNTIME_FLOWS.md` covers bootstrap, BLE bring-up, identities, direct send/receive, relay, queue sync, verified friend reveal, broadcast lists and persistence | Proven/documented for wired Dart paths; device behavior remains gated |
 | Maintain work-thread inventory | `PLANS.md`, `docs/maintenance/DEBT_REGISTER.md` and `docs/status/ENGINEERING_STATUS.md` separate completed, accepted, investigated and device-gated work | Proven |
 | Reconcile documentation | README, CONTRIBUTING, testing guides, threat/security docs and SRS distinguish current behavior, historical targets and device-only claims | Proven locally for the reviewed surfaces; publication pending |
@@ -51,11 +51,13 @@ candidate `fcb3013`, are older historical provenance.
 
 ## Current verification evidence
 
-- Baseline delta after the previous `9f0a055`/`18be950` pair: `63d426a`
+- Baseline delta after the rewritten `19c4824`/`10b1830` pair: `5aa12f9`
   corrects Android notification claims to system-tray rendering while the app
-  runs; `d5f6d7e` locks CI/package authority to Flutter 3.44.4, enforces the
-  lockfile, and preserves the Android built-in-Kotlin/new-DSL compatibility
-  flags pending a separate migration.
+  runs; `b024cab` locks CI/package authority to Flutter 3.44.4 and preserves
+  Android compatibility flags; `e19a11e` reports archive compression honestly;
+  `ef0ef15` replaces public Flutter template branding; and `9434384` clarifies
+  dormant BLE contract seams. The exact final runtime/build-input tree is
+  `9434384`.
 
 - `flutter analyze --no-pub`: zero issues.
 - Local Markdown link audit: zero broken relative targets and zero absolute
@@ -63,19 +65,22 @@ candidate `fcb3013`, are older historical provenance.
 - `pwsh -NoProfile -File tools/dart_reachability_audit.ps1 -FailOnUnreviewed`:
   437 libraries, 433 runtime-reachable, four reviewed test-only candidates,
   zero unreviewed candidates.
+- Strict BLE gate: 108 tests passed. Crypto policy gate: all 14 cases passed.
+- DI audit: zero direct `GetIt` calls and 16 reviewed `.instance` references.
+  Runtime hygiene audit: zero `print()` calls and 21 reviewed timers.
 - Focused promotion suites: 273 change-log/reveal/runtime tests; 52
   broadcast-list tests; 38 fragment/model regressions; 36 app widget/smoke
   regressions, all green.
 - Full `flutter test --coverage`: 5,691 passed, zero failed; reporter duration
-  6m30s and measured wall time 401,348 ms. Complete terminal output is saved in
-  the 9,172,538-byte
+  5m37s and measured wall time 353,083 ms. Complete terminal output is saved in
+  the 9,268,167-byte
   `flutter_test_latest.log` (SHA-256
-  `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC`).
-- Coverage output is the 426,841-byte `coverage/lcov.info` (SHA-256
-  `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8`).
+  `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905`).
+- Coverage output is the 426,546-byte `coverage/lcov.info` (SHA-256
+  `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794`).
 - Debug APK:
-  `build/app/outputs/flutter-apk/app-debug.apk`, 205,109,632 bytes, SHA-256
-  `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`.
+  `build/app/outputs/flutter-apk/app-debug.apk`, 205,113,616 bytes, SHA-256
+  `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`.
 - Latest public-main Flutter workflow `29215130687`: 5,537 passed and two
   failed with SQLite `database is locked`; both failures used the production
   test filename concurrently. Local commit `4fd8aec` preserves suite-specific
@@ -109,8 +114,23 @@ not SQLCipher-at-rest evidence.
    membership, transcript, replies, admin rules or a group key.
 8. Change-log peer replay and relay privacy/PoW primitives remain dormant and
    must not appear as shipped guarantees.
-9. Hardware evidence must cite runtime/device baseline `d5f6d7e` plus the APK
-   hash. `9f0a055`/`18be950` and older baselines are historical evidence only.
+9. Hardware evidence must cite runtime/device baseline `9434384` plus the APK
+   hash. `19c4824`, `10b1830`, `b024cab` and older baselines are historical
+   evidence only.
+10. Auto-archive of inactive chats is implemented only as the preference-led,
+    in-process `AutoArchiveScheduler`. Advanced archive policy selection,
+    maintenance task effects, compression persistence and maintenance-history
+    storage remain placeholders/debt and are not implied by that scheduler.
+11. A dependency refresh is pending: the 2026-07-14 Flutter 3.44.4 snapshot
+    reports 22 outdated direct-dependency rows, 45 dependencies locked below
+    an upgradable version and 13 constraints below a resolvable version. The
+    exact-release dependency-license/notices and crypto-distribution audit is
+    also open.
+12. Populated v10 -> v11 -> v12 migration, mixed app versions, accessibility,
+    numeric performance/battery targets and distribution licensing remain
+    actionable test or release gates in the device ledger. The two-phone
+    checklist deliberately installs one identical APK hash and cannot close a
+    mixed-version or non-device legal gate.
 
 ## Exit gate and recommended order
 
@@ -120,7 +140,7 @@ recommended next sequence is:
 1. Protect `main`, publish the current local chain through a normal non-force
    branch/PR, and require the exact PR head to pass Flutter coverage and
    CodeQL; do not treat the local green run as public-CI evidence.
-2. Build/install runtime/device baseline `d5f6d7e` on two Android phones, execute
+2. Build/install runtime/device baseline `9434384` on two Android phones, execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`, and update every
    observed row in `docs/testing/DEVICE_VALIDATION_STATUS.md`, saving redacted
    logs by device/build/commit.

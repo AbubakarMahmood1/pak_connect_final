@@ -28,10 +28,12 @@ Use only these labels:
 
 | Item | Status | Evidence/notes |
 |---|---|---|
-| `flutter analyze --no-pub` | PASS | Clean for baseline `d5f6d7e` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
-| Desktop full unit/widget suite | PASS | 5,691 passed, 0 failed; reporter 6m30s; measured wall 401,348 ms; 9,172,538-byte `flutter_test_latest.log`, SHA-256 `387A72AFBBEDD7C006E4FF1A9327FAA6F7C7EE56F7441139C6DFB734D95180AC` |
-| Coverage artifact | PASS | `coverage/lcov.info`; 426,841 bytes; SHA-256 `B8E8B422E6DB62D44CD5E3A6D26C3EC03A9EADC4231755B9A184A62BBE6B6CC8` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,109,632 bytes; SHA-256 `9F30BB6A42AB8B8392B13A62282BA10F8ADD1FF3F2C419FA04B0DF4C8CEC110A`; its exact code/build-input tree is committed as baseline `d5f6d7e` |
+| `flutter analyze --no-pub` | PASS | Clean on 2026-07-14 for baseline `9434384` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
+| Desktop full unit/widget suite | PASS | 5,691 passed, 0 failed; reporter 5m37s; measured wall 353,083 ms; 9,268,167-byte `flutter_test_latest.log`, SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905` |
+| Coverage artifact | PASS | `coverage/lcov.info`; 426,546 bytes; SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` |
+| Strict BLE / crypto policy gates | PASS | 108 strict BLE tests and all 14 crypto-policy cases passed |
+| DI / hygiene / reachability gates | PASS | 0 direct `GetIt` calls and 16 reviewed `.instance` references; 0 runtime `print()` calls and 21 reviewed timers; 437 libraries / 433 runtime / 4 reviewed test-only / 0 unreviewed |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`; its exact runtime/build-input tree is committed as baseline `9434384` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -42,17 +44,23 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `d5f6d7edded25dc6e935bd366e7a7e8be08b7901`
-(`d5f6d7e`) on `codex/archive-delete-contract`. A documentation-only descendant
-is acceptable if
-`git diff d5f6d7e..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
-is empty. Execute the matrix with the exact PowerShell run sheet in
+Runtime/build-input baseline for the next run:
+`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
+`codex/archive-delete-contract`. A descendant is acceptable only if this
+runtime/build-input diff is empty:
+
+```powershell
+git diff 9434384..HEAD -- lib test integration_test android ios linux macos web windows assets pubspec.yaml pubspec.lock .metadata analysis_options.yaml
+```
+
+Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The immediate prior checkpoints `18be950` and `9f0a055`, previous verified
-baseline `9cccd01`, older baseline `a5c2b08`, and superseded candidate
-`fcb3013` remain historical provenance only. Do not use an older commit for a
-new device run.
+The rewritten route-hardening baseline `19c4824`, its status descendant
+`10b1830`, and toolchain checkpoint `b024cab` are historical provenance only;
+`b024cab` was superseded by `9434384`. Previous baselines `9cccd01` and
+`a5c2b08`, plus candidate `fcb3013`, are also historical. Do not use an older
+commit for a new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
@@ -114,7 +122,9 @@ background scheduler/service decision is still open. Test at minimum:
 
 - `scripts/real_device_test.sh` now defaults to debug, accepts
   `--debug|--release`, uses `build/app/outputs/flutter-apk/app-{mode}.apk`, and
-  performs a release-signing preflight.
+  performs a release-signing preflight. It is a legacy convenience helper,
+  not an evidence protocol; do not use it to mark rows `PASS` unless the exact
+  baseline checklist explicitly routes the operator through it.
 - Shell syntax validation passes and the corrected debug artifact path is
   proven by a successful direct Flutter build. Script-driven installation is
   blocked because no Android device is attached.
@@ -124,6 +134,20 @@ background scheduler/service decision is still open. Test at minimum:
 - The two-device run can close all executable A/B rows, but multi-link
   inventory/routing and `A -> B -> C` relay remain blocked until a third
   physical Android device is available.
+
+## Cross-cutting readiness matrix
+
+These rows prevent a device pass from being stretched into unrelated SRS or
+release claims. They use the same evidence-state vocabulary, but not every row
+is device-bound.
+
+| Area | Status | Required disposition/evidence |
+|---|---|---|
+| v10 -> v11 -> v12 database upgrade | NOT RUN | Add a populated v10 fixture upgrade test that verifies the v11 change-log table/triggers, v12 per-peer cursor, preserved user data, schema version and reopen; after that, retain one Android app-update smoke artifact |
+| Mixed app/protocol versions | BLOCKED | The current exact checklist installs one identical APK hash on both phones and therefore cannot prove cross-version compatibility. Define supported old/new build hashes, install/upgrade order, expected protocol-floor accept/reject behavior, and bidirectional XX/KK/message cases in a checklist extension |
+| Accessibility | NOT RUN | Record TalkBack traversal and labels, 200% text scaling without clipped actions/content, non-color-only status meaning, touch targets, and any claimed keyboard/focus behavior. High-contrast mode remains not implemented |
+| Numeric performance/battery targets | NOT RUN | Treat every numeric NFR as a design target until a fixed build/device/OS/workload, sample count, percentile rule, radio conditions and raw result artifact are recorded |
+| Third-party license and crypto-distribution audit | NOT RUN | Generate a lockfile-derived dependency/SBOM inventory, review bundled licenses/notices and applicable jurisdictional crypto obligations, then retain shipped notices. A phone run cannot close this release gate |
 
 ## Exit gate
 

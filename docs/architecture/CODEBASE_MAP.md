@@ -14,8 +14,10 @@ architecture authority.
 - Runtime overview: `README.md`
 - Security authority: `ThreatModel.md`, `docs/security/security_overview.md`,
   and `docs/security/security_guarantees.md`
-- Verification workflow: `TESTING_STRATEGY.md` and
-  `docs/testing/QUICK_START_TESTING.md`
+- Automated verification: `TESTING_STRATEGY.md`
+- Physical Android evidence protocol:
+  `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`; the legacy
+  `docs/testing/QUICK_START_TESTING.md` is non-evidentiary by itself
 - Current engineering truth: `docs/status/ENGINEERING_STATUS.md`
 - Objective-level readiness audit: `docs/status/READINESS_AUDIT.md`
 - Device-only evidence: `docs/testing/DEVICE_VALIDATION_STATUS.md`
@@ -40,6 +42,24 @@ base contract/policy layer; `core` and `data` both depend on it, and
 `presentation` depends primarily on `domain`. A few deliberate data-to-core
 and presentation-to-core imports remain. Architecture tests, not a simplified
 README slogan, define the currently allowed edges.
+
+## Accepted inventory boundary
+
+The completion boundary for this map is **whole-library coverage plus
+owner/layer mapping**, not a hand-maintained 437-row file or class catalogue.
+Every library under `lib/` is included in the layer counts and evaluated by
+`tools/dart_reachability_audit.ps1`; the runtime-owner table, layer map,
+high-scrutiny list and invariants identify the maintainership and review route
+for live behavior. The four non-runtime libraries have explicit owners,
+classifications and exit conditions in
+`tools/dart_reachability_allowlist.json`.
+
+This is the accepted readiness boundary because a per-library prose appendix
+would duplicate the source tree and drift without adding an enforcement gate.
+It does not claim that every member inside a reachable library is live. New
+libraries must fit a named layer/owner and become runtime-reachable or receive
+a reviewed allowlist entry; member-level stubs remain liabilities in the debt
+register.
 
 ## Runtime ownership
 
