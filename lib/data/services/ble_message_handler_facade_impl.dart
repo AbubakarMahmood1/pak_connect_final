@@ -30,8 +30,8 @@ import '../../domain/models/protocol_message.dart' as domain_models;
 ///
 /// **Architecture Note**: This facade bridges the gap between IBLEMessageHandlerFacade
 /// (simplified interface) and BLEMessageHandler (complex BLE implementation).
-/// MeshNetworkingService only requires initialization and callback management.
-/// Methods with incompatible BLE-specific signatures are stubbed (Phase 3B work).
+/// It delegates lifecycle/callback work to the handler and route-bound writes
+/// through BLEWriteAdapter when the required runtime dependencies are present.
 class BLEMessageHandlerFacadeImpl
     implements IBLEMessageHandlerFacade, IRouteBoundBleMessageHandlerFacade {
   static BLEStateManager? Function()? _legacyStateManagerResolver;

@@ -29,8 +29,9 @@ import 'package:pak_connect/domain/utils/string_extensions.dart';
 import '../../domain/values/id_types.dart';
 
 /// BLE Message Handler for processing incoming/outgoing messages
-/// TODO Phase 3B: Implement IBLEMessageHandlerFacade adapter wrapper
-/// Current implementation has incompatible method signatures that need refactoring
+///
+/// BLEMessageHandlerFacadeImpl is the runtime adapter between this BLE-specific
+/// protocol engine and the narrower mesh-facing interfaces.
 class BLEMessageHandler {
   final _logger = Logger('BLEMessageHandler');
   final ContactRepository _contactRepository;

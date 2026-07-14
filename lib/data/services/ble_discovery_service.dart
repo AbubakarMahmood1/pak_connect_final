@@ -284,8 +284,9 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   @override
   Future<Peripheral?> scanForSpecificDevice({Duration? timeout}) async {
     _logger.info('🔍 Scanning for specific device...');
-    // TODO(phase2a): Extract from BLEConnectionManager.scanForSpecificDevice()
-    // For now, returning null - connection service will delegate to connection manager
+    // This dormant extraction seam deliberately does not duplicate the
+    // connection manager's targeted-scan state machine. BLEServiceFacade
+    // routes the runtime operation to BLEConnectionManager.
     return null;
   }
 
@@ -383,7 +384,8 @@ class BLEDiscoveryService implements IBLEDiscoveryService {
   @override
   Future<String?> buildLocalCollisionHint() async {
     _logger.info('🔍 Building local collision hint...');
-    // TODO(phase2a): Extract from BLEStateManager or HintScannerService
+    // This dormant extraction seam deliberately has no second implementation.
+    // BLEServiceFacade routes the runtime operation to BLEHandshakeService.
     return null;
   }
 }

@@ -424,13 +424,15 @@ class BLEHandshakeService implements IBLEHandshakeService {
   @override
   Future<void> handleMutualConsentRequired() async {
     _logger.info('[STUB] handleMutualConsentRequired()');
-    // TODO: Extract actual implementation if needed
+    // Dormant compatibility hook; no active runtime caller. Relationship
+    // resolution must not depend on this no-op.
   }
 
   @override
   Future<void> handleAsymmetricContact(String contactKey) async {
     _logger.info('[STUB] handleAsymmetricContact()');
-    // TODO: Extract actual implementation if needed
+    // Dormant compatibility hook; no active runtime caller. Relationship
+    // resolution must not depend on this no-op.
   }
 
   @override
