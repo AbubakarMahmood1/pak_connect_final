@@ -12,7 +12,12 @@ abstract class IArchiveRepository {
   /// Initialize the archive repository
   Future<void> initialize();
 
-  /// Archive a chat (move to archives)
+  /// Archive a chat (move to archives).
+  ///
+  /// [compressLargeArchives] records the caller's preference, but archive
+  /// compression is currently deferred: implementations must not report a
+  /// compressed archive unless compressed bytes are the canonical persisted
+  /// representation used by search and restore.
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
     String? archiveReason,

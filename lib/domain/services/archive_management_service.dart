@@ -256,7 +256,7 @@ class ArchiveManagementService {
         'archivePolicy': _policyEngine
             .findApplicablePolicy(ChatId(chatId))
             ?.name,
-        'storageOptimization': _config.enableCompression,
+        'compressionRequested': _config.enableCompression,
         'timestamp': DateTime.now().toIso8601String(),
       };
 

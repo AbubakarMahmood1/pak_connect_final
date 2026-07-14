@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/interfaces/i_archive_repository.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart' show ConflictAlgorithm;
@@ -14,8 +13,6 @@ import 'package:pak_connect/domain/models/archive_models.dart';
 import '../../data/repositories/message_repository.dart';
 import '../../data/repositories/chats_repository.dart';
 import '../../data/database/database_helper.dart';
-import '../../domain/utils/compression_config.dart';
-import '../../domain/utils/compression_util.dart';
 import 'archive_data_helper.dart';
 import 'archive_storage_utils.dart';
 import '../../domain/services/archive_crypto.dart';
@@ -140,10 +137,13 @@ class ArchiveRepository implements IArchiveRepository {
         customData: customData,
       );
 
-      ArchivedChat finalArchive = archivedChat;
-      if (compressLargeArchives && archivedChat.estimatedSize > 10240) {
-        finalArchive = await _compressArchive(archivedChat);
-      }
+      // Archive messages remain individual encrypted rows so restore and FTS5
+      // search can read them. Until compressed storage has an equivalent
+      // persistence/search/restore path, do not claim that duplicating a
+      // compressed blob alongside those rows saved space.
+      final compressionDeferred =
+          compressLargeArchives && archivedChat.estimatedSize > 10240;
+      final finalArchive = archivedChat;
 
       // Store the archive in SQLite transaction
       final db = await DatabaseHelper.database;
@@ -179,8 +179,10 @@ class ArchiveRepository implements IArchiveRepository {
       _storageUtils.recordOperationTime('archive', operationTime);
 
       final warnings = <String>[];
-      if (finalArchive.isCompressed) {
-        warnings.add('Archive was compressed to save space');
+      if (compressionDeferred) {
+        warnings.add(
+          'Archive compression is not implemented; stored uncompressed',
+        );
       }
       if (messages.length > 1000) {
         warnings.add(
@@ -1006,9 +1008,6 @@ class ArchiveRepository implements IArchiveRepository {
     final hash = '${chatId}_$timestamp'.hashCode.abs();
     return ArchiveId('archive_$hash');
   }
-
-  Future<ArchivedChat> _compressArchive(ArchivedChat archive) =>
-      _mappingHelper.compressArchive(archive);
 
   void _recordOperationTime(String operation, Duration time) =>
       _mappingHelper.recordOperationTime(operation, time);

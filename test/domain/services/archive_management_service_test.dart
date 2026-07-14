@@ -73,8 +73,12 @@ void main() {
         );
         expect(
           repository.lastArchiveRequestCustomData!.containsKey(
-            'storageOptimization',
+            'compressionRequested',
           ),
+          isTrue,
+        );
+        expect(
+          repository.lastArchiveRequestCustomData!['compressionRequested'],
           isTrue,
         );
 
