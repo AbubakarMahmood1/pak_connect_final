@@ -1,6 +1,6 @@
 # PakConnect codebase map
 
-Last reconciled: 2026-07-11
+Last reconciled: 2026-07-14
 
 This is the live orientation map for maintainers and reviewers. It describes
 the code that is wired today; historical plans and review reports are not
@@ -14,8 +14,10 @@ architecture authority.
 - Runtime overview: `README.md`
 - Security authority: `ThreatModel.md`, `docs/security/security_overview.md`,
   and `docs/security/security_guarantees.md`
-- Verification workflow: `TESTING_STRATEGY.md` and
-  `docs/testing/QUICK_START_TESTING.md`
+- Automated verification: `TESTING_STRATEGY.md`
+- Physical Android evidence protocol:
+  `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`; the legacy
+  `docs/testing/QUICK_START_TESTING.md` is non-evidentiary by itself
 - Current engineering truth: `docs/status/ENGINEERING_STATUS.md`
 - Objective-level readiness audit: `docs/status/READINESS_AUDIT.md`
 - Device-only evidence: `docs/testing/DEVICE_VALIDATION_STATUS.md`
@@ -23,23 +25,41 @@ architecture authority.
 
 ## Scale snapshot
 
-Physical line and file counts under `lib/` after the bounded reachability
-cleanup on 2026-07-11:
+Physical line and file counts under `lib/` after the bounded reachability and
+route/durability hardening passes:
 
 | Layer | Dart files | Physical lines | Primary responsibility |
 |---|---:|---:|---|
-| `core` | 60 | 15,412 | BLE/security/mesh infrastructure and low-level services |
-| `data` | 89 | 33,201 | SQLCipher/SQLite, repositories, BLE service implementations |
-| `domain` | 200 | 41,708 | Entities, contracts, use cases, messaging and mesh policy |
-| `presentation` | 87 | 30,905 | Flutter UI, controllers, view models and Riverpod providers |
-| `lib/` root | 1 | 423 | Application entry point |
-| Total | 437 | 121,649 | Excludes tests and generated platform files |
+| `core` | 60 | 17,025 | BLE/security/mesh infrastructure and low-level services |
+| `data` | 89 | 34,153 | SQLCipher/SQLite, repositories, BLE service implementations |
+| `domain` | 200 | 42,413 | Entities, contracts, use cases, messaging and mesh policy |
+| `presentation` | 87 | 30,869 | Flutter UI, controllers, view models and Riverpod providers |
+| `lib/` root | 1 | 444 | Application entry point |
+| Total | 437 | 124,904 | Excludes tests and generated platform files |
 
 The practical dependency shape is not four isolated boxes. `domain` is the
 base contract/policy layer; `core` and `data` both depend on it, and
 `presentation` depends primarily on `domain`. A few deliberate data-to-core
 and presentation-to-core imports remain. Architecture tests, not a simplified
 README slogan, define the currently allowed edges.
+
+## Accepted inventory boundary
+
+The completion boundary for this map is **whole-library coverage plus
+owner/layer mapping**, not a hand-maintained 437-row file or class catalogue.
+Every library under `lib/` is included in the layer counts and evaluated by
+`tools/dart_reachability_audit.ps1`; the runtime-owner table, layer map,
+high-scrutiny list and invariants identify the maintainership and review route
+for live behavior. The four non-runtime libraries have explicit owners,
+classifications and exit conditions in
+`tools/dart_reachability_allowlist.json`.
+
+This is the accepted readiness boundary because a per-library prose appendix
+would duplicate the source tree and drift without adding an enforcement gate.
+It does not claim that every member inside a reachable library is live. New
+libraries must fit a named layer/owner and become runtime-reachable or receive
+a reviewed allowlist entry; member-level stubs remain liabilities in the debt
+register.
 
 ## Runtime ownership
 

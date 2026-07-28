@@ -120,8 +120,9 @@ class AppWrapper extends ConsumerStatefulWidget {
 class _AppWrapperState extends ConsumerState<AppWrapper>
     with WidgetsBindingObserver {
   static final _logger = Logger('AppWrapper');
-  final AppCore _appCore = AppCore();
+  AppCore _appCore = AppCore();
   bool _initializationStarted = false;
+  bool _retryInProgress = false;
 
   @override
   void initState() {
@@ -143,31 +144,58 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
       try {
         await _appCore.initialize();
         _logger.info('✅ App core initialized successfully from AppWrapper');
-
-        // 🧭 Register navigation callbacks (fix Core → Presentation layer violation)
-        NavigationService.setChatScreenBuilder(
-          ({
-            required ChatId chatId,
-            required String contactName,
-            required String contactPublicKey,
-          }) => ChatScreen.fromChatData(
-            chatId: chatId.value,
-            contactName: contactName,
-            contactPublicKey: contactPublicKey,
-          ),
-        );
-
-        NavigationService.setContactsScreenBuilder(
-          () => const ContactsScreen(),
-        );
-        NotificationNavigationService.setHandler(
-          NavigationServiceNotificationHandler(),
-        );
-        _logger.info('✅ Navigation callbacks registered');
+        _registerNavigationCallbacks();
       } catch (e) {
         _logger.severe('❌ Failed to initialize app core from AppWrapper: $e');
       }
     });
+  }
+
+  void _registerNavigationCallbacks() {
+    NavigationService.setChatScreenBuilder(
+      ({
+        required ChatId chatId,
+        required String contactName,
+        required String contactPublicKey,
+      }) => ChatScreen.fromChatData(
+        chatId: chatId.value,
+        contactName: contactName,
+        contactPublicKey: contactPublicKey,
+      ),
+    );
+    NavigationService.setContactsScreenBuilder(() => const ContactsScreen());
+    NotificationNavigationService.setHandler(
+      NavigationServiceNotificationHandler(),
+    );
+    _logger.info('✅ Navigation callbacks registered');
+  }
+
+  Future<void> _retryInitialization() async {
+    if (_retryInProgress || !mounted) return;
+    setState(() {
+      _retryInProgress = true;
+    });
+    _logger.info('Retrying initialization with a fresh AppCore runtime...');
+    try {
+      final retryCore = await AppCore.prepareInitializationRetry();
+      if (!mounted) {
+        retryCore.dispose();
+        return;
+      }
+      setState(() {
+        _appCore = retryCore;
+      });
+      await retryCore.initialize();
+      _registerNavigationCallbacks();
+    } catch (e) {
+      _logger.severe('Retry initialization failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _retryInProgress = false;
+        });
+      }
+    }
   }
 
   @override
@@ -357,14 +385,7 @@ class _AppWrapperState extends ConsumerState<AppWrapper>
             const SizedBox(height: 32),
 
             FilledButton.icon(
-              onPressed: () async {
-                try {
-                  _logger.info('Retrying initialization...');
-                  await _appCore.initialize();
-                } catch (e) {
-                  _logger.severe('Retry initialization failed: $e');
-                }
-              },
+              onPressed: _retryInProgress ? null : _retryInitialization,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry Initialization'),
             ),

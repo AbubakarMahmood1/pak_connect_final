@@ -143,55 +143,12 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => RestoreConfirmationDialog(
-        archive: _archivedChat!.toSummary(),
-        onConfirm: () => Navigator.pop(context, true),
-        onCancel: () => Navigator.pop(context, false),
-      ),
+      builder: (context) =>
+          RestoreConfirmationDialog(archive: _archivedChat!.toSummary()),
     );
 
     if (confirmed == true && mounted) {
-      try {
-        final result = await ref
-            .read(archiveOperationsProvider.notifier)
-            .restoreChat(
-              archiveId: _archivedChat!.id,
-              targetChatId: _archivedChat!.originalChatId.value,
-            );
-
-        if (mounted) {
-          if (result.success) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    Icon(
-                      Icons.restore,
-                      color: Theme.of(context).colorScheme.onInverseSurface,
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Chat with ${_archivedChat!.contactName} restored',
-                      ),
-                    ),
-                  ],
-                ),
-                action: SnackBarAction(
-                  label: 'View Chat',
-                  onPressed: () => Navigator.pop(context), // Go back to chats
-                ),
-                duration: Duration(seconds: 4),
-              ),
-            );
-            Navigator.pop(context); // Close detail screen
-          } else {
-            _showError('Failed to restore chat: ${result.message}');
-          }
-        }
-      } catch (e) {
-        _showError('Error restoring chat: $e');
-      }
+      Navigator.pop(context, true);
     }
   }
 
@@ -320,7 +277,12 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                   children: [
                     Icon(Icons.restore, size: 18),
                     SizedBox(width: 8),
-                    Text('Restore Chat'),
+                    Expanded(
+                      child: Text(
+                        'Restore Chat',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -335,10 +297,13 @@ class _ArchiveDetailScreenState extends ConsumerState<ArchiveDetailScreen> {
                       color: Theme.of(context).colorScheme.error,
                     ),
                     SizedBox(width: 8),
-                    Text(
-                      'Delete Permanently',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    Expanded(
+                      child: Text(
+                        'Delete Permanently',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
                   ],

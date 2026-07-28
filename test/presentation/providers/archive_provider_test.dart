@@ -27,6 +27,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
   int initializeCalls = 0;
   int archiveChatCalls = 0;
   int restoreChatCalls = 0;
+  int deleteArchivedChatCalls = 0;
   int getSummariesCalls = 0;
   int getArchivedChatCalls = 0;
 
@@ -39,6 +40,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
   bool? lastArchiveForce;
   ArchiveId? lastRestoreArchiveId;
   ArchiveId? lastReadArchiveId;
+  ArchiveId? lastDeletedArchiveId;
   String? lastRestoreTargetChatId;
   bool? lastRestoreOverwriteExisting;
 
@@ -63,6 +65,7 @@ class _TestArchiveManagementService implements ArchiveManagementService {
   })?
   restoreHandler;
   Future<ArchivedChat?> Function(ArchiveId archiveId)? archivedChatHandler;
+  Future<ArchiveOperationResult> Function(ArchiveId archiveId)? deleteHandler;
 
   @override
   Future<void> initialize() async {
@@ -158,6 +161,19 @@ class _TestArchiveManagementService implements ArchiveManagementService {
     return ArchiveOperationResult.success(
       message: 'restored',
       operationType: ArchiveOperationType.restore,
+      operationTime: Duration.zero,
+    );
+  }
+
+  @override
+  Future<ArchiveOperationResult> deleteArchivedChat(ArchiveId archiveId) async {
+    deleteArchivedChatCalls++;
+    lastDeletedArchiveId = archiveId;
+    if (deleteHandler != null) return deleteHandler!(archiveId);
+    return ArchiveOperationResult.success(
+      message: 'Deleted',
+      operationType: ArchiveOperationType.delete,
+      archiveId: archiveId,
       operationTime: Duration.zero,
     );
   }
@@ -357,6 +373,7 @@ void main() {
 
       final reset = busy.copyWith(isArchiving: false, currentOperation: null);
       expect(reset.hasActiveOperation, isFalse);
+      expect(reset.currentOperation, isNull);
     });
 
     test('ArchiveListFilter copyWith applies overrides', () {
@@ -829,8 +846,79 @@ void main() {
 
         final state = container.read(archiveOperationsProvider);
         expect(state.isArchiving, isFalse);
-        expect(state.currentOperation, 'Archiving chat...');
-        expect(state.recentSuccesses.last, contains('completed'));
+        expect(state.currentOperation, isNull);
+        expect(state.recentSuccesses.last, 'Archived chat chat-evt');
+      },
+    );
+
+    test(
+      'archive events do not clear delete state or duplicate its success',
+      () async {
+        final updates = StreamController<ArchiveUpdateEvent>.broadcast();
+        addTearDown(updates.close);
+        final deleteCompleter = Completer<ArchiveOperationResult>();
+        final management = _TestArchiveManagementService(
+          archiveUpdatesStream: updates.stream,
+        )..deleteHandler = (_) => deleteCompleter.future;
+        final container = ProviderContainer(
+          overrides: [
+            archiveManagementServiceProvider.overrideWithValue(management),
+            archiveSearchServiceProvider.overrideWithValue(
+              _TestArchiveSearchService(),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifier = container.read(archiveOperationsProvider.notifier);
+        final updatesSub = container.listen<AsyncValue<ArchiveUpdateEvent>>(
+          archiveUpdatesProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(updatesSub.close);
+
+        final deleteFuture = notifier.deleteArchivedChat(
+          const ArchiveId('archive-overlap'),
+        );
+        expect(container.read(archiveOperationsProvider).isDeleting, isTrue);
+
+        updates.add(
+          ArchiveUpdateEvent.archived(
+            'another-chat',
+            const ArchiveId('another-archive'),
+            'manual',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        var state = container.read(archiveOperationsProvider);
+        expect(state.isDeleting, isTrue);
+        expect(state.currentOperation, 'Deleting archived chat...');
+
+        updates.add(
+          ArchiveUpdateEvent.deleted(
+            const ArchiveId('archive-overlap'),
+            'chat-overlap',
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        deleteCompleter.complete(
+          ArchiveOperationResult.success(
+            message: 'Deleted',
+            operationType: ArchiveOperationType.delete,
+            archiveId: const ArchiveId('archive-overlap'),
+            operationTime: Duration.zero,
+          ),
+        );
+        expect(await deleteFuture, isTrue);
+
+        state = container.read(archiveOperationsProvider);
+        expect(state.isDeleting, isFalse);
+        expect(
+          state.recentSuccesses
+              .where((message) => message == 'Deleted archive archive-overlap')
+              .length,
+          1,
+        );
       },
     );
 
@@ -953,7 +1041,7 @@ void main() {
       },
     );
 
-    test('delete and clearRecentMessages update operation state', () async {
+    test('delete delegates and clearRecentMessages resets state', () async {
       final updates = StreamController<ArchiveUpdateEvent>.broadcast();
       addTearDown(updates.close);
 
@@ -975,6 +1063,11 @@ void main() {
         const ArchiveId('archive-delete'),
       );
       expect(deleted, isTrue);
+      expect(management.deleteArchivedChatCalls, 1);
+      expect(
+        management.lastDeletedArchiveId,
+        const ArchiveId('archive-delete'),
+      );
       expect(
         container.read(archiveOperationsProvider).recentSuccesses.last,
         contains('archive-delete'),
@@ -984,6 +1077,52 @@ void main() {
       final state = container.read(archiveOperationsProvider);
       expect(state.recentErrors, isEmpty);
       expect(state.recentSuccesses, isEmpty);
+    });
+
+    test('delete failure and exception paths update error state', () async {
+      final updates = StreamController<ArchiveUpdateEvent>.broadcast();
+      addTearDown(updates.close);
+
+      final management =
+          _TestArchiveManagementService(archiveUpdatesStream: updates.stream)
+            ..deleteHandler = (archiveId) async {
+              if (archiveId == const ArchiveId('archive-fail')) {
+                return ArchiveOperationResult.failure(
+                  message: 'Delete rejected',
+                  operationType: ArchiveOperationType.delete,
+                  operationTime: Duration.zero,
+                );
+              }
+              throw StateError('delete exploded');
+            };
+      final container = ProviderContainer(
+        overrides: [
+          archiveManagementServiceProvider.overrideWithValue(management),
+          archiveSearchServiceProvider.overrideWithValue(
+            _TestArchiveSearchService(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifier = container.read(archiveOperationsProvider.notifier);
+
+      expect(
+        await notifier.deleteArchivedChat(const ArchiveId('archive-fail')),
+        isFalse,
+      );
+      var state = container.read(archiveOperationsProvider);
+      expect(state.isDeleting, isFalse);
+      expect(state.currentOperation, isNull);
+      expect(state.recentErrors.last, 'Delete rejected');
+
+      expect(
+        await notifier.deleteArchivedChat(const ArchiveId('archive-throw')),
+        isFalse,
+      );
+      state = container.read(archiveOperationsProvider);
+      expect(state.isDeleting, isFalse);
+      expect(state.currentOperation, isNull);
+      expect(state.recentErrors.last, contains('Delete failed:'));
     });
 
     test(

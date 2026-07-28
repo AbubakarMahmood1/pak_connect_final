@@ -187,3 +187,18 @@ abstract class IBLEMessagingService {
     handler,
   );
 }
+
+/// Optional exact-address transport capability used by queue-sync payloads.
+abstract interface class IRouteBoundBleMessagingService {
+  Future<bool>? trySendMessageOnRoute(
+    String message, {
+    required String transportAddress,
+    required String messageId,
+    required String intendedRecipient,
+  });
+
+  Future<bool>? trySendProtocolMessageOnRoute(
+    ProtocolMessage message, {
+    required String transportAddress,
+  });
+}

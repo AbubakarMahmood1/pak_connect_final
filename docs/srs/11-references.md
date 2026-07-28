@@ -236,13 +236,14 @@ material, not an application passphrase.
 
 **Publisher**: Google LLC
 
-**Version**: 3.38.4+ (CI pinned to 3.44.4)
+**Version**: 3.44.4+ (CI and lockfile authority pinned to 3.44.4)
 
 **Year**: 2024
 
 **Description**: Official documentation for Flutter framework.
 
-**Relevance**: Application requires Flutter SDK 3.38.4+; CI is pinned to 3.44.4.
+**Relevance**: Application requires Flutter SDK 3.44.4+; CI and the committed
+lockfile are verified with Flutter 3.44.4.
 
 **URL**: https://docs.flutter.dev/
 
@@ -257,13 +258,14 @@ material, not an application passphrase.
 
 **Publisher**: Google LLC
 
-**Version**: 3.10.3+
+**Version**: 3.10.3+ language floor; canonical toolchain 3.12.2
 
 **Year**: 2024
 
 **Description**: Official specification for Dart programming language.
 
-**Relevance**: Application declares Dart 3.10.3+.
+**Relevance**: Application keeps a Dart 3.10.3 language floor; the canonical
+Flutter 3.44.4 toolchain bundles Dart 3.12.2.
 
 **URL**: https://dart.dev/guides/language/spec
 

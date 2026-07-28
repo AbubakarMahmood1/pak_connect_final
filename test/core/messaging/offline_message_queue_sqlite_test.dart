@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/messaging/offline_message_queue.dart';
@@ -425,5 +427,105 @@ void main() {
       expect(retriedMessage, isNotNull);
       expect(retriedMessage!.status, isNot(equals(QueuedMessageStatus.failed)));
     });
+
+    test(
+      'old disposed finalizer wins without successor resurrection',
+      () async {
+        final oldQueue = OfflineMessageQueue();
+        await oldQueue.initialize();
+        final messageId = await oldQueue.queueMessage(
+          chatId: 'handoff-old-wins',
+          content: 'delivery owned by old queue',
+          recipientPublicKey: 'recipient-old-wins',
+          senderPublicKey: 'sender-old-wins',
+        );
+        final oldStarted = Completer<void>();
+        final oldOutcome = Completer<OfflineQueueSendDisposition>();
+        oldQueue.onSendMessage = (_) {
+          oldStarted.complete();
+          return oldOutcome.future;
+        };
+        await oldQueue.setOnline();
+        await oldStarted.future;
+        oldQueue.dispose();
+
+        final successor = OfflineMessageQueue();
+        await successor.initialize();
+        var successorSendCalls = 0;
+        successor.onSendMessage = (_) {
+          successorSendCalls++;
+          return OfflineQueueSendDisposition.delivered;
+        };
+
+        oldOutcome.complete(OfflineQueueSendDisposition.delivered);
+        await _waitFor(() => oldQueue.getMessageById(messageId) == null);
+        await successor.setOnline();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(successorSendCalls, 0);
+        expect(successor.getMessageById(messageId), isNull);
+        successor.dispose();
+      },
+    );
+
+    test(
+      'successor attempt wins before disposed finalizer without stale delete',
+      () async {
+        final oldQueue = OfflineMessageQueue();
+        await oldQueue.initialize();
+        final messageId = await oldQueue.queueMessage(
+          chatId: 'handoff-successor-wins',
+          content: 'delivery claimed by successor',
+          recipientPublicKey: 'recipient-successor-wins',
+          senderPublicKey: 'sender-successor-wins',
+        );
+        final oldStarted = Completer<void>();
+        final oldOutcome = Completer<OfflineQueueSendDisposition>();
+        oldQueue.onSendMessage = (_) {
+          oldStarted.complete();
+          return oldOutcome.future;
+        };
+        await oldQueue.setOnline();
+        await oldStarted.future;
+        oldQueue.dispose();
+
+        final successor = OfflineMessageQueue();
+        await successor.initialize();
+        final successorStarted = Completer<void>();
+        final successorOutcome = Completer<OfflineQueueSendDisposition>();
+        successor.onSendMessage = (_) {
+          successorStarted.complete();
+          return successorOutcome.future;
+        };
+        await successor.setOnline();
+        await successorStarted.future;
+        expect(successor.getMessageById(messageId)?.attempts, 2);
+
+        oldOutcome.complete(OfflineQueueSendDisposition.delivered);
+        await _waitFor(() => oldQueue.getMessageById(messageId)?.attempts == 2);
+
+        final observer = OfflineMessageQueue();
+        await observer.initialize();
+        final durable = observer.getMessageById(messageId);
+        expect(durable, isNotNull);
+        expect(durable!.status, QueuedMessageStatus.sending);
+        expect(durable.attempts, 2);
+
+        successorOutcome.complete(OfflineQueueSendDisposition.delivered);
+        await _waitFor(() => successor.getMessageById(messageId) == null);
+        successor.dispose();
+        observer.dispose();
+      },
+    );
   });
+}
+
+Future<void> _waitFor(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 3));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Condition was not met before timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }

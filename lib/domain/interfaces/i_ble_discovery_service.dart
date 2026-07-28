@@ -47,8 +47,11 @@ abstract class IBLEDiscoveryService {
     ScanningSource source = ScanningSource.manual,
   });
 
-  /// Scan for a specific device by ID
-  /// Returns the peripheral if found, null otherwise
+  /// Legacy extraction seam for a targeted scan.
+  ///
+  /// The standalone discovery implementation does not own this operation;
+  /// the runtime facade routes targeted scans through BLEConnectionManager.
+  /// Direct callers of the standalone implementation receive null.
   Future<Peripheral?> scanForSpecificDevice({Duration? timeout});
 
   /// Stream of discovered devices (alternative getter)
@@ -66,7 +69,10 @@ abstract class IBLEDiscoveryService {
   /// Stream of hint scanner matches for collision detection
   Stream<String> get hintMatchesStream;
 
-  /// Build local collision hint for device identification
+  /// Legacy extraction seam for a local collision hint.
+  ///
+  /// The runtime facade routes this operation through BLEHandshakeService.
+  /// Direct callers of the standalone discovery implementation receive null.
   Future<String?> buildLocalCollisionHint();
 
   /// Initialize discovery service

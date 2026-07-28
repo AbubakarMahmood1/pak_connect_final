@@ -86,9 +86,8 @@ or higher.
 
 **Rationale**:
 - `android/app/build.gradle.kts` inherits `flutter.minSdkVersion`.
-- The reconciliation environment's Flutter 3.41.5 SDK resolves that value to
-  API 24. CI is pinned to Flutter 3.44.4, and the resolved platform values must
-  be rechecked when that pin changes.
+- The canonical Flutter 3.44.4 SDK resolves that value to API 24. The resolved
+  platform values must be rechecked when the Flutter pin changes.
 - Device validation should still include the oldest Android version the project
   intends to advertise.
 
@@ -114,7 +113,7 @@ or higher.
 artifact for the intended build mode and a documented data-retention target.
 
 **Current evidence**:
-- The verified debug APK for baseline `9cccd01` is 203,988,403 bytes; installed
+- The verified debug APK for baseline `7944c93` is 205,113,616 bytes; installed
   size can be larger.
 - A 20-30 MB release binary is only a future optimization target until a
   signed release artifact is measured.
@@ -137,11 +136,11 @@ artifact for the intended build mode and a documented data-retention target.
 ## 3.4.3 Installation Requirements
 
 ### OR-10: Flutter SDK Version
-**Requirement**: Development requires Flutter SDK 3.38.4 or higher; CI is
-pinned to Flutter 3.44.4.
+**Requirement**: Development and CI require Flutter SDK 3.44.4 or higher; CI
+and the committed lockfile are verified against Flutter 3.44.4.
 
-**Reference**: `pubspec.yaml` (`sdk: ">=3.10.3 <4.0.0"`,
-`flutter: ">=3.38.4"`)
+**Reference**: `pubspec.yaml` (`sdk: ">=3.10.3 <4.0.0"` language floor,
+`flutter: ">=3.44.4"`; the canonical Flutter release bundles Dart 3.12.2)
 
 ---
 
@@ -149,8 +148,8 @@ pinned to Flutter 3.44.4.
 **Requirement**: Building the application requires platform-specific toolchains.
 
 **Android**:
-- Android SDK 36 (`flutter.compileSdkVersion` / `flutter.targetSdkVersion` in
-  the locally verified Flutter 3.41.5 toolchain; recheck against CI 3.44.4)
+- Android SDK 36 (`flutter.compileSdkVersion` /
+  `flutter.targetSdkVersion` in the canonical Flutter 3.44.4 toolchain)
 - NDK 28.2.13676358
 - Java 17 (JDK; pinned in CI)
 - Kotlin plugin 2.1.0 / Android Gradle Plugin 8.9.1
@@ -299,13 +298,19 @@ that outcome remains gated on controlled three-device evidence.
 **Policy**:
 - Configuration exposes a 100 MiB storage cap and a 12-month maximum age
 - Repository statistics can be compared with the configured storage cap
+- The separate `AutoArchiveScheduler` is configured and started by `AppCore`;
+  when enabled it checks inactivity immediately and then every 24 hours while
+  the app process remains alive, and archives qualifying chats through the
+  normal archive service
 - Automatic cleanup, expiry removal, compression, index rebuild, and
   pre-deletion notification are not currently implemented
 - Manual export recommended for long-term storage
 
-**Status**: Partial. In-process maintenance/policy timers and configuration
-surfaces exist, but maintenance task bodies and policy application are
-placeholders that currently report no work.
+**Status**: Partial. In-process inactivity archiving is implemented and unit
+tested. The advanced policy engine and maintenance timers are separate
+surfaces: policy application/selection remains placeholder logic, and all four
+maintenance task bodies currently report zero work. None of these timers is
+killed-process or doze execution.
 
 **Reference**: `lib/domain/services/archive_management_models.dart`,
 `archive_management_service.dart`, `archive_maintenance.dart`, and
@@ -321,10 +326,12 @@ placeholders that currently report no work.
 - Delete messages older than 1 year (optional, user-configurable)
 - Clean up orphaned Noise sessions (no contact, >7 days old)
 
-**Implementation status**: Maintenance methods exist, but no native/Dart
-background task dependency or registration currently schedules this policy.
-Treat it as an in-process/manual maintenance capability and an unwired
-background requirement, not implemented reboot/killed-process work.
+**Implementation status**: `ArchiveManagementService` can invoke maintenance
+manually or from an in-process periodic timer, but the current cleanup, index
+rebuild, compression and expiry bodies return zero operations/bytes freed and
+maintenance-history persistence is a no-op. No native background worker runs
+them after process death, reboot or doze. Timer invocation is not evidence that
+the maintenance policy was applied.
 
 ---
 

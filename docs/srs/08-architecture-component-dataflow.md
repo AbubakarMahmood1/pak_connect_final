@@ -391,12 +391,12 @@ flowchart TD
 ```mermaid
 graph TB
     subgraph "Presentation Layer"
-        Flutter[Flutter 3.38.4+]
+        Flutter[Flutter 3.44.4+]
         Riverpod[Riverpod 3.0]
     end
 
     subgraph "Business Logic"
-        Dart[Dart 3.10.3+]
+        Dart[Dart 3.10.3+ floor; canonical 3.12.2]
     end
 
     subgraph "Security & Crypto"

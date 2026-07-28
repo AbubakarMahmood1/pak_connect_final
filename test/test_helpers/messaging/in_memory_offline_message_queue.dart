@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/models/mesh_relay_models.dart';
 import 'package:pak_connect/domain/values/id_types.dart';
@@ -20,7 +22,7 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
   Function(QueuedMessage message)? _onMessageDelivered;
   Function(QueuedMessage message, String reason)? _onMessageFailed;
   Function(QueueStatistics stats)? _onStatsUpdated;
-  Function(String messageId)? _onSendMessage;
+  OfflineQueueSendCallback? _onSendMessage;
 
   @override
   set onMessageQueued(Function(QueuedMessage message)? callback) {
@@ -45,7 +47,7 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   @override
-  set onSendMessage(Function(String messageId)? callback) {
+  set onSendMessage(OfflineQueueSendCallback? callback) {
     _onSendMessage = callback;
   }
 
@@ -60,7 +62,7 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
     Function(QueuedMessage message)? onMessageDelivered,
     Function(QueuedMessage message, String reason)? onMessageFailed,
     Function(QueueStatistics stats)? onStatsUpdated,
-    Function(String messageId)? onSendMessage,
+    OfflineQueueSendCallback? onSendMessage,
     Function()? onConnectivityCheck,
   }) async {
     this.onMessageQueued = onMessageQueued;
@@ -114,8 +116,7 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
     _emitStats();
 
     if (_isOnline) {
-      _onSendMessage?.call(id);
-      message.status = QueuedMessageStatus.awaitingAck;
+      await _attemptDelivery(message);
     }
 
     return id;
@@ -165,7 +166,22 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
 
   @override
   Future<void> setOnline() async {
+    if (_isOnline) return;
     _isOnline = true;
+    final now = DateTime.now();
+    for (final message in List<QueuedMessage>.of(_messagesById.values)) {
+      if (message.status == QueuedMessageStatus.sending) {
+        message.status = QueuedMessageStatus.pending;
+        message.nextRetryAt = null;
+      } else if (message.status == QueuedMessageStatus.retrying &&
+          (message.nextRetryAt == null || !message.nextRetryAt!.isAfter(now))) {
+        message.status = QueuedMessageStatus.pending;
+        message.nextRetryAt = null;
+      }
+      if (message.status == QueuedMessageStatus.pending) {
+        await _attemptDelivery(message);
+      }
+    }
     _emitStats();
   }
 
@@ -265,6 +281,53 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
   }
 
   @override
+  Future<bool> retryMessage(String messageId) async {
+    final message = _messagesById[messageId];
+    if (message == null || message.status == QueuedMessageStatus.sending) {
+      return false;
+    }
+    message
+      ..status = QueuedMessageStatus.pending
+      ..attempts = 0
+      ..lastAttemptAt = null
+      ..nextRetryAt = null
+      ..deliveredAt = null
+      ..failedAt = null
+      ..failureReason = null;
+    if (_isOnline) {
+      await _attemptDelivery(message);
+    }
+    _emitStats();
+    return true;
+  }
+
+  @override
+  Future<Set<String>> attemptMessages(
+    Iterable<String> messageIds, {
+    OfflineQueuePrepareSendCallback? prepareSend,
+  }) async {
+    final attempted = <String>{};
+    for (final messageId in messageIds.toSet()) {
+      final message = _messagesById[messageId];
+      if (message == null) continue;
+      if (prepareSend != null) {
+        final prepared = await prepareSend(messageId);
+        if (prepared == null) continue;
+        if (_startPreparedDelivery(message, prepared)) {
+          attempted.add(messageId);
+        }
+        continue;
+      }
+      final disposition = await _attemptDelivery(message);
+      if (disposition != null &&
+          disposition != OfflineQueueSendDisposition.deferred) {
+        attempted.add(messageId);
+      }
+    }
+    return attempted;
+  }
+
+  @override
   Future<void> clearQueue() async {
     _messagesById.clear();
     _emitStats();
@@ -298,11 +361,10 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
     if (!_isOnline) {
       return;
     }
-    for (final message in _messagesById.values) {
+    for (final message in List<QueuedMessage>.of(_messagesById.values)) {
       if (message.recipientPublicKey == peerPublicKey &&
           message.status == QueuedMessageStatus.pending) {
-        message.status = QueuedMessageStatus.awaitingAck;
-        _onSendMessage?.call(message.id);
+        await _attemptDelivery(message);
       }
     }
     _emitStats();
@@ -396,6 +458,115 @@ class InMemoryOfflineMessageQueue implements OfflineMessageQueueContract {
 
   @override
   void dispose() {}
+
+  Future<OfflineQueueSendDisposition?> _attemptDelivery(
+    QueuedMessage message,
+  ) async {
+    if (!_isOnline ||
+        !identical(_messagesById[message.id], message) ||
+        message.status != QueuedMessageStatus.pending) {
+      return null;
+    }
+    final previousAttempts = message.attempts;
+    final previousLastAttemptAt = message.lastAttemptAt;
+    message
+      ..status = QueuedMessageStatus.sending
+      ..attempts = message.attempts + 1
+      ..lastAttemptAt = DateTime.now();
+
+    return _finishDelivery(
+      message,
+      previousAttempts: previousAttempts,
+      previousLastAttemptAt: previousLastAttemptAt,
+      execute: () =>
+          _onSendMessage?.call(message.id) ??
+          OfflineQueueSendDisposition.failed,
+    );
+  }
+
+  bool _startPreparedDelivery(
+    QueuedMessage message,
+    OfflineQueuePreparedSend prepared,
+  ) {
+    if (!_isOnline ||
+        !identical(_messagesById[message.id], message) ||
+        message.status != QueuedMessageStatus.pending) {
+      return false;
+    }
+    final previousAttempts = message.attempts;
+    final previousLastAttemptAt = message.lastAttemptAt;
+    message
+      ..status = QueuedMessageStatus.sending
+      ..attempts = message.attempts + 1
+      ..lastAttemptAt = DateTime.now();
+    Future<OfflineQueuePreparedSendDisposition>? startedOutcome;
+    try {
+      startedOutcome = prepared.tryStart();
+    } catch (error) {
+      unawaited(
+        _finishDelivery(
+          message,
+          previousAttempts: previousAttempts,
+          previousLastAttemptAt: previousLastAttemptAt,
+          execute: () => throw error,
+        ),
+      );
+      return false;
+    }
+    final admittedOutcome = startedOutcome;
+    if (admittedOutcome == null) {
+      message
+        ..status = QueuedMessageStatus.pending
+        ..attempts = previousAttempts
+        ..lastAttemptAt = previousLastAttemptAt;
+      return false;
+    }
+    unawaited(
+      _finishDelivery(
+        message,
+        previousAttempts: previousAttempts,
+        previousLastAttemptAt: previousLastAttemptAt,
+        execute: () => admittedOutcome.then(
+          (disposition) => disposition.asSendDisposition,
+        ),
+      ),
+    );
+    return true;
+  }
+
+  Future<OfflineQueueSendDisposition> _finishDelivery(
+    QueuedMessage message, {
+    required int previousAttempts,
+    required DateTime? previousLastAttemptAt,
+    required FutureOr<OfflineQueueSendDisposition> Function() execute,
+  }) async {
+    var disposition = OfflineQueueSendDisposition.failed;
+    try {
+      disposition = await execute();
+    } catch (_) {
+      disposition = OfflineQueueSendDisposition.failed;
+    }
+    if (!identical(_messagesById[message.id], message) ||
+        message.status != QueuedMessageStatus.sending) {
+      return disposition;
+    }
+    switch (disposition) {
+      case OfflineQueueSendDisposition.deferred:
+        message
+          ..status = QueuedMessageStatus.pending
+          ..attempts = previousAttempts
+          ..lastAttemptAt = previousLastAttemptAt;
+      case OfflineQueueSendDisposition.failed:
+        message
+          ..status = QueuedMessageStatus.retrying
+          ..failureReason = 'Transport rejected queued message';
+      case OfflineQueueSendDisposition.awaitingAck:
+        message.status = QueuedMessageStatus.awaitingAck;
+      case OfflineQueueSendDisposition.delivered:
+        await markMessageDelivered(message.id);
+    }
+    return disposition;
+  }
 
   void _emitStats() {
     _onStatsUpdated?.call(getStatistics());

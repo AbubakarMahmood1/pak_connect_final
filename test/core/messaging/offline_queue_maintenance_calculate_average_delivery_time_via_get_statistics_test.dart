@@ -30,8 +30,11 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  bool loadCalled = false;
  bool saveCalled = false;
  int saveQueueCount = 0;
+ Object? deleteMessagesError;
  final List<String> savedMessageIds = [];
  final List<String> deletedMessageIds = [];
+ final List<Set<String>> attemptedDeleteBatches = [];
+ final List<Set<String>> deletedMessageBatches = [];
 
  @override
  List<QueuedMessage> getAllMessages() => _messages;
@@ -53,7 +56,26 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
+ Future<void> deleteMessagesFromStorage(Iterable<String> messageIds) async {
+ final ids = messageIds.toSet();
+ attemptedDeleteBatches.add(ids);
+ if (deleteMessagesError case final error?) {
+ throw error;
+ }
+ deletedMessageBatches.add(ids);
+ deletedMessageIds.addAll(ids);
+ }
+
+ @override
  Future<void> saveQueueToStorage() async {
+ saveCalled = true;
+ saveQueueCount++;
+ }
+
+ @override
+ Future<void> saveQueueSnapshotToStorage(
+ Iterable<QueuedMessage> messages,
+ ) async {
  saveCalled = true;
  saveQueueCount++;
  }
@@ -62,7 +84,22 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  Future<void> loadDeletedMessageIds() async {}
 
  @override
+ Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
+
+ @override
  Future<void> saveDeletedMessageIds() async {}
+
+ @override
+ Future<void> markMessagesDeleted(Iterable<String> messageIds) async {
+ final ids = messageIds.toSet();
+ attemptedDeleteBatches.add(ids);
+ if (deleteMessagesError case final error?) {
+ throw error;
+ }
+ deletedMessageBatches.add(ids);
+ deletedMessageIds.addAll(ids);
+ _messages.removeWhere((message) => ids.contains(message.id));
+ }
 
  @override
  QueuedMessage? getMessageById(String messageId) =>
@@ -99,7 +136,8 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
- bool isMessageDeleted(String messageId) => false;
+ bool isMessageDeleted(String messageId) =>
+ deletedMessageIds.contains(messageId);
 
  @override
  Future<void> markMessageDeleted(String messageId) async {
@@ -240,10 +278,6 @@ class _FakeRetryScheduler extends Fake implements IRetryScheduler {
 
  void startConnectivityMonitoring({
  required void Function() onConnectivityCheck,
- }) {}
-
- void startPeriodicCleanup({
- required Future<void> Function() onPeriodicMaintenance,
  }) {}
 
  void dispose() {}
@@ -460,14 +494,21 @@ void main() {
 ),
 );
 
- // getPerformanceStats verifies maintenance infrastructure exists
- final stats = queue.getPerformanceStats();
- // Internal lists may not match fakeRepo._messages; verify no error
- expect(stats, isA<Map<String, dynamic>>());
- expect(stats.containsKey('totalMessages'), isTrue);
+ await queue.performPeriodicMaintenanceForTesting();
+
+ expect(fakeRepo.deletedMessageBatches, hasLength(1));
+ expect(
+ fakeRepo.deletedMessageBatches.single,
+ unorderedEquals(<String>['expired-direct', 'expired-relay']),
+ );
+ expect(fakeRepo.getMessageById('expired-direct'), isNull);
+ expect(fakeRepo.getMessageById('expired-relay'), isNull);
+ expect(fakeRepo.isMessageDeleted('expired-direct'), isTrue);
+ expect(fakeRepo.isMessageDeleted('expired-relay'), isTrue);
+ expect(fakeRepo.getMessageById('fresh'), isNotNull);
  });
 
- test('removes old delivered messages older than 30 days', () {
+ test('removes old terminal messages older than 30 days', () async {
  final old = DateTime.now().subtract(const Duration(days: 45));
  fakeRepo._messages.add(_makeMessage(id: 'old-delivered',
  status: QueuedMessageStatus.delivered,
@@ -481,22 +522,46 @@ void main() {
  status: QueuedMessageStatus.delivered,
  deliveredAt: DateTime.now(),
  queuedAt: DateTime.now().subtract(const Duration(hours: 1)),
-),
-);
-
- expect(fakeRepo._messages.length, 2);
- });
-
- test('removes old failed messages older than 30 days', () {
- final old = DateTime.now().subtract(const Duration(days: 45));
+ ),
+ );
  fakeRepo._messages.add(_makeMessage(id: 'old-failed',
  status: QueuedMessageStatus.failed,
  failedAt: old,
  queuedAt: old,
-),
-);
+ ),
+ );
 
- expect(fakeRepo._messages.length, 1);
+ await queue.performPeriodicMaintenanceForTesting();
+
+ expect(
+ fakeRepo.deletedMessageBatches.single,
+ unorderedEquals(<String>['old-delivered', 'old-failed']),
+ );
+ expect(fakeRepo.getMessageById('old-delivered'), isNull);
+ expect(fakeRepo.getMessageById('old-failed'), isNull);
+ expect(fakeRepo.isMessageDeleted('old-delivered'), isTrue);
+ expect(fakeRepo.isMessageDeleted('old-failed'), isTrue);
+ expect(fakeRepo.getMessageById('recent-delivered'), isNotNull);
+ });
+
+ test('preserves live state when the bulk delete fails', () async {
+ fakeRepo.deleteMessagesError = StateError('bulk delete failed');
+ fakeRepo._messages.add(_makeMessage(id: 'expired-rollback',
+ status: QueuedMessageStatus.pending,
+ expiresAt: DateTime.now().subtract(const Duration(hours: 1)),
+ ),
+ );
+
+ await queue.performPeriodicMaintenanceForTesting();
+
+ expect(fakeRepo.attemptedDeleteBatches, hasLength(1));
+ expect(
+ fakeRepo.attemptedDeleteBatches.single,
+ unorderedEquals(<String>['expired-rollback']),
+ );
+ expect(fakeRepo.deletedMessageBatches, isEmpty);
+ expect(fakeRepo.getMessageById('expired-rollback'), isNotNull);
+ expect(fakeScheduler.cancelledTimers, isNot(contains('expired-rollback')));
  });
  });
 

@@ -106,7 +106,7 @@ class OfflineQueueFacade implements OfflineMessageQueueContract {
   }
 
   @override
-  set onSendMessage(Function(String messageId)? callback) {
+  set onSendMessage(OfflineQueueSendCallback? callback) {
     _queue.onSendMessage = callback;
   }
 
@@ -121,7 +121,7 @@ class OfflineQueueFacade implements OfflineMessageQueueContract {
     Function(QueuedMessage message)? onMessageDelivered,
     Function(QueuedMessage message, String reason)? onMessageFailed,
     Function(QueueStatistics stats)? onStatsUpdated,
-    Function(String messageId)? onSendMessage,
+    OfflineQueueSendCallback? onSendMessage,
     Function()? onConnectivityCheck,
   }) async {
     _initializeServices();
@@ -231,6 +231,15 @@ class OfflineQueueFacade implements OfflineMessageQueueContract {
   @override
   Future<void> retryFailedMessagesForChat(String chatId) =>
       _queue.retryFailedMessagesForChat(chatId);
+
+  @override
+  Future<bool> retryMessage(String messageId) => _queue.retryMessage(messageId);
+
+  @override
+  Future<Set<String>> attemptMessages(
+    Iterable<String> messageIds, {
+    OfflineQueuePrepareSendCallback? prepareSend,
+  }) => _queue.attemptMessages(messageIds, prepareSend: prepareSend);
 
   @override
   Future<void> clearQueue() => _queue.clearQueue();

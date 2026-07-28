@@ -75,15 +75,15 @@ abstract class IBLEHandshakeService {
   // COLLISION & ASYMMETRIC CONTACT HANDLING
   // ============================================================================
 
-  /// Handle mutual consent required scenario
-  /// Called when contact exists but relationship is asymmetric
-  /// (one side knows the other, but not vice versa)
+  /// Dormant compatibility hook for a mutual-consent prompt.
   ///
-  /// Typical fix: Upgrade contact to mutual consent status
+  /// The current implementation is a no-op and has no active runtime caller.
+  /// Do not use it as evidence that asymmetric relationships are repaired.
   Future<void> handleMutualConsentRequired();
 
-  /// Handle asymmetric contact detection
-  /// Legacy fallback for contact relationship mismatches
+  /// Dormant compatibility hook for an asymmetric-contact event.
+  ///
+  /// The current implementation is a no-op and has no active runtime caller.
   ///
   /// Args:
   ///   contactKey - Public key of contact in asymmetric relationship

@@ -22,8 +22,9 @@ Load only what you need:
 - `ThreatModel.md` for attacker model and trust boundaries
 - `docs/security/security_overview.md` for the current security map
 - `docs/security/security_guarantees.md` for implemented guarantees
-- `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
-  verification flow
+- `TESTING_STRATEGY.md` for automated verification, and
+  `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` for physical Android
+  evidence; `docs/testing/QUICK_START_TESTING.md` is a legacy helper
 - `docs/srs/README.md` for requirements context
 
 ## Claude-Specific Guidance

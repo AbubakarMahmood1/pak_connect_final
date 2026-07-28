@@ -1,6 +1,6 @@
 # PakConnect runtime flows
 
-Last reconciled: 2026-07-11
+Last reconciled: 2026-07-14
 
 This file records the main production paths and the identity used at each
 boundary. It is intentionally implementation-oriented.
@@ -77,19 +77,30 @@ an opaque random `syncId` echoed by the response.
 ## Direct message send
 
 1. UI/controller resolves the intended contact identity.
-2. The offline queue persists the message before transport delivery.
-3. `MeshQueueSyncCoordinator` checks the current peer aliases immediately
+2. The offline queue persists a new message before publishing it in memory or
+   attempting transport delivery; production initialization/write failure is
+   an admission failure, not a volatile queued success.
+3. An existing durable row moves from `pending` to `sending` through a
+   compare-and-set ownership token `(status, attempts, lastAttemptAt)`. Retry,
+   recovery, ACK/delete and post-dispose finalization use the same conditional
+   ownership so an old runtime instance cannot overwrite or remove a successor
+   attempt in the covered lifecycle races.
+4. `MeshQueueSyncCoordinator` checks the current peer aliases immediately
    before a direct send and requires exactly one active BLE address. If more
    than one route is live, direct queued delivery is deferred rather than
    trusting global peer state.
-4. A queue-sync-triggered payload additionally requires its concrete requester
+5. A queue-sync-triggered payload additionally requires its concrete requester
    address to be that sole active route.
-5. The write adapter uses the sole route's handles/MTU and shares the same ACK
-   tracker completed by inbound protocol dispatch.
-6. Noise encrypts only after the session is established and advances the
+6. The write adapter captures that route's connection incarnation, physical
+   peer handle, characteristic and MTU. Inside the shared serialized GATT-write
+   lane it revalidates those exact physical handles before writing; a replaced
+   or vanished route fails instead of aliasing to a newer connection. The ACK
+   timer starts only when the scheduled physical write executes.
+7. The write adapter shares the ACK tracker completed by inbound protocol
+   dispatch. Noise encrypts only after the session is established and advances the
    serialized send nonce.
-7. Central and peripheral text sends return success only after the message ACK;
-   the queue then marks the message delivered exactly once.
+8. Central and peripheral text sends return success only after the message ACK;
+   the queue then conditionally marks/deletes the owned attempt exactly once.
 
 Multi-link control-frame routing is exact-address. Multi-link user-payload
 delivery is intentionally fail-closed until connection records carry an
@@ -131,16 +142,20 @@ does not receive direct plaintext by mistake.
 
 1. Initiator creates a queue request with a random 128-bit `syncId` and stores
    `syncId -> target transport key` while the round is pending.
-2. Responder computes missing/excess IDs and always emits a response, including
-   the already-synchronized case. Payload dispatch proceeds only through the
+2. A received payload is admitted by one database transaction only when no
+   active row or durable deletion tombstone owns that message ID. The transport
+   callback returns the exact set of durably admitted IDs.
+3. Responder computes missing/excess IDs and always emits a response, including
+   the already-synchronized case. Empty, partial or unexpected admission
+   receipts fail the round; response payload dispatch still passes through the
    single-link identity/route gate described above.
-3. Response echoes the request `syncId`.
-4. Coordinator rejects responses that do not bind both the random round token
+4. Response echoes the request `syncId`.
+5. Coordinator rejects responses that do not bind both the random round token
    and the exact transport sender to a live pending round. Tokenless responses
    are rejected before they can mutate queue state.
-5. Route loss or failed response send fails the pending round immediately;
+6. Route loss or failed response send fails the pending round immediately;
    it does not masquerade as success or burn the full timeout.
-6. Resume delivery prefilters by the connected peer's session, ephemeral and
+7. Resume delivery prefilters by the connected peer's session, ephemeral and
    persistent aliases, then repeats the per-message recipient gate at send
    time.
 

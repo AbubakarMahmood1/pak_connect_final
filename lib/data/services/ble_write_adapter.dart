@@ -4,6 +4,7 @@ import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/domain/messaging/message_ack_tracker.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_write_client.dart';
+import 'package:pak_connect/domain/interfaces/i_ble_message_handler_facade.dart';
 import '../../domain/messaging/message_chunk_sender.dart';
 import '../../data/repositories/contact_repository.dart';
 import 'ble_write_client.dart';
@@ -83,6 +84,7 @@ class BleWriteAdapter {
     required int mtuSize,
     String? messageId,
     String? originalIntendedRecipient,
+    BleWriteScheduler? writeScheduler,
   }) async {
     try {
       final stateManager = _stateManagerProvider();
@@ -107,6 +109,7 @@ class BleWriteAdapter {
         recipientId: recipientKey,
         useEphemeralAddressing: !isPaired,
         originalIntendedRecipient: originalIntendedRecipient,
+        writeScheduler: writeScheduler,
         contactRepository: _contactRepository,
         stateManager: stateManager,
         onMessageOperationChanged: _onMessageOperationChanged,
@@ -127,6 +130,7 @@ class BleWriteAdapter {
     required String content,
     required int mtuSize,
     String? messageId,
+    BleWriteScheduler? writeScheduler,
   }) async {
     try {
       final stateManager = _stateManagerProvider();
@@ -151,6 +155,7 @@ class BleWriteAdapter {
         message: content,
         mtuSize: mtuSize,
         messageId: messageId,
+        writeScheduler: writeScheduler,
         contactPublicKey: isPaired ? senderKey : null,
         recipientId: senderKey,
         useEphemeralAddressing: !isPaired,

@@ -116,11 +116,15 @@ readiness ledger.
 **Preconditions**:
 - User has camera permission
 - User is on Add Contact screen
-- Remote contact is advertising via BLE
 - Remote contact is displaying QR code
+- For target follow-on pairing only, the remote contact is advertising the
+  intro hint via BLE
 
 **Postconditions**:
-- Success: Contact saved with established Noise session, ready for messaging
+- Implemented QR success: An unexpired intro hint is saved for later BLE
+  discovery; no contact or Noise session is created by the QR screen itself
+- Target follow-on success (device-gated): The hint matches an advertisement,
+  pairing completes, and a contact with an established Noise session is saved
 - Failure: Error displayed, no contact saved
 
 ### Main Success Scenario
@@ -128,21 +132,30 @@ readiness ledger.
 2. System opens QR scanner
 3. User points camera at contact's QR code
 4. System scans and decodes QR data
-5. System parses QR payload (publicKey, ephemeralId, displayName, noisePublicKey)
-6. System validates QR format and data integrity
-7. System checks if contact already exists (by publicKey)
-8. System initiates BLE scan for ephemeralId
-9. System finds advertised device matching ephemeralId
-10. System connects to device
-11. System negotiates MTU (512 bytes requested)
-12. System initiates Noise XX handshake (see UC-8)
-13. Handshake completes successfully
-14. System saves contact to database (contacts table)
-15. System saves Noise session state
-16. System displays "Contact added successfully"
-17. UI navigates to chat with new contact
+5. System parses the Base64-encoded intro-hint payload
+   (`version`, `type`, `hint`, `expires`, `name`)
+6. System validates the payload type/version and rejects an expired hint
+7. System displays the hint for confirmation
+8. User saves the hint for later BLE discovery
 
-**Result**: Contact successfully added and ready for encrypted messaging
+The current QR screen ends after step 8. The following target flow is not
+invoked by that screen and remains physical-device gated:
+
+9. System initiates BLE scan for the intro hint
+10. System finds an advertisement matching the intro hint
+11. System connects to the device
+12. System negotiates MTU (512 bytes requested)
+13. System initiates Noise XX handshake (see UC-8)
+14. Handshake authenticates the remote Noise static key
+15. Pairing resolves the persistent contact identity and checks for an existing
+    contact
+16. System saves or updates the contact in the database
+17. System saves Noise session state
+18. System displays "Contact added successfully"
+19. UI navigates to chat with new contact
+
+**Implemented Result**: Unexpired intro hint saved for later discovery
+**Target Result (device-gated)**: Contact added and ready for encrypted messaging
 
 ### Extensions (Alternative Flows)
 
@@ -154,46 +167,60 @@ readiness ledger.
 - 6a1. Display "Invalid QR code format"
 - 6a2. Use case ends in failure
 
-**7a. Contact already exists**
-- 7a1. Display "Contact already in your list"
-- 7a2. Ask user: "Update existing contact?"
-- 7a3. If yes, continue at step 8 (re-establish session)
-- 7a4. If no, use case ends
+**6b. QR hint has expired**
+- 6b1. Display "QR code expired - ask for a new one"
+- 6b2. Do not save the hint
+- 6b3. Use case ends in failure
 
-**8a. Device not found via BLE**
-- 8a1. Display "Contact not found nearby"
-- 8a2. Suggest: "Make sure contact is on Add Contact screen"
-- 8a3. Offer retry button
-- 8a4. Use case ends or retry from step 8
+**15a. Contact already exists**
+- 15a1. Display "Contact already in your list"
+- 15a2. Ask user: "Update existing contact?"
+- 15a3. If yes, continue at step 16
+- 15a4. If no, use case ends
 
-**10a. Connection fails**
-- 10a1. Log BLE connection error
-- 10a2. Display "Failed to connect to contact"
-- 10a3. Retry up to 3 times
-- 10a4. If all retries fail, use case ends in failure
+**9a. Device not found via BLE**
+- 9a1. Display "Contact not found nearby"
+- 9a2. Suggest: "Make sure contact is on Add Contact screen"
+- 9a3. Offer retry button
+- 9a4. Use case ends or retry from step 9
 
-**12a. Handshake fails**
-- 12a1. Display "Handshake failed - please try again"
-- 12a2. Disconnect BLE
-- 12a3. Use case ends in failure
+**11a. Connection fails**
+- 11a1. Log BLE connection error
+- 11a2. Display "Failed to connect to contact"
+- 11a3. Retry up to 3 times
+- 11a4. If all retries fail, use case ends in failure
+
+**13a. Handshake fails**
+- 13a1. Display "Handshake failed - please try again"
+- 13a2. Disconnect BLE
+- 13a3. Use case ends in failure
 
 ### Special Requirements
-- **Security**: Must use Noise XX pattern (mutual authentication)
+- **Security**: Follow-on first-contact pairing must use Noise XX
 - **Performance**: QR scan + handshake should complete < 10 seconds
 - **Usability**: Clear error messages for each failure point
-- **Privacy**: Ephemeral IDs used in QR to avoid tracking
+- **Privacy**: QR contains an eight-byte ephemeral intro hint, not identity keys
 
 ### Technology & Data Variations
 **QR Format**: JSON encoded as Base64
-**QR Content**: `{publicKey, ephemeralId, displayName, noisePublicKey}`
-**Handshake Pattern**: Noise XX (3 messages, 176 bytes total)
-**Storage**: contacts table with security_level=0 (LOW)
+**QR Content**: `{version, type, hint, expires, name}`; the QR does not contain
+identity or Noise static keys
+**Handshake Pattern**: The QR screen does not initiate a handshake. A
+subsequent first-contact connection uses Noise XX (32 + 80 + 48 bytes) once
+the hint is matched over BLE.
+**Storage**: The implemented QR step persists intro hints through
+`IntroHintRepository`; the contacts table is populated only by follow-on
+pairing.
 
 ### Frequency of Use
 **Expected**: 1-10 times per user (initial setup + occasional new contacts)
 
 ### Open Issues
-- QR code expiry not implemented (ephemeral IDs should rotate)
+- QR intro-hint expiry is implemented and host/widget-tested: generated QR
+  payloads carry an expiry timestamp with a 14-day default, scans reject
+  expired hints, and repository cleanup removes expired hints. An already
+  displayed code is not automatically refreshed at expiry; camera scanning,
+  BLE hint matching, and follow-on pairing remain physical-device gated.
 - Distance-based pairing security not enforced
 - Group QR codes for multi-user events not supported
 
@@ -398,7 +425,12 @@ tests may inject an in-memory implementation
 **Expected**: 0-50 relay decisions per hour (depending on network activity)
 
 ### Open Issues
-- Route caching is not implemented (recalculate every message)
+- In-memory route caching is implemented: `SmartMeshRouter` caches routing
+  decisions for two minutes and `RouteCalculator` caches route lists for five
+  minutes. Host tests cover route-list reuse, explicit clearing, and the
+  non-expired cleanup path. Cache correctness under changing live topology and
+  three-device relay remains physical-device gated; the current cache keys do
+  not encode every dynamic input such as priority or topology/quality state.
 - Mesh network-size estimation is approximate
 - Routed delivery acknowledgements are implemented, including duplicate retry,
   but three-device reliability remains unverified
@@ -414,7 +446,8 @@ tests may inject an in-memory implementation
 **Use Case Name**: Perform Noise Handshake (XX Pattern)
 **Created By**: System Analysis
 **Date Created**: 2025-01-19
-**Actor**: System (Automated, triggered by UC-7 or connection event)
+**Actor**: System (Automated, triggered by the BLE connection/pairing flow; the
+implemented QR screen does not invoke the handshake directly)
 **Stakeholders**: Both users (want secure communication)
 **Preconditions**:
 - BLE connection established
@@ -433,7 +466,7 @@ tests may inject an in-memory implementation
 2. System generates ephemeral keypair (e)
 3. System calls WriteMessage() → produces 32-byte message containing e
 4. System sends message 1 to Responder via BLE
-5. System receives message 2 from Responder (96 bytes)
+5. System receives message 2 from Responder (80 bytes)
 6. System calls ReadMessage(msg2)
 7. System extracts: remote ephemeral key, remote static key
 8. System performs DH operations: ee, es
@@ -451,7 +484,7 @@ tests may inject an in-memory implementation
 4. System extracts: remote ephemeral key
 5. System generates ephemeral keypair (e)
 6. System performs DH operations: ee, se
-7. System calls WriteMessage() → produces 96-byte message containing e, s
+7. System calls WriteMessage() → produces 80-byte message containing e, s
 8. System sends message 2 to Initiator
 9. System receives message 3 from Initiator (48 bytes)
 10. System calls ReadMessage(msg3)
@@ -471,7 +504,7 @@ tests may inject an in-memory implementation
 - 4a2. If all fail, abort handshake
 - 4a3. Notify user "Connection failed"
 
-**6a. Message 2 receive timeout (> 5 seconds)**
+**6a. Message 2 receive timeout (10 seconds by default)**
 - 6a1. Abort handshake
 - 6a2. Log "Handshake timeout"
 - 6a3. Use case ends in failure
@@ -503,21 +536,28 @@ tests may inject an in-memory implementation
 **Hash**: SHA-256 (crypto package)
 **Message Sizes**:
 - Message 1: 32 bytes (ephemeral public key only)
-- Message 2: 96 bytes (ephemeral + static keys, encrypted)
+- Message 2: 80 bytes (ephemeral + static keys, encrypted)
 - Message 3: 48 bytes (static key, encrypted)
+- KK message 1: 48 bytes
+- KK message 2: 48 bytes
 
 ### Frequency of Use
 **Expected**: 1-3 times per contact (initial pairing + periodic rekey)
 
 ### Open Issues
 - No mechanism to resume failed handshake mid-stream
-- Handshake timeout not configurable
-- No fallback to KK pattern if static keys already known
+- The per-phase timeout defaults to 10 seconds and is constructor-configurable;
+  no user-facing runtime setting exposes it
+- KK selection and fallback are implemented and host-integration-tested. A
+  valid known remote static key selects KK when the per-peer retry tracker
+  permits it; a missing/invalid key, active backoff, or KK rejection selects or
+  falls back to XX. Reconnect behavior across two physical Android devices
+  remains device-gated.
 
 ---
 
 **Total Expanded Use Cases**: 5 critical flows (representative sample)
 **Format**: Full use case template with all sections
-**Last Updated**: 2025-01-19
+**Last Updated**: 2026-07-14
 
 **Note**: Remaining 31 use cases follow same template structure. These 5 represent the most architecturally significant flows for your documentation.

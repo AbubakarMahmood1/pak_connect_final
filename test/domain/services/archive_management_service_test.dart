@@ -73,8 +73,12 @@ void main() {
         );
         expect(
           repository.lastArchiveRequestCustomData!.containsKey(
-            'storageOptimization',
+            'compressionRequested',
           ),
+          isTrue,
+        );
+        expect(
+          repository.lastArchiveRequestCustomData!['compressionRequested'],
           isTrue,
         );
 
@@ -133,6 +137,60 @@ void main() {
       expect(event.type, ArchiveUpdateEventType.restored);
       expect(event.chatId, 'chat_restore');
       expect(event.archiveId, archiveId);
+    });
+
+    test('deleteArchivedChat requires initialization', () async {
+      expect(
+        () => service.deleteArchivedChat(ArchiveId('archive-uninitialized')),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('deleteArchivedChat delegates and emits deleted event', () async {
+      await service.initialize();
+      final archiveId = repository.seedArchive('chat_delete');
+      final eventFuture = service.archiveUpdates.firstWhere(
+        (event) => event.type == ArchiveUpdateEventType.deleted,
+      );
+
+      final result = await service.deleteArchivedChat(archiveId);
+
+      expect(result.success, isTrue);
+      expect(repository.lastDeletedArchiveId, archiveId);
+      expect(await repository.getArchivedChat(archiveId), isNull);
+      final event = await eventFuture.timeout(const Duration(seconds: 1));
+      expect(event.chatId, 'chat_delete');
+      expect(event.archiveId, archiveId);
+    });
+
+    test('deleteArchivedChat preserves repository failure', () async {
+      await service.initialize();
+      final archiveId = repository.seedArchive('chat_delete_failure');
+      repository.failDelete = true;
+      final events = <ArchiveUpdateEvent>[];
+      final subscription = service.archiveUpdates.listen(events.add);
+
+      final result = await service.deleteArchivedChat(archiveId);
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Delete rejected by repository');
+      expect(await repository.getArchivedChat(archiveId), isNotNull);
+      await Future<void>.delayed(Duration.zero);
+      expect(events, isEmpty);
+      await subscription.cancel();
+    });
+
+    test('restore and delete are mutually exclusive per archive', () async {
+      await service.initialize();
+      final archiveId = repository.seedArchive('chat_mutation_lock');
+
+      final restoreFuture = service.restoreChat(archiveId: archiveId);
+      final deleteResult = await service.deleteArchivedChat(archiveId);
+
+      expect(deleteResult.success, isFalse);
+      expect(deleteResult.message, contains('already in progress'));
+      expect((await restoreFuture).success, isTrue);
+      expect(await repository.getArchivedChat(archiveId), isNotNull);
     });
 
     test(
@@ -535,11 +593,13 @@ class _FakeArchiveRepository implements IArchiveRepository {
   bool throwOnRestore = false;
   bool throwOnGetArchivedChats = false;
   bool throwOnGetStatistics = false;
+  bool failDelete = false;
 
   String? lastArchiveRequestChatId;
   String? lastArchiveRequestReason;
   Map<String, dynamic>? lastArchiveRequestCustomData;
   bool? lastArchiveCompressLargeFlag;
+  ArchiveId? lastDeletedArchiveId;
 
   ArchiveStatistics? statistics = ArchiveStatistics.empty();
   final Map<String, ArchivedChat> _archivesById = {};
@@ -595,7 +655,11 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }
 
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async {
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async {
     if (throwOnRestore) {
       throw StateError('restore failed');
     }
@@ -656,8 +720,31 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => ArchiveSearchResult.empty(query);
 
   @override
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async {
-    _archivesById.remove(archivedChatId.value);
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    ArchiveId archivedChatId,
+  ) async {
+    lastDeletedArchiveId = archivedChatId;
+    if (failDelete) {
+      return ArchiveOperationResult.failure(
+        message: 'Delete rejected by repository',
+        operationType: ArchiveOperationType.delete,
+        operationTime: Duration.zero,
+      );
+    }
+    final removed = _archivesById.remove(archivedChatId.value);
+    if (removed == null) {
+      return ArchiveOperationResult.failure(
+        message: 'Missing archive',
+        operationType: ArchiveOperationType.delete,
+        operationTime: Duration.zero,
+      );
+    }
+    return ArchiveOperationResult.success(
+      message: 'Deleted',
+      operationType: ArchiveOperationType.delete,
+      archiveId: archivedChatId,
+      operationTime: Duration.zero,
+    );
   }
 
   @override

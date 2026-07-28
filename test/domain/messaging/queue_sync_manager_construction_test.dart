@@ -3,6 +3,8 @@
 /// dispose, cancelAllSyncs, and initiateSync error paths.
 library;
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
@@ -88,7 +90,7 @@ Future<({QueueSyncMessage request, Future<QueueSyncResult> completion})>
 _beginPendingRound(
   QueueSyncManager manager,
   String target, {
-  void Function(List<QueuedMessage>, String)? onSendMessages,
+  QueueSyncSendMessagesCallback? onSendMessages,
 }) async {
   late QueueSyncMessage request;
   await manager.initialize(
@@ -147,7 +149,7 @@ void main() {
     test('registers callbacks', () async {
       await manager.initialize(
         onSyncRequest: (_, _) {},
-        onSendMessages: (_, _) {},
+        onSendMessages: (_, _) => <String>{},
         onSyncCompleted: (_, _) {},
         onSyncFailed: (_, _) {},
       );
@@ -208,7 +210,10 @@ void main() {
 
       final sendCalls = <(List<QueuedMessage>, String)>[];
       await manager.initialize(
-        onSendMessages: (msgs, nodeId) => sendCalls.add((msgs, nodeId)),
+        onSendMessages: (msgs, nodeId) {
+          sendCalls.add((msgs, nodeId));
+          return msgs.map((message) => message.id).toSet();
+        },
       );
 
       final msg = QueueSyncMessage(
@@ -225,6 +230,52 @@ void main() {
       expect(response.excessMessages, isNotEmpty);
       expect(sendCalls, hasLength(1));
     });
+
+    test(
+      'awaits async excess send and converts its failure to an error response',
+      () async {
+        fakeQueue._needsSync = true;
+        fakeQueue._missingIds = ['missing-1'];
+        fakeQueue._excessMessages = [_qm('excess-1')];
+
+        final callbackStarted = Completer<void>();
+        final releaseCallback = Completer<void>();
+        await manager.initialize(
+          onSendMessages: (messages, nodeId) async {
+            callbackStarted.complete();
+            await releaseCallback.future;
+            throw StateError('async send failed');
+          },
+        );
+
+        final msg = QueueSyncMessage(
+          queueHash: 'hash-other',
+          messageIds: const ['msg-1'],
+          syncTimestamp: DateTime(2024, 1, 1),
+          nodeId: 'other-node',
+          syncType: QueueSyncType.request,
+        );
+
+        var requestCompleted = false;
+        final responseFuture = manager.handleSyncRequest(msg, 'other-node');
+        unawaited(responseFuture.then<void>((_) => requestCompleted = true));
+
+        await callbackStarted.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          requestCompleted,
+          isFalse,
+          reason: 'handleSyncRequest must await the async send callback',
+        );
+
+        releaseCallback.complete();
+        final response = await responseFuture;
+
+        expect(response.type, QueueSyncResponseType.error);
+        expect(response.success, isFalse);
+        expect(response.error, contains('async send failed'));
+      },
+    );
 
     test('alreadySynced when no missing and no excess', () async {
       await manager.initialize();
@@ -246,7 +297,7 @@ void main() {
       expect(response.responseMessage?.syncId, 'round-2');
     });
 
-    test('logs warning when excess but no send callback', () async {
+    test('returns error when excess has no send callback', () async {
       await manager.initialize(); // no onSendMessages
       fakeQueue._needsSync = true;
       fakeQueue._missingIds = ['m1'];
@@ -262,8 +313,36 @@ void main() {
       );
 
       final response = await manager.handleSyncRequest(msg, 'other-node');
-      expect(response.type, QueueSyncResponseType.success);
+      expect(response.type, QueueSyncResponseType.error);
+      expect(response.error, contains('no send callback'));
     });
+
+    for (final testCase in <(String, Set<String>)>[
+      ('empty', <String>{}),
+      ('partial', <String>{'excess-1'}),
+      ('unexpected', <String>{'excess-1', 'excess-2', 'not-requested'}),
+    ]) {
+      test('returns error for ${testCase.$1} dispatch receipt', () async {
+        fakeQueue._needsSync = true;
+        fakeQueue._missingIds = ['missing-1'];
+        fakeQueue._excessMessages = [_qm('excess-1'), _qm('excess-2')];
+        await manager.initialize(onSendMessages: (_, _) => testCase.$2);
+
+        final response = await manager.handleSyncRequest(
+          QueueSyncMessage(
+            queueHash: 'hash-other',
+            messageIds: const ['msg-1'],
+            syncTimestamp: DateTime(2024, 1, 1),
+            nodeId: 'other-node',
+            syncType: QueueSyncType.request,
+          ),
+          'other-node',
+        );
+
+        expect(response.type, QueueSyncResponseType.error);
+        expect(response.error, contains('dispatch receipt mismatch'));
+      });
+    }
   });
 
   // -----------------------------------------------------------------------
@@ -342,6 +421,64 @@ void main() {
       expect(result.success, isTrue);
       expect(result.messagesReceived, 0);
     });
+
+    test('fails when reverse excess has no send callback', () async {
+      fakeQueue._excessMessages = [_qm('local-1')];
+      final round = await _beginPendingRound(manager, 'other-node');
+      final responseMsg = QueueSyncMessage(
+        queueHash: 'hash-resp',
+        messageIds: const ['remote-1'],
+        syncTimestamp: DateTime(2024, 1, 1),
+        nodeId: 'other-node',
+        syncType: QueueSyncType.response,
+        syncId: round.request.syncId,
+      );
+
+      final result = await manager.processSyncResponse(
+        responseMsg,
+        const [],
+        'other-node',
+      );
+      final completion = await round.completion;
+
+      expect(result.success, isFalse);
+      expect(result.error, contains('no send callback'));
+      expect(completion.success, isFalse);
+    });
+
+    for (final testCase in <(String, Set<String>)>[
+      ('empty', <String>{}),
+      ('partial', <String>{'local-1'}),
+      ('unexpected', <String>{'local-1', 'local-2', 'not-requested'}),
+    ]) {
+      test('fails for ${testCase.$1} reverse dispatch receipt', () async {
+        fakeQueue._excessMessages = [_qm('local-1'), _qm('local-2')];
+        final round = await _beginPendingRound(
+          manager,
+          'other-node',
+          onSendMessages: (_, _) => testCase.$2,
+        );
+        final responseMsg = QueueSyncMessage(
+          queueHash: 'hash-resp',
+          messageIds: const ['remote-1'],
+          syncTimestamp: DateTime(2024, 1, 1),
+          nodeId: 'other-node',
+          syncType: QueueSyncType.response,
+          syncId: round.request.syncId,
+        );
+
+        final result = await manager.processSyncResponse(
+          responseMsg,
+          const [],
+          'other-node',
+        );
+        final completion = await round.completion;
+
+        expect(result.success, isFalse);
+        expect(result.error, contains('dispatch receipt mismatch'));
+        expect(completion.success, isFalse);
+      });
+    }
   });
 
   // -----------------------------------------------------------------------

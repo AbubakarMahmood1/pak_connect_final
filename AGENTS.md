@@ -23,8 +23,8 @@ Core characteristics:
 - Riverpod 3.0 state management
 
 Primary stack:
-- Flutter 3.38.4+ (CI pinned to 3.44.4)
-- Dart 3.10.3+
+- Flutter 3.44.4+ (canonical CI and lockfile toolchain: Flutter 3.44.4)
+- Dart 3.10.3+ language floor; canonical Flutter 3.44.4 bundles Dart 3.12.2
 - Riverpod 3.0
 - Noise Protocol (XX/KK patterns)
 - SQLite + SQLCipher
@@ -40,8 +40,9 @@ Read documentation in this order:
    - `README.md` for architecture and runtime overview
    - `ThreatModel.md`, `docs/security/security_overview.md`, and
      `docs/security/security_guarantees.md` for security-sensitive work
-   - `TESTING_STRATEGY.md` and `docs/testing/QUICK_START_TESTING.md` for
-     verification workflow
+   - `TESTING_STRATEGY.md` for automated verification, and
+     `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` for physical
+     Android evidence; `docs/testing/QUICK_START_TESTING.md` is a legacy helper
    - `docs/srs/README.md` for requirements context
 
 Use Context7 before manually browsing package/plugin docs when up-to-date

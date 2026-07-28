@@ -1,6 +1,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as path;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -901,6 +902,9 @@ void main() {
  // ==================== setTestDatabaseName extended ====================
  group('DatabaseHelper setTestDatabaseName extended', () {
  test('null name resets to production name', () async {
+ final originalDatabaseName = path.basename(
+ await DatabaseHelper.getDatabasePath(),
+ );
  DatabaseHelper.setTestDatabaseName('temp_test_db.db');
  await DatabaseHelper.close();
 
@@ -915,7 +919,12 @@ void main() {
  expect(path2, isNot(contains('temp_test_db')));
 
  // Restore test DB name via fullDatabaseReset
+ DatabaseHelper.setTestDatabaseName(originalDatabaseName);
  await TestSetup.fullDatabaseReset();
+ expect(
+ path.basename(await DatabaseHelper.getDatabasePath()),
+ originalDatabaseName,
+ );
  });
  });
 }

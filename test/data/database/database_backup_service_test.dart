@@ -45,7 +45,6 @@ void main() {
   setUp(() async {
     TestSetup.resetSharedPreferences();
     await DatabaseHelper.close();
-    DatabaseHelper.setTestDatabaseName(null);
     await DatabaseHelper.deleteDatabase();
     await DatabaseHelper.database;
     await cleanupBackupDirectories();

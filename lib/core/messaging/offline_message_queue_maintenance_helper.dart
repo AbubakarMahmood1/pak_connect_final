@@ -45,7 +45,10 @@ class _OfflineMessageQueueMaintenanceHelper {
 
   void updateStatistics() {
     final stats = _owner.getStatistics();
-    _owner.onStatsUpdated?.call(stats);
+    _owner._notifyObserver(
+      'onStatsUpdated',
+      () => _owner.onStatsUpdated?.call(stats),
+    );
   }
 
   Future<void> saveMessageToStorage(QueuedMessage message) async {
@@ -113,72 +116,48 @@ class _OfflineMessageQueueMaintenanceHelper {
 
   Future<void> cleanupExpiredMessages() async {
     final cutoffDate = DateTime.now().subtract(const Duration(days: 30));
-    int ttlExpiredCount = 0;
-    int oldMessagesCount = 0;
+    var ttlExpiredCount = 0;
+    var oldMessagesCount = 0;
+    final expiredIds = <String>{};
 
-    final expiredIds = <String>[];
-
-    // PRIORITY 1 FIX: Clean both queues
-    _owner._directMessageQueue.removeWhere((message) {
-      // Remove messages that have exceeded their TTL
-      if (message.status == QueuedMessageStatus.pending ||
-          message.status == QueuedMessageStatus.retrying) {
-        if (_owner._isMessageExpired(message)) {
+    await _owner._mutationLock.synchronized(() async {
+      if (_owner._disposed) return;
+      for (final message in _owner._getAllMessages()) {
+        if ((message.status == QueuedMessageStatus.pending ||
+                message.status == QueuedMessageStatus.retrying) &&
+            _owner._isMessageExpired(message)) {
           ttlExpiredCount++;
           expiredIds.add(message.id);
-          OfflineMessageQueue._logger.info(
-            'Message ${message.id.shortId()}... expired (TTL exceeded)',
-          );
-          return true;
+          continue;
+        }
+
+        if (message.status == QueuedMessageStatus.delivered ||
+            message.status == QueuedMessageStatus.failed) {
+          final messageAge =
+              message.deliveredAt ?? message.failedAt ?? message.queuedAt;
+          if (messageAge.isBefore(cutoffDate)) {
+            oldMessagesCount++;
+            expiredIds.add(message.id);
+          }
         }
       }
 
-      // Remove old delivered or failed messages
-      if (message.status == QueuedMessageStatus.delivered ||
-          message.status == QueuedMessageStatus.failed) {
-        final messageAge =
-            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
-        if (messageAge.isBefore(cutoffDate)) {
-          oldMessagesCount++;
-          expiredIds.add(message.id);
-          return true;
-        }
+      if (expiredIds.isEmpty) return;
+      // Expiration is a deletion from the synchronized queue, not merely local
+      // compaction. Commit tombstones with the row removals so a peer cannot
+      // reintroduce the same expired payload during a later gossip round.
+      await _owner._store.markMessagesDeleted(expiredIds);
+      _owner._deletedMessageIds.addAll(expiredIds.map(MessageId.new));
+      for (final id in expiredIds) {
+        _owner._deliveryInFlightIds.remove(id);
+        _owner._queueScheduler.cancelRetryTimer(id);
+        _owner._cancelStaggerTimer(id);
+        _owner._store.removeMessageFromQueue(id);
       }
-      return false;
+      _owner.invalidateHashCache();
     });
 
-    _owner._relayMessageQueue.removeWhere((message) {
-      // Remove messages that have exceeded their TTL
-      if (message.status == QueuedMessageStatus.pending ||
-          message.status == QueuedMessageStatus.retrying) {
-        if (_owner._isMessageExpired(message)) {
-          ttlExpiredCount++;
-          expiredIds.add(message.id);
-          OfflineMessageQueue._logger.info(
-            'Message ${message.id.shortId()}... expired (TTL exceeded)',
-          );
-          return true;
-        }
-      }
-
-      // Remove old delivered or failed messages
-      if (message.status == QueuedMessageStatus.delivered ||
-          message.status == QueuedMessageStatus.failed) {
-        final messageAge =
-            message.deliveredAt ?? message.failedAt ?? message.queuedAt;
-        if (messageAge.isBefore(cutoffDate)) {
-          oldMessagesCount++;
-          expiredIds.add(message.id);
-          return true;
-        }
-      }
-      return false;
-    });
-
-    // Persist removal to storage
     if (expiredIds.isNotEmpty) {
-      await saveQueueToStorage();
-
       OfflineMessageQueue._logger.info(
         'Cleaned up ${expiredIds.length} expired messages '
         '(TTL: $ttlExpiredCount, Old: $oldMessagesCount)',
@@ -188,10 +167,8 @@ class _OfflineMessageQueueMaintenanceHelper {
 
   Future<void> optimizeStorage() async {
     try {
-      // Force a complete save to optimize storage structure
-      await saveQueueToStorage();
-
-      // Check if we need to compact deleted IDs
+      // Snapshot rewrites race admissions and provide no compaction benefit.
+      // Keep optimization targeted to the timestamp-aware tombstone pruner.
       if (_owner._deletedMessageIds.length >
           OfflineMessageQueue._maxDeletedIdsToKeep * 2) {
         await _owner.cleanupOldDeletedIds();
@@ -205,12 +182,14 @@ class _OfflineMessageQueueMaintenanceHelper {
 
   Map<String, dynamic> getPerformanceStats() {
     final syncStats = _owner._queueSync.getSyncStatistics();
-    // PRIORITY 1 FIX: Include both queue stats
+    final messages = _owner._getAllMessages();
+    final directCount = messages
+        .where((message) => !message.isRelayMessage)
+        .length;
     return {
-      'totalMessages':
-          _owner._directMessageQueue.length + _owner._relayMessageQueue.length,
-      'directMessages': _owner._directMessageQueue.length,
-      'relayMessages': _owner._relayMessageQueue.length,
+      'totalMessages': messages.length,
+      'directMessages': directCount,
+      'relayMessages': messages.length - directCount,
       'deletedIdsCount': _owner._deletedMessageIds.length,
       'hashCacheAge': syncStats.lastHashTime != null
           ? DateTime.now().difference(syncStats.lastHashTime!).inSeconds

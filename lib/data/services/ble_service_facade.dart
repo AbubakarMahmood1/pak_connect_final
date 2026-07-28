@@ -8,6 +8,7 @@ import 'package:pak_connect/domain/interfaces/i_ble_experiment_metrics_recorder.
 import 'package:pak_connect/domain/interfaces/i_ble_role_scheduler.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_service_facade.dart';
 import 'package:pak_connect/domain/interfaces/i_connection_service.dart';
+import 'package:pak_connect/domain/interfaces/i_mesh_ble_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_platform_host.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_connection_service.dart';
 import 'package:pak_connect/domain/interfaces/i_ble_messaging_service.dart';
@@ -66,7 +67,11 @@ part 'ble_service_facade_runtime_helper.dart';
 /// - Manage Bluetooth state monitoring and recovery
 /// - Integrate mesh networking via callback handlers
 /// - Handle graceful shutdown and resource cleanup
-class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
+class BLEServiceFacade
+    implements
+        IBLEServiceFacade,
+        IConnectionService,
+        IRouteBoundMeshBleService {
   static void Function(IBLEHandshakeService handshakeService)?
   _handshakeServiceRegistrar;
   static int _liveInstances = 0;
@@ -781,6 +786,42 @@ class BLEServiceFacade implements IBLEServiceFacade, IConnectionService {
   @override
   Future<bool> sendProtocolMessage(ProtocolMessage message) =>
       _getMessagingService().sendProtocolMessage(message);
+
+  @override
+  Future<bool>? trySendMessageOnRoute(
+    String message, {
+    required String transportAddress,
+    required String messageId,
+    required String intendedRecipient,
+  }) {
+    final service = _getMessagingService();
+    final routeService = service is IRouteBoundBleMessagingService
+        ? service as IRouteBoundBleMessagingService
+        : null;
+    if (routeService == null) return null;
+    return routeService.trySendMessageOnRoute(
+      message,
+      transportAddress: transportAddress,
+      messageId: messageId,
+      intendedRecipient: intendedRecipient,
+    );
+  }
+
+  @override
+  Future<bool>? trySendProtocolMessageOnRoute(
+    ProtocolMessage message, {
+    required String transportAddress,
+  }) {
+    final service = _getMessagingService();
+    final routeService = service is IRouteBoundBleMessagingService
+        ? service as IRouteBoundBleMessagingService
+        : null;
+    if (routeService == null) return null;
+    return routeService.trySendProtocolMessageOnRoute(
+      message,
+      transportAddress: transportAddress,
+    );
+  }
 
   @override
   Future<void> sendIdentityExchange() =>

@@ -318,7 +318,7 @@ class TestSetup {
       ProtocolMessageHandler.clearIdentityManagerResolver();
       RelayCoordinator.clearDependencyResolvers();
       MeshRelayHandler.clearRelayEngineFactoryResolver();
-      EphemeralContactCleaner.clearQueueRepositoryResolver();
+      EphemeralContactCleaner.clearQueueResolver();
       BLEHandshakeService.clearCoordinatorFactoryResolver();
       BLEMessageHandlerFacade.clearDependencyResolvers();
       BLEMessageHandlerFacadeImpl.clearDependencyResolvers();

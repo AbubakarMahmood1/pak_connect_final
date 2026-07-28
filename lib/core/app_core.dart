@@ -60,6 +60,7 @@ import '../domain/values/id_types.dart';
 class AppCore {
   static final _logger = Logger('AppCore');
   static AppCore? _instance;
+  static Future<AppCore>? _retryPreparationFuture;
 
   // Core components
   late final BurstScanningController burstScanningController;
@@ -92,6 +93,13 @@ class AppCore {
   bool _isInitialized = false;
   bool _isMessageQueueReady = false;
   bool _disposeRequested = false;
+  bool _hasBurstScanningController = false;
+  bool _hasMessageQueueFacade = false;
+  bool _hasChatService = false;
+  bool _hasPerformanceMonitor = false;
+  bool _hasMeshNetworkingService = false;
+  bool _hasBatteryOptimizer = false;
+  Future<void>? _ownedResourceDisposalFuture;
   Completer<void>? _initializationCompleter;
   Completer<OfflineMessageQueueContract>? _messageQueueReadyCompleter;
   DateTime? _initializationTime;
@@ -128,7 +136,36 @@ class AppCore {
   static Future<void> initializeSingleton() => shared.initialize();
 
   static Future<void> disposeSingleton() async {
-    shared.dispose();
+    await shared.disposeAndWait();
+  }
+
+  /// Dispose a failed/partial runtime and return a fresh singleton for retry.
+  ///
+  /// Composed fields are intentionally `late final`; replacing the AppCore
+  /// instance is the only safe retry after initialization crossed those
+  /// assignment boundaries.
+  static Future<AppCore> prepareInitializationRetry() {
+    final inFlight = _retryPreparationFuture;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final preparation = _prepareInitializationRetry();
+    _retryPreparationFuture = preparation;
+    return preparation;
+  }
+
+  static Future<AppCore> _prepareInitializationRetry() async {
+    try {
+      final failedCore = shared;
+      await failedCore.disposeAndWait();
+      if (identical(_instance, failedCore)) {
+        resetForRebootstrap();
+      }
+      return shared;
+    } finally {
+      _retryPreparationFuture = null;
+    }
   }
 
   /// Get initialization status
@@ -503,6 +540,7 @@ class AppCore {
     // gracefully rather than abort app startup (the DB/queue/identity phases
     // remain fatal). Keeps a monitoring outage from bricking the whole app.
     performanceMonitor = PerformanceMonitor();
+    _hasPerformanceMonitor = true;
     try {
       await performanceMonitor.initialize();
       // Event-driven mode: disable periodic sampling, take initial snapshot.
@@ -539,10 +577,11 @@ class AppCore {
   Future<void> _initializeCoreServices() async {
     // Initialize notification service with dependency injection
     // Platform-specific handler selection based on user preference:
-    // - Android: BackgroundNotificationHandlerImpl if enabled in settings
+    // - Android: system-tray renderer if enabled in settings; this does not
+    //   provide killed-process message receipt or native background execution
     // - iOS/Windows/Linux/macOS: ForegroundNotificationHandler (safe default)
 
-    // Check user preference for background notifications (Android only)
+    // Check the legacy-named preference for Android system notifications.
     final prefs = preferencesRepository;
     bool backgroundEnabled = PreferenceDefaults.backgroundNotifications;
 
@@ -640,6 +679,7 @@ class AppCore {
       archiveManagementService: archiveManagementService,
       archiveSearchService: archiveSearchService,
     );
+    _hasChatService = true;
     ChatManagementService.setInstance(chatService);
     await chatService.initialize();
     _logger.info('Chat management service initialized');
@@ -700,6 +740,7 @@ class AppCore {
               forceFloodMode: false,
             ),
       );
+      _hasMeshNetworkingService = true;
 
       registerInitializedServices(
         securityService: securityService,
@@ -777,6 +818,7 @@ class AppCore {
   /// Initialize message queue (must be called early - before BLE services)
   Future<void> _initializeMessageQueue() async {
     messageQueueFacade = OfflineQueueFacade();
+    _hasMessageQueueFacade = true;
     await messageQueueFacade.initialize(
       onMessageQueued: (message) =>
           _logger.info('Message queued: ${message.id}'),
@@ -813,6 +855,7 @@ class AppCore {
     // Initialize battery optimizer for power management
     _logger.info('🔋 Initializing battery optimizer...');
     batteryOptimizer = BatteryOptimizer();
+    _hasBatteryOptimizer = true;
     await batteryOptimizer.initialize(
       onBatteryUpdate: (info) {
         _logger.info('🔋 Battery: ${info.level}% (${info.powerMode.name})');
@@ -825,6 +868,7 @@ class AppCore {
 
     // Initialize burst scanning controller (replaces direct power manager)
     burstScanningController = BurstScanningController();
+    _hasBurstScanningController = true;
 
     // The controller will be fully initialized in _startIntegratedSystems()
     _logger.info(
@@ -893,16 +937,17 @@ class AppCore {
   }
 
   /// Handle message send callback
-  void _handleMessageSend(String messageId) {
+  OfflineQueueSendDisposition _handleMessageSend(String messageId) {
     // Guard: ensure mesh layer is initialized; otherwise surface an error.
     if (!_isInitialized) {
       _logger.severe(
         '❌ Cannot send message ${messageId.shortId()}...: mesh not initialized',
       );
-      return;
+      return OfflineQueueSendDisposition.deferred;
     }
     // In production this is replaced by MeshQueueSyncCoordinator binding.
     _logger.info('Sending message: ${messageId.shortId()}...');
+    return OfflineQueueSendDisposition.deferred;
   }
 
   /// Check connectivity for message queue
@@ -1097,28 +1142,46 @@ class AppCore {
       }
 
       // Safe disposal with null checks
-      try {
-        burstScanningController.dispose();
-      } catch (e) {
-        _logger.warning('Error disposing burst scanning controller: $e');
+      if (_hasBurstScanningController) {
+        try {
+          burstScanningController.dispose();
+        } catch (e) {
+          _logger.warning('Error disposing burst scanning controller: $e');
+        } finally {
+          _hasBurstScanningController = false;
+        }
       }
 
-      try {
-        chatService.dispose();
-      } catch (e) {
-        _logger.warning('Error disposing chat service: $e');
+      final ownedResourceDisposal = _ownedResourceDisposalFuture ??=
+          _disposeOwnedResources();
+      unawaited(
+        ownedResourceDisposal.catchError((Object error, StackTrace stack) {
+          _logger.warning(
+            'Asynchronous AppCore resource disposal failed: $error',
+            error,
+            stack,
+          );
+        }),
+      );
+
+      if (_hasMessageQueueFacade) {
+        try {
+          messageQueueFacade.dispose();
+        } catch (e) {
+          _logger.warning('Error disposing message queue facade: $e');
+        } finally {
+          _hasMessageQueueFacade = false;
+        }
       }
 
-      try {
-        messageQueueFacade.dispose();
-      } catch (e) {
-        _logger.warning('Error disposing message queue facade: $e');
-      }
-
-      try {
-        performanceMonitor.dispose();
-      } catch (e) {
-        _logger.warning('Error disposing performance monitor: $e');
+      if (_hasPerformanceMonitor) {
+        try {
+          performanceMonitor.dispose();
+        } catch (e) {
+          _logger.warning('Error disposing performance monitor: $e');
+        } finally {
+          _hasPerformanceMonitor = false;
+        }
       }
 
       try {
@@ -1135,7 +1198,7 @@ class AppCore {
       OfflineMessageQueue.clearDefaultRepositoryProvider();
       MessageQueueRepository.clearDefaultDatabaseProvider();
       QueuePersistenceManager.clearDefaultDatabaseProvider();
-      MessageRouter.clearDependencyResolvers();
+      MessageRouter.reset();
       HandshakeCoordinator.clearRepositoryProviderResolver();
       SmartHandshakeManager.clearRepositoryProviderResolver();
       MeshRelayEngine.clearDependencyResolvers();
@@ -1167,6 +1230,98 @@ class AppCore {
       _logger.info('App core disposed');
     } catch (e) {
       _logger.severe('Error during disposal: $e');
+    }
+  }
+
+  Future<void> _disposeOwnedResources() async {
+    final asyncDisposals = <Future<void>>[];
+
+    if (_hasBatteryOptimizer) {
+      _hasBatteryOptimizer = false;
+      try {
+        batteryOptimizer.dispose();
+      } catch (error) {
+        _logger.warning('Error disposing battery optimizer: $error');
+      }
+    }
+
+    try {
+      EphemeralKeyManager.reset();
+    } catch (error) {
+      _logger.warning('Error clearing ephemeral session keys: $error');
+    }
+    try {
+      TopologyManager.instance.dispose();
+    } catch (error) {
+      _logger.warning('Error resetting topology manager: $error');
+    }
+
+    if (_hasMeshNetworkingService) {
+      _hasMeshNetworkingService = false;
+      try {
+        meshNetworkingService.dispose();
+      } catch (error) {
+        _logger.warning('Error disposing mesh networking service: $error');
+      }
+    }
+
+    if (_hasChatService) {
+      _hasChatService = false;
+      try {
+        asyncDisposals.add(
+          _awaitOwnedDisposal('chat service', chatService.dispose()),
+        );
+      } catch (error) {
+        _logger.warning('Error starting chat service disposal: $error');
+      }
+    }
+
+    final bleFacade = _bleFacade;
+    _bleFacade = null;
+    if (bleFacade != null) {
+      try {
+        asyncDisposals.add(
+          _awaitOwnedDisposal('BLE facade', bleFacade.dispose()),
+        );
+      } catch (error) {
+        _logger.warning('Error starting BLE facade disposal: $error');
+      }
+    }
+
+    if (asyncDisposals.isNotEmpty) {
+      await Future.wait(asyncDisposals, eagerError: false);
+    }
+
+    // Security is last: BLE/chat disposal can resume across awaits and must
+    // retain access to their already-injected crypto service until finished.
+    try {
+      SecurityManager.instance.shutdown();
+    } catch (error) {
+      _logger.warning('Error shutting down SecurityManager: $error');
+    }
+    SecurityServiceLocator.clearServiceResolver();
+  }
+
+  Future<void> _awaitOwnedDisposal(
+    String resourceName,
+    Future<void> disposal,
+  ) async {
+    try {
+      await disposal;
+    } catch (error, stack) {
+      // Rebootstrap is best-effort after every owned cleanup has settled. A
+      // single disposal error is evidence to log, not a permanent Retry loop.
+      _logger.warning('Error disposing $resourceName: $error', error, stack);
+    }
+  }
+
+  /// Dispose synchronously-owned state and wait for asynchronous resource
+  /// teardown before a replacement composition root is published.
+  Future<void> disposeAndWait() async {
+    dispose();
+    final resourceDisposal = _ownedResourceDisposalFuture;
+    if (resourceDisposal != null) {
+      await resourceDisposal;
     }
   }
 

@@ -1,13 +1,14 @@
 # PakConnect
 
-[![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.38.4-02569B?logo=flutter)](https://flutter.dev)
-[![Dart](https://img.shields.io/badge/Dart-%3E%3D3.10.3-0175C2?logo=dart)](https://dart.dev)
+[![Flutter](https://img.shields.io/badge/Flutter-%3E%3D3.44.4-02569B?logo=flutter)](https://flutter.dev)
+[![Dart language](https://img.shields.io/badge/Dart_language-%3E%3D3.10.3-0175C2?logo=dart)](https://dart.dev)
 [![Riverpod](https://img.shields.io/badge/State-Riverpod_3.0-6E56CF)](https://riverpod.dev)
 [![Security](https://img.shields.io/badge/Security-Noise_XX%2FKK-2E7D32)](https://noiseprotocol.org)
-[![Storage](https://img.shields.io/badge/Storage-SQLCipher-1565C0)](https://www.zetetic.net/sqlcipher/)
-[![License](https://img.shields.io/badge/License-Proprietary-8E24AA)]()
+[![Storage](https://img.shields.io/badge/Storage-Mobile_SQLCipher_path-1565C0)](https://www.zetetic.net/sqlcipher/)
+[![Flutter CI](https://github.com/AbubakarMahmood/pak_connect/actions/workflows/flutter_coverage.yml/badge.svg?branch=main)](https://github.com/AbubakarMahmood/pak_connect/actions/workflows/flutter_coverage.yml)
+![License](https://img.shields.io/badge/License-Proprietary-8E24AA)
 
-Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environments. PakConnect combines dual-role BLE discovery, end-to-end encrypted messaging, store-and-forward queues, and mesh relay forwarding in a Flutter application designed for hostile or connectivity-constrained conditions.
+Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environments. PakConnect combines a central/peripheral BLE architecture, end-to-end encrypted messaging, store-and-forward queues, and mesh relay forwarding in a Flutter application designed for hostile or connectivity-constrained conditions.
 
 ---
 
@@ -16,7 +17,8 @@ Secure peer-to-peer messaging over Bluetooth Low Energy for off-grid environment
 - Direct/session messaging uses Noise XX/KK, X25519, and
   ChaCha20-Poly1305; offline relay uses a signed encrypted v2 `sealed_v1`
   inner payload when recipient static key material is available.
-- Dual-role BLE runtime operating as central and peripheral simultaneously.
+- Central/peripheral BLE runtime paths are wired; simultaneous physical-radio
+  behavior remains a two-device validation gate.
 - Offline-first delivery with queue sync, retry orchestration, and relay-aware routing.
 - Mesh relay code supports multi-hop forwarding and store-and-forward for
   offline recipients; automated regressions cover the logic, while physical
@@ -40,10 +42,35 @@ PakConnect is in active hardening and release-preparation. Core transport,
 persistence, archive/search, and advanced UI flows are implemented. The
 VM-friendly test suite has a current clean local baseline; device transport,
 mobile SQLCipher, and release-build evidence remain explicit validation gates.
-The current device-test code/build baseline is `9cccd01`: 5,539 local tests
-passed in 5m20s and its 203,988,403-byte debug Android APK was built and hashed.
-Exact commands and artifact hashes are recorded in
-[`docs/testing/DEVICE_VALIDATION_STATUS.md`](docs/testing/DEVICE_VALIDATION_STATUS.md).
+The current verified local runtime/device baseline is
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
+`codex/archive-delete-contract`. It was verified with Flutter 3.44.4 revision
+`ad70ec4617166f1c38e5d2bfd388af71fda14f06` and bundled Dart 3.12.2; the
+project's Dart language floor remains 3.10.3.
+
+| Local baseline evidence | Result |
+|---|---|
+| Full VM-friendly coverage run | 5,691 tests passed, 0 failed; reporter 5m37s; measured command wall 353,083 ms |
+| `flutter_test_latest.log` | 9,268,167 bytes; SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905` |
+| `coverage/lcov.info` | 426,546 bytes; SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` |
+| Debug Android APK | 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059` |
+
+The physical-device execution gate remains in
+[`docs/testing/DEVICE_VALIDATION_STATUS.md`](docs/testing/DEVICE_VALIDATION_STATUS.md)
+and must cite this exact baseline and its artifacts.
+
+The latest Flutter workflow on public `main` is not green: two database suites
+contended for the same test SQLite file and failed with `database is locked`.
+The local baseline above isolates those suites and passes the full suite, but
+fresh GitHub Actions evidence on that exact commit is still pending. Public
+`main` currently has no active branch-protection rule, so PR-only integration is
+project policy rather than a GitHub-enforced gate.
+
+| Target | Current evidence |
+|---|---|
+| Android | Source and hashed debug build; BLE interoperability, mobile SQLCipher-at-rest and signed-release evidence pending |
+| iOS | Source target only; build, radio, SQLCipher and background behavior unverified |
+| Windows/Linux/macOS/Web | Development/test surfaces only; not BLE product evidence |
 
 ---
 
@@ -101,7 +128,7 @@ graph TD
 
 | Layer | Libraries |
 |---|---|
-| Framework | Flutter >=3.38.4 / Dart >=3.10.3 (CI: Flutter 3.44.4) |
+| Framework | Flutter >=3.44.4; Dart language >=3.10.3 (verified Flutter revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` bundles Dart 3.12.2) |
 | State | Riverpod 3.0 |
 | BLE | `bluetooth_low_energy` |
 | Persistence | `sqflite_sqlcipher`, `flutter_secure_storage` |
@@ -177,8 +204,9 @@ docs/             security, testing, refactoring, and SRS material
 
 ### Prerequisites
 
-- Flutter SDK 3.38.4 or newer (CI is pinned to 3.44.4)
-- Dart SDK 3.10.3 or newer (bundled with Flutter)
+- Flutter SDK 3.44.4 or newer (verified revision
+  `ad70ec4617166f1c38e5d2bfd388af71fda14f06`; CI is pinned to 3.44.4)
+- Dart language level 3.10.3 or newer (Flutter 3.44.4 bundles Dart 3.12.2)
 - Android or iOS hardware for BLE validation (emulators do not support BLE)
 - Android Studio or VS Code with the Flutter plugin
 
@@ -187,7 +215,7 @@ docs/             security, testing, refactoring, and SRS material
 ```bash
 git clone https://github.com/AbubakarMahmood/pak_connect.git
 cd pak_connect
-flutter pub get
+flutter pub get --enforce-lockfile
 ```
 
 ### Run
@@ -225,7 +253,7 @@ The GitHub Actions test workflow pins Flutter 3.44.4, treats analyzer and
 reachability failures as fatal, runs `flutter test --coverage`, and uploads
 LCOV/log artifacts even after a failure. It does not run `integration_test/`
 and does not enforce a numeric coverage threshold. CodeQL runs on pull requests
-to `main` and on the weekly schedule.
+to `main`, pushes to `main`, manual dispatches, and the weekly schedule.
 
 ---
 
@@ -237,7 +265,8 @@ to `main` and on the weekly schedule.
 | [Security Boundaries](docs/security/security_guarantees.md) | Implemented code boundaries, automated evidence, and device-gated limits |
 | [DI Unification Roadmap](docs/refactoring/DI_UNIFICATION_ROADMAP.md) | ServiceRegistry migration and DI consolidation plan |
 | [Testing Strategy](TESTING_STRATEGY.md) | Test philosophy, coverage policy, and CI integration |
-| [Testing Quick Start](docs/testing/QUICK_START_TESTING.md) | How to run tests locally and interpret results |
+| [Exact two-device checklist](docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md) | Baseline-bound Android evidence protocol and result record |
+| [Legacy testing quick start](docs/testing/QUICK_START_TESTING.md) | Convenience menu only; non-evidentiary unless routed through the exact checklist |
 | [Readiness Audit](docs/status/READINESS_AUDIT.md) | Requirement-by-requirement evidence, verdict, risks, and next gate |
 | [SRS Overview](docs/srs/README.md) | Software requirements specification index |
 

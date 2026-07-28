@@ -9,6 +9,16 @@ This document details quality attributes and constraints extracted from implemen
 > behavior, not BLE radio, multi-link, battery, killed-process background, or
 > fleet-scale performance on physical devices.
 
+## Evidence disposition for open NFR families
+
+| Area | Current disposition | Evidence required before claiming completion |
+|---|---|---|
+| Database migration (`NFR-5.3.3`, `NFR-10.1.1`) | Partial: fresh v12 and migrations through v10 have automated coverage; no direct v10 -> v11 -> v12 upgrade proof was found | Add a populated v10 fixture test that upgrades through v12 and verifies change-log triggers, per-peer queue-sync cursor data, user data, schema version, and reopen; then retain a baseline-bound Android app-update smoke artifact |
+| Cross-version protocol (`NFR-10.1.2`, `NFR-10.2.2`, `NFR-10.2.3`) | Partial: automated peer-version floor behavior exists; no mixed-app-version physical run is recorded | Define the supported version pair, expected accept/reject behavior, two distinct build hashes, clean install/upgrade order, bidirectional XX/KK/message cases, and saved device logs in a baseline-bound checklist extension |
+| Accessibility (`NFR-4.2.*`) | Unverified as a product-level claim; high-contrast mode is explicitly absent | Record TalkBack traversal/labels, 200% text-scale overflow checks, non-color-only status cues, touch targets, and any platform keyboard/focus behavior actually claimed, with screen/model/build evidence |
+| Numeric performance and efficiency (`NFR-1.*`, `NFR-3.1.*`, `NFR-7.*`) | Design targets only; no current benchmark artifact establishes the published thresholds | Use a named build/device/OS, fixed workload and radio conditions, warm-up, sample count, percentile/statistical rule, battery interval, and raw machine-readable output; report misses as misses rather than deleting samples |
+| Distribution licensing (`NFR-8.1.1`, `NFR-8.1.3`, `NFR-8.1.4`) | Root code license is proprietary; dependency notices and jurisdiction-specific crypto distribution review are incomplete | Generate a dependency/SBOM inventory from the exact release lockfile, review every bundled license and notice obligation, retain the notices shipped with the binary, and record the applicable export/legal review; device testing cannot close this gate |
+
 ## NFR-1: Performance
 
 ### NFR-1.1: Response Time
@@ -112,11 +122,11 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-4.2: Accessibility
 | ID | Requirement | Status | Notes |
 |----|-------------|--------|-------|
-| NFR-4.2.1 | Screen reader support | Partial | Flutter default semantics |
+| NFR-4.2.1 | Screen reader support | Unverified | Flutter default semantics exist; no TalkBack/VoiceOver audit is recorded |
 | NFR-4.2.2 | High contrast mode | Not implemented | Future enhancement |
-| NFR-4.2.3 | Font scaling | Supported | Flutter automatic |
-| NFR-4.2.4 | Keyboard navigation | Partial | Mobile-first design |
-| NFR-4.2.5 | Color-blind friendly | Partial | Security indicators use icons |
+| NFR-4.2.3 | Font scaling | Unverified | Framework scaling exists; no 200% layout/overflow audit is recorded |
+| NFR-4.2.4 | Keyboard navigation | Unverified | Mobile-first design; desktop focus traversal has not been audited |
+| NFR-4.2.5 | Color-blind friendly | Partial | Security indicators use icons; end-to-end non-color-only audit pending |
 
 ### NFR-4.3: Learnability
 | ID | Requirement | Mechanism | Implementation |
@@ -170,11 +180,11 @@ This document details quality attributes and constraints extracted from implemen
 ### NFR-6.2: Environment
 | ID | Requirement | Implementation | Notes |
 |----|-------------|----------------|-------|
-| NFR-6.2.1 | Flutter version | 3.38.4+ | Locked dependency minimum; CI pinned to 3.44.4 |
-| NFR-6.2.2 | Dart version | 3.10.3+ | Locked dependency minimum; null safety |
+| NFR-6.2.1 | Flutter version | 3.44.4+ | Lockfile and CI authority pinned to 3.44.4 |
+| NFR-6.2.2 | Dart version | 3.10.3+ language floor; canonical 3.12.2 | Bundled with Flutter; null safety |
 | NFR-6.2.3 | Android SDK | min 24, compile/target 36 | Resolved by the current Flutter SDK; repo does not pin it |
 | NFR-6.2.4 | iOS deployment target | 12.0+ | Background BLE remains limited |
-| NFR-6.2.5 | Storage requirement | Artifact-derived | Debug APK is 203,988,403 bytes before installed data; release size unverified |
+| NFR-6.2.5 | Storage requirement | Artifact-derived | Baseline `7944c93` debug APK is 205,113,616 bytes before installed data; release size unverified |
 
 ## NFR-7: Efficiency
 
@@ -259,5 +269,5 @@ This document details quality attributes and constraints extracted from implemen
 ---
 
 **Document Version**: 1.0
-**Last Updated**: 2026-07-13
+**Last Updated**: 2026-07-14
 **Total Non-Functional Requirements**: 105

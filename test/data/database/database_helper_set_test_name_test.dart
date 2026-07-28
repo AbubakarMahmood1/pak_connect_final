@@ -1,6 +1,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as path;
 import 'package:pak_connect/data/database/database_helper.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -44,6 +45,9 @@ void main() {
  // ---------- setTestDatabaseName ----------
  group('DatabaseHelper.setTestDatabaseName', () {
  test('switching database name isolates data', () async {
+ final originalDatabaseName = path.basename(
+ await DatabaseHelper.getDatabasePath(),
+ );
  final db1 = await DatabaseHelper.database;
  final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -70,7 +74,11 @@ void main() {
  // Clean up: switch back
  await DatabaseHelper.close();
  await DatabaseHelper.deleteDatabase();
- DatabaseHelper.setTestDatabaseName(null);
+ DatabaseHelper.setTestDatabaseName(originalDatabaseName);
+ expect(
+ path.basename(await DatabaseHelper.getDatabasePath()),
+ originalDatabaseName,
+ );
  });
  });
 

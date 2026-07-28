@@ -15,6 +15,15 @@ import 'package:pak_connect/domain/values/id_types.dart';
 
 class _MockQueue extends Mock implements OfflineMessageQueueContract {
   @override
+  List<QueuedMessage> getMessagesByStatus(QueuedMessageStatus status) =>
+      super.noSuchMethod(
+            Invocation.method(#getMessagesByStatus, [status]),
+            returnValue: <QueuedMessage>[],
+            returnValueForMissingStub: <QueuedMessage>[],
+          )
+          as List<QueuedMessage>;
+
+  @override
   Future<void> markMessageDelivered(String messageId) => super.noSuchMethod(
     Invocation.method(#markMessageDelivered, [messageId]),
     returnValue: Future<void>.value(),
@@ -27,6 +36,15 @@ class _MockQueue extends Mock implements OfflineMessageQueueContract {
     returnValue: null,
     returnValueForMissingStub: null,
   ) as QueuedMessage?;
+
+  @override
+  Future<void> markMessageFailed(String messageId, String reason) =>
+      super.noSuchMethod(
+            Invocation.method(#markMessageFailed, [messageId, reason]),
+            returnValue: Future<void>.value(),
+            returnValueForMissingStub: Future<void>.value(),
+          )
+          as Future<void>;
 }
 
 class _FakeMeshRelayEngine implements MeshRelayEngine {
@@ -202,15 +220,22 @@ MeshRelayMessage _relayMessage() => MeshRelayMessage(
   originalMessageType: ProtocolMessageType.textMessage,
 );
 
-QueuedMessage _queuedMessage() => QueuedMessage(
-  id: 'queue-1',
+QueuedMessage _queuedMessage({
+  String id = 'queue-1',
+  bool isRelayMessage = false,
+  String? originalMessageId,
+  String recipientPublicKey = 'recipient-key',
+}) => QueuedMessage(
+  id: id,
   chatId: 'chat-1',
   content: 'payload',
-  recipientPublicKey: 'recipient-key',
+  recipientPublicKey: recipientPublicKey,
   senderPublicKey: 'sender-key',
   priority: MessagePriority.normal,
   queuedAt: DateTime.fromMillisecondsSinceEpoch(1234),
   maxRetries: 3,
+  isRelayMessage: isRelayMessage,
+  originalMessageId: originalMessageId,
 );
 
 void main() {
@@ -534,7 +559,18 @@ void main() {
     });
 
     test('handleRelayAck marks originated queued message as delivered', () async {
-      when(queue.getMessageById('orig-1')).thenReturn(_queuedMessage());
+      final relayRow = _queuedMessage(
+        id: 'orig-1-relay-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-1',
+        recipientPublicKey: 'relay-node',
+      );
+      when(
+        queue.getMessageById('orig-1'),
+      ).thenReturn(_queuedMessage(id: 'orig-1'));
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([relayRow]);
       MessageId? callbackMessageId;
       String? callbackContent;
       String? callbackSender;
@@ -552,17 +588,34 @@ void main() {
       await handler.handleRelayAck(
         originalMessageId: 'orig-1',
         relayNode: 'relay-node',
+        transportSender: 'relay-node',
         delivered: true,
       );
 
       verify(queue.markMessageDelivered('orig-1')).called(1);
+      verify(queue.markMessageDelivered(relayRow.id)).called(1);
       expect(callbackMessageId, const MessageId('orig-1'));
       expect(callbackContent, 'payload');
       expect(callbackSender, 'sender-key');
     });
 
-    test('handleRelayAck propagates backwards when current node is in routing path', () async {
+    test('handleRelayAck completes only the matching relay route', () async {
+      final relayRow = _queuedMessage(
+        id: 'orig-2-relay-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-2',
+        recipientPublicKey: 'relay-node',
+      );
+      final otherRoute = _queuedMessage(
+        id: 'orig-2-other-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-2',
+        recipientPublicKey: 'other-relay',
+      );
       when(queue.getMessageById('orig-2')).thenReturn(null);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([relayRow, otherRoute]);
       ProtocolMessage? forwardedAck;
       handler.onSendAckMessage = (message) => forwardedAck = message;
 
@@ -574,6 +627,191 @@ void main() {
       await handler.handleRelayAck(
         originalMessageId: 'orig-2',
         relayNode: 'relay-node',
+        transportSender: 'relay-node',
+        delivered: true,
+        ackRoutingPath: const ['origin-node', 'node-self', 'relay-node'],
+      );
+
+      verify(queue.markMessageDelivered(relayRow.id)).called(1);
+      verifyNever(queue.markMessageDelivered(otherRoute.id));
+      expect(forwardedAck?.relayAckOriginalMessageId, 'orig-2');
+    });
+
+    test('handleRelayAck fails only the matching relay route', () async {
+      final relayRow = _queuedMessage(
+        id: 'orig-2-rejected-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-2',
+        recipientPublicKey: 'relay-node',
+      );
+      final otherRoute = _queuedMessage(
+        id: 'orig-2-sibling-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-2',
+        recipientPublicKey: 'other-relay',
+      );
+      when(queue.getMessageById('orig-2')).thenReturn(null);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([relayRow, otherRoute]);
+      ProtocolMessage? forwardedAck;
+      handler.onSendAckMessage = (message) => forwardedAck = message;
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      await handler.handleRelayAck(
+        originalMessageId: 'orig-2',
+        relayNode: 'relay-node',
+        transportSender: 'relay-node',
+        delivered: false,
+        ackRoutingPath: const ['origin-node', 'node-self', 'relay-node'],
+      );
+
+      verify(
+        queue.markMessageFailed(
+          relayRow.id,
+          'Relay delivery was rejected downstream',
+        ),
+      ).called(1);
+      verifyNever(
+        queue.markMessageFailed(
+          otherRoute.id,
+          'Relay delivery was rejected downstream',
+        ),
+      );
+      expect(forwardedAck?.relayAckOriginalMessageId, 'orig-2');
+      expect(forwardedAck?.relayAckDelivered, isFalse);
+    });
+
+    test(
+      'negative fan-out ACK leaves origin and sibling route active',
+      () async {
+        final origin = _queuedMessage(id: 'fanout-origin');
+        final routeA = _queuedMessage(
+          id: 'fanout-route-a',
+          isRelayMessage: true,
+          originalMessageId: origin.id,
+          recipientPublicKey: 'relay-a',
+        );
+        final routeB = _queuedMessage(
+          id: 'fanout-route-b',
+          isRelayMessage: true,
+          originalMessageId: origin.id,
+          recipientPublicKey: 'relay-b',
+        );
+        when(queue.getMessageById(origin.id)).thenReturn(origin);
+        when(
+          queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+        ).thenReturn([routeA, routeB]);
+
+        await handler.initializeRelaySystem(
+          currentNodeId: 'node-self',
+          messageQueue: queue,
+        );
+
+        await handler.handleRelayAck(
+          originalMessageId: origin.id,
+          relayNode: 'relay-a',
+          transportSender: 'relay-a',
+          delivered: false,
+          ackRoutingPath: const ['node-self', 'relay-a'],
+        );
+
+        verify(
+          queue.markMessageFailed(
+            routeA.id,
+            'Relay delivery was rejected downstream',
+          ),
+        ).called(1);
+        verifyNever(
+          queue.markMessageFailed(
+            origin.id,
+            'All relay delivery routes were rejected downstream',
+          ),
+        );
+        verifyNever(queue.markMessageDelivered(routeB.id));
+
+        await handler.handleRelayAck(
+          originalMessageId: origin.id,
+          relayNode: 'relay-b',
+          transportSender: 'relay-b',
+          delivered: true,
+          ackRoutingPath: const ['node-self', 'relay-b'],
+        );
+
+        verify(queue.markMessageDelivered(routeB.id)).called(1);
+        verify(queue.markMessageDelivered(origin.id)).called(1);
+      },
+    );
+
+    test('forged relay route claim mutates no queue row', () async {
+      final origin = _queuedMessage(id: 'forged-origin');
+      final routeA = _queuedMessage(
+        id: 'forged-route-a',
+        isRelayMessage: true,
+        originalMessageId: origin.id,
+        recipientPublicKey: 'relay-a',
+      );
+      when(queue.getMessageById(origin.id)).thenReturn(origin);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([routeA]);
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      await handler.handleRelayAck(
+        originalMessageId: origin.id,
+        relayNode: 'relay-a',
+        transportSender: 'relay-b',
+        delivered: true,
+        ackRoutingPath: const ['node-self', 'relay-b'],
+      );
+
+      verifyNever(queue.markMessageDelivered(origin.id));
+      verifyNever(queue.markMessageDelivered(routeA.id));
+      verifyNever(
+        queue.markMessageFailed(
+          routeA.id,
+          'Relay delivery was rejected downstream',
+        ),
+      );
+      verifyNever(
+        queue.markMessageFailed(
+          origin.id,
+          'All relay delivery routes were rejected downstream',
+        ),
+      );
+    });
+
+    test('handleRelayAck propagates backwards when current node is in routing path', () async {
+      final relayRow = _queuedMessage(
+        id: 'orig-2-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'orig-2',
+        recipientPublicKey: 'relay-node',
+      );
+      when(queue.getMessageById('orig-2')).thenReturn(null);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([relayRow]);
+      ProtocolMessage? forwardedAck;
+      handler.onSendAckMessage = (message) => forwardedAck = message;
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      await handler.handleRelayAck(
+        originalMessageId: 'orig-2',
+        relayNode: 'relay-node',
+        transportSender: 'relay-node',
         delivered: true,
         ackRoutingPath: const ['origin-node', 'node-self', 'relay-node'],
       );
@@ -583,6 +821,92 @@ void main() {
       expect(
         forwardedAck?.payload['ackRoutingPath'],
         ['origin-node', 'node-self', 'relay-node'],
+      );
+    });
+
+    test(
+      'handleRelayAck awaits upstream propagation before local completion',
+      () async {
+        final relayRow = _queuedMessage(
+          id: 'awaited-wrapper',
+          isRelayMessage: true,
+          originalMessageId: 'awaited-original',
+          recipientPublicKey: 'relay-node',
+        );
+        when(queue.getMessageById('awaited-original')).thenReturn(null);
+        when(
+          queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+        ).thenReturn([relayRow]);
+        final sendGate = Completer<void>();
+        handler.onSendAckMessage = (_) => sendGate.future;
+
+        await handler.initializeRelaySystem(
+          currentNodeId: 'node-self',
+          messageQueue: queue,
+        );
+
+        var completed = false;
+        final handling = handler
+            .handleRelayAck(
+              originalMessageId: 'awaited-original',
+              relayNode: 'relay-node',
+              transportSender: 'relay-node',
+              delivered: true,
+              ackRoutingPath: const ['origin-node', 'node-self', 'relay-node'],
+            )
+            .then((_) => completed = true);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(completed, isFalse);
+        verifyNever(queue.markMessageDelivered(relayRow.id));
+
+        sendGate.complete();
+        await handling;
+
+        expect(completed, isTrue);
+        verify(queue.markMessageDelivered(relayRow.id)).called(1);
+      },
+    );
+
+    test('failed upstream propagation preserves the local ACK wait', () async {
+      final relayRow = _queuedMessage(
+        id: 'propagation-failure-wrapper',
+        isRelayMessage: true,
+        originalMessageId: 'propagation-failure-original',
+        recipientPublicKey: 'relay-node',
+      );
+      when(
+        queue.getMessageById('propagation-failure-original'),
+      ).thenReturn(null);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([relayRow]);
+      handler.onSendAckMessage = (_) async {
+        throw StateError('upstream write failed');
+      };
+
+      await handler.initializeRelaySystem(
+        currentNodeId: 'node-self',
+        messageQueue: queue,
+      );
+
+      await expectLater(
+        handler.handleRelayAck(
+          originalMessageId: 'propagation-failure-original',
+          relayNode: 'relay-node',
+          transportSender: 'relay-node',
+          delivered: true,
+          ackRoutingPath: const ['origin-node', 'node-self', 'relay-node'],
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      verifyNever(queue.markMessageDelivered(relayRow.id));
+      verifyNever(
+        queue.markMessageFailed(
+          relayRow.id,
+          'Relay delivery was rejected downstream',
+        ),
       );
     });
 
@@ -599,11 +923,13 @@ void main() {
       await handler.handleRelayAck(
         originalMessageId: 'orig-3',
         relayNode: 'relay-node',
+        transportSender: 'relay-node',
         delivered: true,
       );
       await handler.handleRelayAck(
         originalMessageId: 'orig-3',
         relayNode: 'relay-node',
+        transportSender: 'relay-node',
         delivered: true,
         ackRoutingPath: const ['node-self'],
       );
@@ -732,10 +1058,21 @@ void main() {
       );
       handler.setCurrentNodeId('new-node');
       when(queue.getMessageById('orig-8')).thenReturn(null);
+      when(
+        queue.getMessagesByStatus(QueuedMessageStatus.awaitingAck),
+      ).thenReturn([
+        _queuedMessage(
+          id: 'orig-8-wrapper',
+          isRelayMessage: true,
+          originalMessageId: 'orig-8',
+          recipientPublicKey: 'relay-node',
+        ),
+      ]);
 
       await handler.handleRelayAck(
         originalMessageId: 'orig-8',
         relayNode: 'relay-node',
+        transportSender: 'relay-node',
         delivered: true,
         ackRoutingPath: const ['origin', 'new-node', 'relay-node'],
       );

@@ -391,6 +391,60 @@ void main() {
     expect(await sendFuture, isTrue);
   });
 
+  test('central write scheduler releases before the ACK outcome', () async {
+    await contactRepository.saveContact(
+      'recipient_scheduled_ack',
+      'Recipient Scheduled ACK',
+    );
+    securityService.registerIdentityMapping(
+      persistentPublicKey: 'recipient_scheduled_ack',
+      ephemeralID: 'noise-session-scheduled-ack',
+    );
+    final sharedTracker = MessageAckTracker(
+      timeout: const Duration(milliseconds: 100),
+    );
+    adapter = BleWriteAdapter(
+      contactRepository: contactRepository,
+      stateManagerProvider: () => stateManager,
+      writeClient: writeClient,
+      ackTracker: sharedTracker,
+    );
+    final schedulerEntered = Completer<void>();
+    final allowWrite = Completer<void>();
+    final schedulerReleased = Completer<void>();
+    var sendCompleted = false;
+
+    final sendFuture = adapter
+        .sendCentralMessage(
+          centralManager: _FakeCentralManager(),
+          connectedDevice: FakePeripheral(uuid: makeUuid(105)),
+          messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(106)),
+          recipientKey: 'recipient_scheduled_ack',
+          content: 'release the write lane before ack',
+          mtuSize: 185,
+          messageId: 'scheduled-central-ack',
+          writeScheduler: (write) async {
+            schedulerEntered.complete();
+            await allowWrite.future;
+            await write();
+            schedulerReleased.complete();
+          },
+        )
+        .whenComplete(() => sendCompleted = true);
+
+    await schedulerEntered.future;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(sendCompleted, isFalse);
+    expect(sharedTracker.isPending('scheduled-central-ack'), isFalse);
+
+    allowWrite.complete();
+    await schedulerReleased.future;
+    expect(sendCompleted, isFalse);
+    expect(sharedTracker.isPending('scheduled-central-ack'), isTrue);
+    expect(sharedTracker.complete('scheduled-central-ack'), isTrue);
+    expect(await sendFuture, isTrue);
+  });
+
   test('peripheral adapter waits for ACK on the shared tracker', () async {
     stateManager.peripheralMode = true;
     await contactRepository.saveContact(
@@ -423,6 +477,61 @@ void main() {
 
     await _waitUntil(() => writeClient.lastPeripheralValue != null);
     expect(sharedTracker.complete('shared-peripheral-ack'), isTrue);
+    expect(await sendFuture, isTrue);
+  });
+
+  test('peripheral write scheduler releases before the ACK outcome', () async {
+    stateManager.peripheralMode = true;
+    await contactRepository.saveContact(
+      'recipient_peripheral_scheduled',
+      'Recipient Peripheral Scheduled',
+    );
+    securityService.registerIdentityMapping(
+      persistentPublicKey: 'recipient_peripheral_scheduled',
+      ephemeralID: 'noise-session-peripheral-scheduled',
+    );
+    final sharedTracker = MessageAckTracker(
+      timeout: const Duration(milliseconds: 100),
+    );
+    adapter = BleWriteAdapter(
+      contactRepository: contactRepository,
+      stateManagerProvider: () => stateManager,
+      writeClient: writeClient,
+      ackTracker: sharedTracker,
+    );
+    final schedulerEntered = Completer<void>();
+    final allowWrite = Completer<void>();
+    final schedulerReleased = Completer<void>();
+    var sendCompleted = false;
+
+    final sendFuture = adapter
+        .sendPeripheralMessage(
+          peripheralManager: _FakePeripheralManager(),
+          connectedCentral: FakeCentral(uuid: makeUuid(107)),
+          messageCharacteristic: FakeGATTCharacteristic(uuid: makeUuid(108)),
+          senderKey: 'recipient_peripheral_scheduled',
+          content: 'release peripheral lane before ack',
+          mtuSize: 185,
+          messageId: 'scheduled-peripheral-ack',
+          writeScheduler: (write) async {
+            schedulerEntered.complete();
+            await allowWrite.future;
+            await write();
+            schedulerReleased.complete();
+          },
+        )
+        .whenComplete(() => sendCompleted = true);
+
+    await schedulerEntered.future;
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(sendCompleted, isFalse);
+    expect(sharedTracker.isPending('scheduled-peripheral-ack'), isFalse);
+
+    allowWrite.complete();
+    await schedulerReleased.future;
+    expect(sendCompleted, isFalse);
+    expect(sharedTracker.isPending('scheduled-peripheral-ack'), isTrue);
+    expect(sharedTracker.complete('scheduled-peripheral-ack'), isTrue);
     expect(await sendFuture, isTrue);
   });
 

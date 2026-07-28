@@ -7,6 +7,12 @@ class BleConnectionReconnectPolicy {
   BleConnectionReconnectPolicy({required Logger logger}) : _logger = logger;
 
   final Logger _logger;
+  Timer? _powerOnReconnectTimer;
+
+  void cancelPendingReconnect() {
+    _powerOnReconnectTimer?.cancel();
+    _powerOnReconnectTimer = null;
+  }
 
   void handleBluetoothStateChange({
     required BluetoothLowEnergyState state,
@@ -19,12 +25,15 @@ class BleConnectionReconnectPolicy {
     required void Function() stopConnectionMonitoring,
     required void Function({bool keepMonitoring}) clearConnectionState,
   }) {
+    cancelPendingReconnect();
+
     if (state == BluetoothLowEnergyState.poweredOn) {
       if (lastConnectedDevice != null && !hasBleConnection) {
         _logger.info('Bluetooth powered on - starting immediate reconnection');
 
         stopConnectionMonitoring();
-        Timer(const Duration(milliseconds: 800), () {
+        _powerOnReconnectTimer = Timer(const Duration(milliseconds: 800), () {
+          _powerOnReconnectTimer = null;
           setReconnectionFlag(true);
           startConnectionMonitoring();
         });
@@ -37,13 +46,16 @@ class BleConnectionReconnectPolicy {
     }
 
     if (state == BluetoothLowEnergyState.poweredOff) {
-      if (hasBleConnection) {
+      final reconnectTarget = connectedDevice ?? lastConnectedDevice;
+      if (reconnectTarget != null) {
         _logger.info(
           'Bluetooth powered off - preserving device for reconnection',
         );
-        setLastConnectedDevice(connectedDevice);
       }
       clearConnectionState(keepMonitoring: false);
+      setLastConnectedDevice(reconnectTarget);
     }
   }
+
+  void dispose() => cancelPendingReconnect();
 }

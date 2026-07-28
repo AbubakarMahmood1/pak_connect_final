@@ -93,6 +93,7 @@ void main() {
 
     test('retryMessage triggers immediate delivery + persistence', () async {
       bleService.simulateConnection(peerId: 'peer-1');
+      queue.setOffline();
       final deliveryIds = <String>[];
       final deliverySub = monitor.messageDeliveryStream.listen(deliveryIds.add);
 
@@ -102,6 +103,10 @@ void main() {
         recipientPublicKey: 'peer-1',
         senderPublicKey: 'node-integration',
       );
+      final queued = queue.getMessageById(messageId)!;
+      queued.status = QueuedMessageStatus.failed;
+      await queue.setOnline();
+      expect(bleService.sentMessages, isEmpty);
 
       final success = await coordinator.retryMessage(messageId);
       expect(success, isTrue);
@@ -518,7 +523,7 @@ void main() {
         request,
         'hint-b',
       );
-      expect(handled, isTrue);
+      expect(handled, isFalse);
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(bleService.sentMessages, isNot(contains('queued-payload')));
@@ -552,7 +557,7 @@ void main() {
         );
         expect(
           await bleService.invokeQueueSyncHandlerForTest(request, 'device-b'),
-          isTrue,
+          isFalse,
         );
 
         await Future<void>.delayed(const Duration(milliseconds: 50));

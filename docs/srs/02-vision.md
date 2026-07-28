@@ -66,7 +66,8 @@ PakConnect addresses these gaps by combining:
 5. **Battery Efficiency**
    - Adaptive scanning based on battery level
    - Burst mode for active periods
-   - Duty cycling for background operation
+   - In-process duty cycling while the app runtime remains active; not a
+     suspended/killed-process delivery guarantee
 
 ### Secondary Objectives
 

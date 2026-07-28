@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pak_connect/domain/interfaces/i_preferences_repository.dart';
 import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
@@ -7,7 +9,20 @@ import 'package:pak_connect/domain/values/id_types.dart';
 import '../../test_helpers/mocks/mock_connection_service.dart';
 
 void main() {
+  setUp(MessageRouter.reset);
+  tearDown(MessageRouter.reset);
+
   group('MessageRouter fallback queue', () {
+    test('implicit volatile fallback is rejected', () {
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: null,
+        initializedQueueFactory: null,
+      );
+      MessageRouter.clearDependencyResolvers();
+
+      expect(MessageRouter.createStandaloneQueue, throwsA(isA<StateError>()));
+    });
+
     test(
       'supports queue lifecycle, delivery callbacks, and sync helpers',
       () async {
@@ -17,7 +32,9 @@ void main() {
         );
         MessageRouter.clearDependencyResolvers();
 
-        final queue = MessageRouter.createStandaloneQueue();
+        final queue = MessageRouter.createStandaloneQueue(
+          allowVolatileFallback: true,
+        );
 
         final sentMessageIds = <String>[];
         var connectivityChecks = 0;
@@ -25,13 +42,19 @@ void main() {
         QueuedMessage? deliveredEvent;
         String? failedReason;
         QueueStatistics? latestStats;
+        String? awaitingAckMessageId;
 
         await queue.initialize(
           onMessageQueued: (message) => queuedEvent = message,
           onMessageDelivered: (message) => deliveredEvent = message,
           onMessageFailed: (message, reason) => failedReason = reason,
           onStatsUpdated: (stats) => latestStats = stats,
-          onSendMessage: (messageId) => sentMessageIds.add(messageId),
+          onSendMessage: (messageId) {
+            sentMessageIds.add(messageId);
+            return messageId == awaitingAckMessageId
+                ? OfflineQueueSendDisposition.awaitingAck
+                : OfflineQueueSendDisposition.deferred;
+          },
           onConnectivityCheck: () => connectivityChecks++,
         );
 
@@ -50,6 +73,7 @@ void main() {
           senderId: const ChatId('sender'),
           priority: MessagePriority.normal,
         )).value;
+        awaitingAckMessageId = id1;
 
         expect(queuedEvent, isNotNull);
         expect(queue.getPendingMessages().length, 2);
@@ -57,6 +81,15 @@ void main() {
         expect(latestStats, isNotNull);
 
         await queue.setOnline();
+        expect(connectivityChecks, 1);
+        final sendsAfterFirstOnline = sentMessageIds.length;
+        await queue.setOnline();
+        expect(
+          sentMessageIds,
+          hasLength(sendsAfterFirstOnline),
+          reason:
+              'an idempotent online signal must not resend ACK-waiting rows',
+        );
         expect(connectivityChecks, 1);
 
         await queue.flushQueueForPeer('peer_1');
@@ -144,6 +177,96 @@ void main() {
   });
 
   group('MessageRouter singleton', () {
+    test('shares one initializer across concurrent callers', () async {
+      final connectionService = MockConnectionService();
+      final queue = MessageRouter.createStandaloneQueue(
+        allowVolatileFallback: true,
+      );
+      await queue.initialize();
+
+      final queueGate = Completer<OfflineMessageQueueContract>();
+      var builderCalls = 0;
+      Future<OfflineMessageQueueContract> buildQueue() {
+        builderCalls++;
+        return queueGate.future;
+      }
+
+      final first = MessageRouter.initialize(
+        connectionService,
+        fallbackQueueBuilder: buildQueue,
+      );
+      final second = MessageRouter.initialize(
+        connectionService,
+        fallbackQueueBuilder: () async {
+          fail('a concurrent caller must reuse the in-flight initializer');
+        },
+      );
+
+      expect(second, same(first));
+      await Future<void>.delayed(Duration.zero);
+      expect(builderCalls, 1);
+
+      queueGate.complete(queue);
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(MessageRouter.instance.offlineQueue, same(queue));
+    });
+
+    test('reset promptly invalidates a blocked prior initializer', () async {
+      final staleConnectionService = MockConnectionService();
+      final freshConnectionService = MockConnectionService();
+      final freshQueue = MessageRouter.createStandaloneQueue(
+        allowVolatileFallback: true,
+      );
+      await freshQueue.initialize();
+
+      final staleQueueGate = Completer<OfflineMessageQueueContract>();
+      final staleInitialization = MessageRouter.initialize(
+        staleConnectionService,
+        fallbackQueueBuilder: () => staleQueueGate.future,
+      );
+      final staleExpectation = expectLater(
+        staleInitialization.timeout(const Duration(seconds: 1)),
+        throwsA(isA<StateError>()),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      MessageRouter.reset();
+      await staleExpectation;
+
+      await MessageRouter.initialize(
+        freshConnectionService,
+        offlineQueue: freshQueue,
+      );
+
+      expect(MessageRouter.instance.offlineQueue, same(freshQueue));
+    });
+
+    test('queue resolution failure leaves initialization retryable', () async {
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: null,
+        initializedQueueFactory: null,
+      );
+      MessageRouter.clearDependencyResolvers();
+      final connectionService = MockConnectionService();
+
+      await expectLater(
+        MessageRouter.initialize(connectionService),
+        throwsA(isA<StateError>()),
+      );
+      expect(MessageRouter.maybeInstance, isNull);
+
+      final volatileQueue = MessageRouter.createStandaloneQueue(
+        allowVolatileFallback: true,
+      );
+      await volatileQueue.initialize();
+      await MessageRouter.initialize(
+        connectionService,
+        offlineQueue: volatileQueue,
+      );
+      expect(MessageRouter.maybeInstance, isNotNull);
+    });
+
     test(
       'initializes once, handles missing preferences, and routes via fallback queue',
       () async {
@@ -160,7 +283,14 @@ void main() {
 
         expect(MessageRouter.maybeInstance, isNull);
 
-        await MessageRouter.initialize(connectionService);
+        final volatileQueue = MessageRouter.createStandaloneQueue(
+          allowVolatileFallback: true,
+        );
+        await volatileQueue.initialize();
+        await MessageRouter.initialize(
+          connectionService,
+          offlineQueue: volatileQueue,
+        );
         final router = MessageRouter.instance;
         expect(MessageRouter.maybeInstance, same(router));
 
@@ -190,7 +320,8 @@ void main() {
         expect(typedQueued.isQueued, isTrue);
         expect(typedQueued.messageIdValue, MessageId(typedQueued.messageId));
 
-        router.offlineQueue.onSendMessage = (_) {};
+        router.offlineQueue.onSendMessage = (_) =>
+            OfflineQueueSendDisposition.delivered;
         await router.offlineQueue.setOnline();
         await router.flushOutboxFor('peer_a');
         await router.flushOutboxForId(const ChatId('peer_b'));

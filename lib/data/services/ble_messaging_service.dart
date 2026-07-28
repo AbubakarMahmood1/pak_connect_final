@@ -51,7 +51,8 @@ class HandshakeSendException implements Exception {
   String toString() => 'HandshakeSendException: $message';
 }
 
-class BLEMessagingService implements IBLEMessagingService {
+class BLEMessagingService
+    implements IBLEMessagingService, IRouteBoundBleMessagingService {
   final _logger = Logger('BLEMessagingService');
 
   // Dependencies (injected)
@@ -221,6 +222,59 @@ class BLEMessagingService implements IBLEMessagingService {
   }
 
   @override
+  Future<bool>? trySendMessageOnRoute(
+    String message, {
+    required String transportAddress,
+    required String messageId,
+    required String intendedRecipient,
+  }) {
+    final targetPeerAddress = transportAddress.trim();
+    if (targetPeerAddress.isEmpty || intendedRecipient.isEmpty) return null;
+
+    final routeHandler = _messageHandler is IRouteBoundBleMessageHandlerFacade
+        ? _messageHandler as IRouteBoundBleMessageHandlerFacade
+        : null;
+    if (routeHandler == null) {
+      _logger.warning('Exact-route text transport is unavailable');
+      return null;
+    }
+
+    final centralTask = routeHandler.prepareMessageToPeer(
+      peerId: targetPeerAddress,
+      recipientKey: intendedRecipient,
+      content: message,
+      timeout: const Duration(seconds: 5),
+      messageId: messageId,
+      originalIntendedRecipient: intendedRecipient,
+    );
+    if (centralTask != null) return centralTask(_scheduleBleWrite);
+
+    final peripheralTask = routeHandler.preparePeripheralMessageToPeer(
+      peerId: targetPeerAddress,
+      senderKey: intendedRecipient,
+      content: message,
+      messageId: messageId,
+    );
+    return peripheralTask?.call(_scheduleBleWrite);
+  }
+
+  Future<void> _scheduleBleWrite(BleWriteOperation write) {
+    final completer = Completer<void>();
+    _writeQueue.add(() async {
+      try {
+        await write();
+        if (!completer.isCompleted) completer.complete();
+      } catch (error, stackTrace) {
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace);
+        }
+      }
+    });
+    unawaited(_transportHelper.processWriteQueue());
+    return completer.future;
+  }
+
+  @override
   Future<bool> sendPeripheralMessage(
     String message, {
     String? messageId,
@@ -359,6 +413,44 @@ class BLEMessagingService implements IBLEMessagingService {
       _logger.warning('Failed to send protocol message directly: $e');
       return false;
     }
+  }
+
+  @override
+  Future<bool>? trySendProtocolMessageOnRoute(
+    ProtocolMessage message, {
+    required String transportAddress,
+  }) {
+    final targetPeerAddress = transportAddress.trim();
+    if (targetPeerAddress.isEmpty) return null;
+
+    final clientCandidate = _connectionManager.clientConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetClient = clientCandidate?.address == targetPeerAddress
+        ? clientCandidate
+        : null;
+    final serverCandidate = _connectionManager.serverConnectionForPeer(
+      targetPeerAddress,
+    );
+    final targetServer = serverCandidate?.address == targetPeerAddress
+        ? serverCandidate
+        : null;
+    if (targetClient?.messageCharacteristic == null &&
+        targetServer?.subscribedCharacteristic == null) {
+      return null;
+    }
+
+    return Future<bool>.sync(() async {
+      await _sendProtocolMessage(message, peerId: targetPeerAddress);
+      return true;
+    }).catchError((Object error, StackTrace stackTrace) {
+      _logger.warning(
+        'Exact-route protocol send to $targetPeerAddress failed: $error',
+        error,
+        stackTrace,
+      );
+      return false;
+    });
   }
 
   // ============================================================================

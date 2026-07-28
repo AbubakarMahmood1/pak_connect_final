@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Real Device Testing Script for Phase 2B.1
-# This script automates APK building, deployment, and log collection
+# This legacy helper automates APK building, deployment, and log collection.
+# It is not an evidence protocol. Do not use its output to mark a row PASS
+# unless docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md explicitly
+# routes the operator through this script at the checklist's pinned baseline.
 
 set -euo pipefail
 
@@ -39,6 +42,9 @@ APK_PATH="$PROJECT_ROOT/build/app/outputs/flutter-apk/app-${BUILD_MODE}.apk"
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Phase 2B.1 Real Device Testing Script${NC}"
 echo -e "${BLUE}========================================${NC}"
+echo -e "${YELLOW}NON-EVIDENTIARY LEGACY HELPER${NC}"
+echo "Use docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md for baseline evidence."
+echo "This script alone cannot mark DEVICE_VALIDATION_STATUS.md rows PASS."
 echo "Build mode: $BUILD_MODE"
 echo ""
 

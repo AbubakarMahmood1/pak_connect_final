@@ -142,14 +142,26 @@ class BLEConnectionManager {
       maxReconnectAttempts: maxReconnectAttempts,
       healthCheckInterval: healthCheckInterval,
       getConnectedDevice: () => _connectedDevice,
+      getReconnectTarget: () => _lastConnectedDevice,
       getMessageCharacteristic: () => _messageCharacteristic,
       hasBleConnection: () => hasBleConnection,
       clearConnectionState: ({bool keepMonitoring = false}) async =>
           clearConnectionState(keepMonitoring: keepMonitoring),
-      scanForSpecificDevice:
-          ({Duration timeout = const Duration(seconds: 8)}) =>
-              scanForSpecificDevice(timeout: timeout),
+      scanForReconnectTarget:
+          ({
+            required String expectedPeripheralUuid,
+            Duration timeout = const Duration(seconds: 8),
+          }) => _runtimeScanForSpecificDevice(
+            timeout: timeout,
+            expectedPeripheralUuid: expectedPeripheralUuid,
+          ),
       connectToDevice: (device) => connectToDevice(device),
+      hasReconnectTargetLink: (expectedPeripheralUuid) {
+        final expected = expectedPeripheralUuid.toLowerCase();
+        return connectedAddresses.any(
+          (address) => address.toLowerCase() == expected,
+        );
+      },
       hasViableRelayConnection: _hasViableRelayConnection,
       onMonitoringChanged: onMonitoringChanged,
       onReconnectionFlagChanged: (value) => _isReconnection = value,
@@ -470,11 +482,17 @@ class BLEConnectionManager {
       );
       return;
     }
-    _lastConnectedDevice = _connectedDevice;
+    final connectedDevice = _connectedDevice;
+    if (connectedDevice != null) {
+      _lastConnectedDevice = connectedDevice;
+    }
     _healthMonitor.start();
   }
 
-  void stopConnectionMonitoring() => _healthMonitor.stop();
+  void stopConnectionMonitoring() {
+    _reconnectPolicy.cancelPendingReconnect();
+    _healthMonitor.stop();
+  }
 
   void setPairingInProgress(bool inProgress) =>
       _healthMonitor.setPairingInProgress(inProgress);
@@ -647,6 +665,18 @@ class BLEConnectionManager {
   Future<Peripheral?> scanForSpecificDevice({
     Duration timeout = const Duration(seconds: 10),
   }) => _runtimeScanForSpecificDevice(timeout: timeout);
+
+  /// Scan only for the previously connected platform peripheral.
+  ///
+  /// This UUID is a reconnect routing hint, not an authenticated peer
+  /// identity. The normal identity exchange and Noise handshake still apply.
+  Future<Peripheral?> scanForReconnectTarget({
+    required String expectedPeripheralUuid,
+    Duration timeout = const Duration(seconds: 10),
+  }) => _runtimeScanForSpecificDevice(
+    timeout: timeout,
+    expectedPeripheralUuid: expectedPeripheralUuid,
+  );
 
   /// 🔌 Disconnect all client connections
   Future<void> disconnectAll() => _runtimeDisconnectAll();

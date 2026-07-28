@@ -574,7 +574,7 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
  @override
  set onStatsUpdated(Function(QueueStatistics stats)? callback) {}
  @override
- set onSendMessage(Function(String messageId)? callback) {}
+ set onSendMessage(OfflineQueueSendCallback? callback) {}
  @override
  set onConnectivityCheck(Function()? callback) {}
 
@@ -584,7 +584,7 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
  Function(QueuedMessage message)? onMessageDelivered,
  Function(QueuedMessage message, String reason)? onMessageFailed,
  Function(QueueStatistics stats)? onStatsUpdated,
- Function(String messageId)? onSendMessage,
+ OfflineQueueSendCallback? onSendMessage,
  Function()? onConnectivityCheck,
  }) async {}
 
@@ -647,6 +647,14 @@ class _FakeOfflineMessageQueue implements OfflineMessageQueueContract {
  Future<void> retryFailedMessages() async {}
  @override
  Future<void> retryFailedMessagesForChat(String chatId) async {}
+
+ @override
+ Future<bool> retryMessage(String messageId) async => false;
+ @override
+ Future<Set<String>> attemptMessages(
+   Iterable<String> messageIds, {
+   OfflineQueuePrepareSendCallback? prepareSend,
+ }) async => <String>{};
  @override
  Future<void> clearQueue() async {}
  @override

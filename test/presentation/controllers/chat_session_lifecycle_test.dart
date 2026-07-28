@@ -12,6 +12,7 @@ import 'package:pak_connect/domain/constants/binary_payload_types.dart';
 import 'package:pak_connect/domain/entities/message.dart';
 import 'package:pak_connect/domain/interfaces/i_mesh_networking_service.dart';
 import 'package:pak_connect/domain/interfaces/i_message_repository.dart';
+import 'package:pak_connect/domain/interfaces/i_user_preferences.dart';
 import 'package:pak_connect/domain/messaging/offline_message_queue_contract.dart';
 import 'package:pak_connect/domain/messaging/queue_sync_manager.dart';
 import 'package:pak_connect/domain/models/connection_info.dart';
@@ -59,6 +60,11 @@ class _MockMessageRouter extends Mock implements MessageRouter {
             ),
           )
           as Future<MessageRouteResult>;
+}
+
+class _FakeUserPreferences extends Fake implements IUserPreferences {
+  @override
+  Future<String> getPublicKey() async => 'sender-public-key';
 }
 
 class _ConfigurableConnectionService extends MockConnectionService {
@@ -242,6 +248,50 @@ class _ThrowingQueue extends InMemoryOfflineMessageQueue {
   }
 }
 
+class _ControlledInitializationQueue extends InMemoryOfflineMessageQueue {
+  _ControlledInitializationQueue({this.initializationError});
+
+  final Object? initializationError;
+  final Completer<void> initializationStarted = Completer<void>();
+  final Completer<void> initializationGate = Completer<void>();
+  int disposeCount = 0;
+  bool isDisposed = false;
+
+  @override
+  Future<void> initialize({
+    Function(QueuedMessage message)? onMessageQueued,
+    Function(QueuedMessage message)? onMessageDelivered,
+    Function(QueuedMessage message, String reason)? onMessageFailed,
+    Function(QueueStatistics stats)? onStatsUpdated,
+    OfflineQueueSendCallback? onSendMessage,
+    Function()? onConnectivityCheck,
+  }) async {
+    initializationStarted.complete();
+    await initializationGate.future;
+    final error = initializationError;
+    if (error != null) {
+      throw error;
+    }
+    await super.initialize(
+      onMessageQueued: onMessageQueued,
+      onMessageDelivered: onMessageDelivered,
+      onMessageFailed: onMessageFailed,
+      onStatsUpdated: onStatsUpdated,
+      onSendMessage: onSendMessage,
+      onConnectivityCheck: onConnectivityCheck,
+    );
+    // Model initialization recreating resources after an earlier dispose.
+    isDisposed = false;
+  }
+
+  @override
+  void dispose() {
+    disposeCount++;
+    isDisposed = true;
+    super.dispose();
+  }
+}
+
 MeshNetworkStatus _readyStatus({bool isInitialized = true}) =>
     MeshNetworkStatus(
       isInitialized: isInitialized,
@@ -283,6 +333,7 @@ void main() {
 
     setUp(() async {
       Logger.root.level = Level.OFF;
+      MessageRouter.reset();
       connectionService = _ConfigurableConnectionService();
       meshService = _FakeMeshService();
       viewModel = _MockViewModel();
@@ -304,6 +355,7 @@ void main() {
 
     tearDown(() async {
       lifecycle.dispose();
+      MessageRouter.reset();
       await meshService.dispose();
       await connectionService.dispose();
     });
@@ -468,6 +520,236 @@ void main() {
 
         expect(lifecycle.hasMessagesQueuedForRelay('peer-a'), isTrue);
         expect(lifecycle.getQueuedMessagesForChat(), isNotEmpty);
+      },
+    );
+
+    test(
+      'sendRepositoryMessage awaits first-use router initialization',
+      () async {
+        MessageRouter.configureDependencyResolvers(
+          userPreferencesResolver: _FakeUserPreferences.new,
+        );
+        offlineQueue.setOffline();
+        expect(lifecycle.messageRouter, isNull);
+
+        String? info;
+        final sent = await lifecycle.sendRepositoryMessage(
+          message: _message('m-on-demand', content: 'queue on first use'),
+          fallbackRecipientId: 'peer-first-use',
+          displayContactName: 'Peer',
+          onInfoMessage: (message) => info = message,
+        );
+
+        expect(sent, isFalse);
+        expect(lifecycle.messageRouter, same(MessageRouter.instance));
+        expect(
+          offlineQueue.getPendingMessages().single.content,
+          'queue on first use',
+        );
+        expect(info, contains('queued'));
+        expect(connectionService.sentMessages, isEmpty);
+      },
+    );
+
+    test('first-use routing waits for fallback queue initialization', () async {
+      final controlledQueue = _ControlledInitializationQueue();
+      controlledQueue.setOffline();
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: () => controlledQueue,
+      );
+      MessageRouter.configureDependencyResolvers(
+        userPreferencesResolver: _FakeUserPreferences.new,
+      );
+
+      lifecycle.dispose();
+      lifecycle = ChatSessionLifecycle(
+        viewModel: viewModel,
+        connectionService: connectionService,
+        meshService: meshService,
+        messageSecurity: messageSecurity,
+        messageRepository: messageRepository,
+      );
+
+      var sendCompleted = false;
+      String? info;
+      final send = lifecycle
+          .sendRepositoryMessage(
+            message: _message('m-delayed-init', content: 'wait for storage'),
+            fallbackRecipientId: 'peer-delayed-init',
+            displayContactName: 'Peer',
+            onInfoMessage: (message) => info = message,
+          )
+          .whenComplete(() => sendCompleted = true);
+
+      await controlledQueue.initializationStarted.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(sendCompleted, isFalse);
+      expect(MessageRouter.maybeInstance, isNull);
+      expect(controlledQueue.getPendingMessages(), isEmpty);
+
+      controlledQueue.initializationGate.complete();
+      expect(await send, isFalse);
+      expect(MessageRouter.maybeInstance, isNotNull);
+      expect(
+        controlledQueue.getPendingMessages().single.content,
+        'wait for storage',
+      );
+      expect(info, contains('queued'));
+    });
+
+    test('reset cannot promote a fallback from the prior generation', () async {
+      final staleQueue = _ControlledInitializationQueue();
+      final freshQueue = InMemoryOfflineMessageQueue();
+      staleQueue.setOffline();
+      freshQueue.setOffline();
+      await freshQueue.initialize();
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: () => staleQueue,
+      );
+      MessageRouter.configureDependencyResolvers(
+        userPreferencesResolver: _FakeUserPreferences.new,
+      );
+
+      lifecycle.dispose();
+      lifecycle = ChatSessionLifecycle(
+        viewModel: viewModel,
+        connectionService: connectionService,
+        meshService: meshService,
+        messageSecurity: messageSecurity,
+        messageRepository: messageRepository,
+      );
+
+      final staleSend = lifecycle.sendRepositoryMessage(
+        message: _message('m-stale-fallback', content: 'stale fallback'),
+        fallbackRecipientId: 'peer-stale-fallback',
+        displayContactName: 'Peer',
+      );
+      await staleQueue.initializationStarted.future;
+
+      MessageRouter.reset();
+      await Future<void>.delayed(Duration.zero);
+      expect(staleQueue.disposeCount, 1);
+      expect(staleQueue.isDisposed, isTrue);
+      MessageRouter.configureDependencyResolvers(
+        userPreferencesResolver: _FakeUserPreferences.new,
+      );
+      await MessageRouter.initialize(
+        connectionService,
+        offlineQueue: freshQueue,
+      );
+      staleQueue.initializationGate.complete();
+
+      expect(await staleSend, isFalse);
+      await Future<void>.delayed(Duration.zero);
+      expect(MessageRouter.instance.offlineQueue, same(freshQueue));
+      expect(staleQueue.getPendingMessages(), isEmpty);
+      expect(staleQueue.disposeCount, 2);
+      expect(staleQueue.isDisposed, isTrue);
+
+      await lifecycle.sendRepositoryMessage(
+        message: _message('m-fresh-fallback', content: 'fresh runtime'),
+        fallbackRecipientId: 'peer-fresh-runtime',
+        displayContactName: 'Peer',
+      );
+      expect(freshQueue.getPendingMessages().single.content, 'fresh runtime');
+    });
+
+    test('failed fallback initialization retries with a fresh queue', () async {
+      final failedQueue = _ControlledInitializationQueue(
+        initializationError: StateError('storage unavailable'),
+      );
+      final recoveredQueue = _ControlledInitializationQueue();
+      failedQueue.setOffline();
+      recoveredQueue.setOffline();
+      failedQueue.initializationGate.complete();
+      recoveredQueue.initializationGate.complete();
+      var factoryCalls = 0;
+      MessageRouter.configureQueueFactories(
+        standaloneQueueFactory: () {
+          factoryCalls++;
+          return factoryCalls == 1 ? failedQueue : recoveredQueue;
+        },
+      );
+      MessageRouter.configureDependencyResolvers(
+        userPreferencesResolver: _FakeUserPreferences.new,
+      );
+
+      lifecycle.dispose();
+      lifecycle = ChatSessionLifecycle(
+        viewModel: viewModel,
+        connectionService: connectionService,
+        meshService: meshService,
+        messageSecurity: messageSecurity,
+        messageRepository: messageRepository,
+      );
+
+      String? info;
+      final sent = await lifecycle.sendRepositoryMessage(
+        message: _message('m-failed-init', content: 'must not queue'),
+        fallbackRecipientId: 'peer-failed-init',
+        displayContactName: 'Peer',
+        onInfoMessage: (message) => info = message,
+      );
+
+      expect(sent, isFalse);
+      expect(MessageRouter.maybeInstance, isNull);
+      expect(failedQueue.getPendingMessages(), isEmpty);
+      expect(info, isNull);
+
+      final retried = await lifecycle.sendRepositoryMessage(
+        message: _message('m-recovered-init', content: 'queue after retry'),
+        fallbackRecipientId: 'peer-recovered-init',
+        displayContactName: 'Peer',
+      );
+
+      expect(retried, isFalse);
+      expect(factoryCalls, 2);
+      expect(MessageRouter.maybeInstance, isNotNull);
+      expect(
+        recoveredQueue.getPendingMessages().single.content,
+        'queue after retry',
+      );
+    });
+
+    test(
+      'auto-bound lifecycle follows router replacement after reset',
+      () async {
+        final queueA = InMemoryOfflineMessageQueue();
+        final queueB = InMemoryOfflineMessageQueue();
+        await queueA.initialize();
+        await queueB.initialize();
+        queueA.setOffline();
+        queueB.setOffline();
+
+        await MessageRouter.initialize(connectionService, offlineQueue: queueA);
+        final routerA = MessageRouter.instance;
+
+        lifecycle.dispose();
+        lifecycle = ChatSessionLifecycle(
+          viewModel: viewModel,
+          connectionService: connectionService,
+          meshService: meshService,
+          messageSecurity: messageSecurity,
+          messageRepository: messageRepository,
+          offlineQueue: queueA,
+        );
+        expect(lifecycle.messageRouter, same(routerA));
+
+        MessageRouter.reset();
+        MessageRouter.configureDependencyResolvers(
+          userPreferencesResolver: _FakeUserPreferences.new,
+        );
+        await MessageRouter.initialize(connectionService, offlineQueue: queueB);
+
+        await lifecycle.sendRepositoryMessage(
+          message: _message('m-after-reset', content: 'use fresh router'),
+          fallbackRecipientId: 'peer-after-reset',
+          displayContactName: 'Peer',
+        );
+
+        expect(lifecycle.messageRouter, same(MessageRouter.instance));
+        expect(queueA.getPendingMessages(), isEmpty);
+        expect(queueB.getPendingMessages().single.content, 'use fresh router');
       },
     );
 
@@ -832,8 +1114,12 @@ void main() {
     );
 
     test(
-      'resolveOfflineQueue and buildFallbackOfflineQueue provide a usable fallback',
+      'sync queue resolution does not create an implicit standalone fallback',
       () async {
+        MessageRouter.configureQueueFactories(
+          standaloneQueueFactory: InMemoryOfflineMessageQueue.new,
+        );
+        addTearDown(MessageRouter.reset);
         final fallbackLifecycle = ChatSessionLifecycle(
           viewModel: viewModel,
           connectionService: connectionService,
@@ -844,7 +1130,7 @@ void main() {
         );
 
         final queue = fallbackLifecycle.resolveOfflineQueue();
-        expect(queue, isNotNull);
+        expect(queue, isNull);
 
         final initializedQueue = await fallbackLifecycle
             .buildFallbackOfflineQueue();

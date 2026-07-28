@@ -40,7 +40,9 @@ extension _BleConnectionManagerRuntimeCleanup on BLEConnectionManager {
     _peerHintsByAddress.clear();
     _blockedResponderHandshakes.clear();
     _noHintInboundDebounceUntil = null;
-    _lastConnectedDevice = null;
+    if (!keepMonitoring) {
+      _lastConnectedDevice = null;
+    }
 
     _isReconnection = false;
 
@@ -96,6 +98,7 @@ extension _BleConnectionManagerRuntimeCleanup on BLEConnectionManager {
 
   void _runtimeDispose() {
     stopConnectionMonitoring();
+    _reconnectPolicy.dispose();
     _serverConnectionsController.close();
   }
 }

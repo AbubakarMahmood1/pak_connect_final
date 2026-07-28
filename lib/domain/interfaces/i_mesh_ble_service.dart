@@ -72,3 +72,23 @@ abstract interface class IMeshBleService {
   Future<void> startScanning({ScanningSource source = ScanningSource.system});
   Future<void> stopScanning();
 }
+
+/// Optional capability for payloads that must remain pinned to one concrete
+/// BLE device address from protocol admission through the actual GATT write.
+///
+/// Callers must fail closed when the active service does not implement this
+/// interface; falling back to [IMeshBleService.sendMessage] would reintroduce a
+/// route-swap race through its global/current-peer state.
+abstract interface class IRouteBoundMeshBleService {
+  Future<bool>? trySendMessageOnRoute(
+    String message, {
+    required String transportAddress,
+    required String messageId,
+    required String intendedRecipient,
+  });
+
+  Future<bool>? trySendProtocolMessageOnRoute(
+    ProtocolMessage message, {
+    required String transportAddress,
+  });
+}

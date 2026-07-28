@@ -1340,6 +1340,21 @@ class MockBLEConnectionManager extends _i1.Mock
           as _i4.Future<_i2.Peripheral?>);
 
   @override
+  _i4.Future<_i2.Peripheral?> scanForReconnectTarget({
+    required String? expectedPeripheralUuid,
+    Duration? timeout = const Duration(seconds: 10),
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#scanForReconnectTarget, [], {
+              #expectedPeripheralUuid: expectedPeripheralUuid,
+              #timeout: timeout,
+            }),
+            returnValue: _i4.Future<_i2.Peripheral?>.value(),
+            returnValueForMissingStub: _i4.Future<_i2.Peripheral?>.value(),
+          )
+          as _i4.Future<_i2.Peripheral?>);
+
+  @override
   _i4.Future<void> disconnectAll() =>
       (super.noSuchMethod(
             Invocation.method(#disconnectAll, []),

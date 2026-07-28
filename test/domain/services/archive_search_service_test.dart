@@ -37,8 +37,9 @@ class _FakeArchiveRepository implements IArchiveRepository {
 
   // The remaining repository methods are not needed for these tests.
   @override
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId) async =>
-      throw UnimplementedError();
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    ArchiveId archivedChatId,
+  ) async => throw UnimplementedError();
 
   @override
   Future<ArchiveOperationResult> archiveChat({
@@ -49,8 +50,11 @@ class _FakeArchiveRepository implements IArchiveRepository {
   }) async => throw UnimplementedError();
 
   @override
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId) async =>
-      throw UnimplementedError();
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  }) async => throw UnimplementedError();
 
   @override
   Future<int> getArchivedChatsCount() async => throw UnimplementedError();

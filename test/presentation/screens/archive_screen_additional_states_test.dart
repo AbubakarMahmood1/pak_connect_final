@@ -65,6 +65,7 @@ class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
 
   final ArchiveOperationsState _initialState;
   String? lastDebouncedQuery;
+  int restoreCalls = 0;
 
   @override
   ArchiveOperationsState build() => _initialState;
@@ -81,6 +82,7 @@ class _TestArchiveOperationsNotifier extends ArchiveOperationsNotifier {
     String? targetChatId,
     bool overwriteExisting = false,
   }) async {
+    restoreCalls++;
     return ArchiveOperationResult.success(
       message: 'restored',
       operationType: ArchiveOperationType.restore,
@@ -555,6 +557,50 @@ void main() {
         find.text('Persisted detail message from repository'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('detail restore executes once and returns to archive list', (
+      tester,
+    ) async {
+      final uiNotifier = _TestArchiveUINotifier(const ArchiveUIState());
+      final operationsNotifier = _TestArchiveOperationsNotifier(
+        const ArchiveOperationsState(),
+      );
+      final detailArchive = _detailArchive(
+        id: 'restore-once',
+        contactName: 'R',
+        content: 'Restore this message once',
+      );
+
+      await _pumpArchiveScreen(
+        tester,
+        uiNotifier: uiNotifier,
+        operationsNotifier: operationsNotifier,
+        loadArchives: (_) async => <ArchivedChatSummary>[
+          detailArchive.toSummary(),
+        ],
+        searchArchives: (q) async => _searchNoResults(q.query),
+        detailArchive: detailArchive,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'archive list layout');
+      await tester.tap(find.text('R'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'detail layout');
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'detail menu layout');
+      await tester.tap(find.text('Restore Chat').last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'restore dialog layout');
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore Chat'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'post-restore layout');
+
+      expect(operationsNotifier.restoreCalls, 1);
+      expect(find.byType(ArchiveDetailScreen), findsNothing);
+      expect(find.byType(ArchiveScreen), findsOneWidget);
     });
 
     // -----------------------------------------------------------------------

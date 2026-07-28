@@ -1,11 +1,11 @@
 {
-    "name": "pak_connect",
-    "short_name": "pak_connect",
+    "name": "PakConnect",
+    "short_name": "PakConnect",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Offline peer-to-peer messaging over Bluetooth Low Energy.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

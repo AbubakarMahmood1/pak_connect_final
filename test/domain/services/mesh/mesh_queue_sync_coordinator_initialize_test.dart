@@ -113,7 +113,7 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
   @override
   set onStatsUpdated(Function(QueueStatistics stats)? callback) {}
   @override
-  set onSendMessage(Function(String messageId)? callback) {}
+  set onSendMessage(OfflineQueueSendCallback? callback) {}
   @override
   set onConnectivityCheck(Function()? callback) {}
 
@@ -205,6 +205,16 @@ class _FakeQueue extends Fake implements OfflineMessageQueueContract {
         m.status = QueuedMessageStatus.pending;
       }
     }
+  }
+
+  @override
+  Future<bool> retryMessage(String messageId) async {
+    final message = getMessageById(messageId);
+    if (message == null) {
+      return false;
+    }
+    message.status = QueuedMessageStatus.pending;
+    return true;
   }
 
   @override

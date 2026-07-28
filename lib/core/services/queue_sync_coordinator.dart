@@ -20,8 +20,8 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   static final _logger = Logger('QueueSyncCoordinator');
 
   // Configuration
-  static const int _maxDeletedIdsToKeep = 1000;
-  static const int _cleanupThreshold = 800;
+  static const int _maxDeletedIdsToKeep = 800;
+  static const int _cleanupThreshold = 1000;
   static const Duration _cacheExpiry = Duration(seconds: 30);
 
   // Dependencies
@@ -157,6 +157,13 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
 
   @override
   Future<bool> addSyncedMessage(QueuedMessage message) async {
+    final repository = _repository;
+    if (repository == null) {
+      throw StateError(
+        'Queue synchronization requires a durable message queue repository',
+      );
+    }
+
     // Skip if previously deleted
     if (_deletedMessageIds.contains(MessageId(message.id))) {
       _logger.fine('Sync skip - message was deleted locally');
@@ -164,22 +171,47 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     }
 
     // Skip if already exists
-    final allMessages = _repository?.getAllMessages() ?? [];
+    final allMessages = repository.getAllMessages();
     if (allMessages.any((m) => m.id == message.id)) {
       _logger.fine('Sync skip - message already exists');
       return false;
     }
 
-    // Normalize for retry pipeline
-    message.status = QueuedMessageStatus.pending;
-    message.attempts = 0;
-    message.failureReason = null;
-    message.nextRetryAt = null;
-    message.lastAttemptAt = null;
+    // Normalize a detached candidate for the retry pipeline. Callers may reuse
+    // their received DTO, so durable admission must not mutate it on failure.
+    final candidate = _detachedCopy(message)
+      ..status = QueuedMessageStatus.pending
+      ..attempts = 0
+      ..failureReason = null
+      ..failedAt = null
+      ..nextRetryAt = null
+      ..lastAttemptAt = null;
 
-    // Add to repository
-    _repository?.insertMessageByPriority(message);
-    await _repository?.saveMessageToStorage(message);
+    // Production storage checks the durable active row and tombstone in one
+    // transaction. This prevents a stale sync view from reverting a newer
+    // send attempt or reviving a locally deleted message.
+    QueuedMessage admitted = candidate;
+    if (repository is IConditionalMessageQueueRepository) {
+      final result = await (repository as IConditionalMessageQueueRepository)
+          .insertMessageIfAbsentAndNotDeleted(candidate);
+      if (!result.applied) {
+        final current = result.current;
+        if (current == null) {
+          _deletedMessageIds.add(MessageId(message.id));
+          _logger.fine('Sync skip - message has a durable tombstone');
+        } else if (repository.getMessageById(message.id) == null) {
+          repository.insertMessageByPriority(current);
+          invalidateHashCache();
+        }
+        return false;
+      }
+      admitted = result.current ?? candidate;
+    } else {
+      // Explicit in-memory/test repositories do not share durable state.
+      await repository.saveMessageToStorage(candidate);
+    }
+
+    repository.insertMessageByPriority(admitted);
     invalidateHashCache();
 
     _logger.info('🔄 Synced new message: ${_previewId(message.id)}...');
@@ -230,8 +262,14 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
   @override
   Future<void> markMessageDeleted(String messageId) async {
     final msgId = MessageId(messageId);
+    final repository = _repository;
+    if (repository != null) {
+      await repository.markMessagesDeleted([msgId.value]);
+    }
+    // The production repository shares this set and has already published the
+    // tombstone after commit. Keep the coordinator correct for detached test
+    // repositories and its explicitly in-memory mode as well.
     _deletedMessageIds.add(msgId);
-    await _repository?.markMessageDeleted(msgId.value);
     invalidateHashCache();
 
     _logger.info('Message marked deleted: ${_previewId(messageId)}...');
@@ -247,19 +285,23 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
     final initialCount = _deletedMessageIds.length;
 
     if (_deletedMessageIds.length > _cleanupThreshold) {
-      final deletedList = _deletedMessageIds.map((id) => id.value).toList()
-        ..sort();
-      _deletedMessageIds.clear();
-      _deletedMessageIds.addAll(
-        deletedList.take(_maxDeletedIdsToKeep).map(MessageId.new),
-      );
+      final repository = _repository;
+      final retained = repository != null
+          ? await repository.pruneDeletedMessageIds(_maxDeletedIdsToKeep)
+          : _deletedMessageIds
+                .skip(_deletedMessageIds.length - _maxDeletedIdsToKeep)
+                .map((id) => id.value)
+                .toSet();
+
+      _deletedMessageIds
+        ..clear()
+        ..addAll(retained.map(MessageId.new));
+      invalidateHashCache();
 
       _logger.info(
         'Cleaned up ${initialCount - _deletedMessageIds.length} old deleted IDs',
       );
     }
-
-    await _repository?.saveDeletedMessageIds();
   }
 
   @override
@@ -314,6 +356,7 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
 
   @override
   Future<void> resetSyncState() async {
+    await _repository?.saveDeletedIdsSnapshotToStorage(const <String>[]);
     _cachedQueueHash = null;
     _lastHashCalculation = null;
     _deletedMessageIds.clear();
@@ -327,5 +370,38 @@ class QueueSyncCoordinator implements IQueueSyncCoordinator {
       return value;
     }
     return value.substring(0, length);
+  }
+
+  QueuedMessage _detachedCopy(QueuedMessage message) {
+    return QueuedMessage(
+      id: message.id,
+      chatId: message.chatId,
+      content: message.content,
+      recipientPublicKey: message.recipientPublicKey,
+      senderPublicKey: message.senderPublicKey,
+      priority: message.priority,
+      queuedAt: message.queuedAt,
+      maxRetries: message.maxRetries,
+      replyToMessageId: message.replyToMessageId,
+      attachments: List<String>.of(message.attachments),
+      status: message.status,
+      attempts: message.attempts,
+      lastAttemptAt: message.lastAttemptAt,
+      nextRetryAt: message.nextRetryAt,
+      deliveredAt: message.deliveredAt,
+      failedAt: message.failedAt,
+      failureReason: message.failureReason,
+      expiresAt: message.expiresAt,
+      isRelayMessage: message.isRelayMessage,
+      relayMetadata: message.relayMetadata == null
+          ? null
+          : RelayMetadata.fromJson(
+              Map<String, dynamic>.from(message.relayMetadata!.toJson()),
+            ),
+      originalMessageId: message.originalMessageId,
+      relayNodeId: message.relayNodeId,
+      messageHash: message.messageHash,
+      senderRateCount: message.senderRateCount,
+    );
   }
 }

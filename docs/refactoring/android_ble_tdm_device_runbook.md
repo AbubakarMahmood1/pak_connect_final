@@ -1,5 +1,14 @@
 # Android BLE TDM Device Runbook
 
+> **Experimental companion — non-evidentiary by itself.** Do not use this
+> runbook alone to mark a row in `DEVICE_VALIDATION_STATUS.md` as `PASS` or to
+> make the strict-TDM architecture decision. Execute the current two-phone
+> comparison only through
+> [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](../testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md)
+> at its pinned baseline. Before a future three-device comparison can count as
+> evidence, extend that exact checklist with the third-device gates, build
+> identities, stop conditions, artifacts, and result rows.
+
 ## Purpose
 
 This runbook is the practical next step after the strict-TDM spike implementation.

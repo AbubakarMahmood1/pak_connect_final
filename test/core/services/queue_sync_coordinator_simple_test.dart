@@ -180,7 +180,7 @@ void main() {
 
       test('cleanup capacity detection works', () async {
         // Arrange
-        for (int i = 0; i < 850; i++) {
+        for (int i = 0; i < 1001; i++) {
           await coordinator.markMessageDeleted('msg-$i');
         }
 
@@ -193,7 +193,7 @@ void main() {
 
       test('cleanupOldDeletedIds triggers when needed', () async {
         // Arrange
-        for (int i = 0; i < 850; i++) {
+        for (int i = 0; i < 1001; i++) {
           await coordinator.markMessageDeleted('msg-$i');
         }
 
@@ -201,7 +201,9 @@ void main() {
         await coordinator.cleanupOldDeletedIds();
 
         // Assert
-        expect(coordinator.getDeletedMessageCount(), lessThanOrEqualTo(1000));
+        expect(coordinator.getDeletedMessageCount(), 800);
+        expect(coordinator.isMessageDeleted('msg-0'), isFalse);
+        expect(coordinator.isMessageDeleted('msg-1000'), isTrue);
       });
     });
 

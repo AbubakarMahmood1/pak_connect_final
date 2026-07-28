@@ -52,10 +52,23 @@ class _FakeQueueRepository extends Fake implements IMessageQueueRepository {
  }
 
  @override
+ Future<void> saveQueueSnapshotToStorage(
+ Iterable<QueuedMessage> messages,
+ ) async {
+ saveCalled = true;
+ }
+
+ @override
  Future<void> loadDeletedMessageIds() async {}
 
  @override
+ Set<String> getDeletedMessageIdsSnapshot() => const <String>{};
+
+ @override
  Future<void> saveDeletedMessageIds() async {}
+
+ @override
+ Future<void> markMessagesDeleted(Iterable<String> messageIds) async {}
 
  @override
  QueuedMessage? getMessageById(String messageId) =>
@@ -302,6 +315,7 @@ void main() {
  final store = QueueStore(directMessageQueue: directQueue,
  relayMessageQueue: relayQueue,
  deletedMessageIds: deletedIds,
+ allowVolatileStorage: true,
 );
  final logger = Logger('test');
  await store.initializePersistence(logger: logger);
@@ -316,6 +330,7 @@ void main() {
  relayMessageQueue: relayQueue,
  deletedMessageIds: deletedIds,
  queuePersistenceManager: fakePersistence,
+ allowVolatileStorage: true,
 );
  store.setDatabaseProvider(_FakeDatabaseProvider());
  final logger = Logger('test');

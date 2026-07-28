@@ -1,6 +1,6 @@
 # PakConnect device validation status
 
-Last updated: 2026-07-13
+Last updated: 2026-07-14
 
 ## Current environment
 
@@ -28,9 +28,12 @@ Use only these labels:
 
 | Item | Status | Evidence/notes |
 |---|---|---|
-| `flutter analyze --no-pub` | PASS | Clean on 2026-07-13 with Flutter 3.41.5 / Dart 3.11.3 |
-| Desktop full unit/widget suite | PASS | 5,539 tests, 0 failures, 5m20s; 9,515,985-byte `flutter_test_latest.log`, SHA-256 `152F6CABA2083675728A7F0A1CDEF6CEA20AA7BDECFE96BDD4C912AE2BAE53FE` |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 203,988,403 bytes; SHA-256 `3A0B32EBBB8255C539C62BDD6ACA077108BC5EEF0D431AAEBA5232FB64E28B50`; its exact code/build-input tree is committed as baseline `9cccd01` |
+| `flutter analyze --no-pub` | PASS | Clean on 2026-07-29 for baseline `7944c93` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
+| Desktop full unit/widget suite | PASS | 5,691 passed, 0 failed; reporter 5m37s; measured wall 353,083 ms; 9,268,167-byte `flutter_test_latest.log`, SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905` |
+| Coverage artifact | PASS | `coverage/lcov.info`; 426,546 bytes; SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` |
+| Strict BLE / crypto policy gates | PASS | 108 strict BLE tests and all 14 crypto-policy cases passed |
+| DI / hygiene / reachability gates | PASS | 0 direct `GetIt` calls and 16 reviewed `.instance` references; 0 runtime `print()` calls and 21 reviewed timers; 437 libraries / 433 runtime / 4 reviewed test-only / 0 unreviewed |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`; its exact runtime/build-input tree is committed as baseline `7944c93` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -41,16 +44,23 @@ Use only these labels:
 Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
-Code baseline for the next run: `9cccd014c7bb93d0a3aab26aaf7674c3a5192dd3`
-(`9cccd01`). A documentation-only descendant is acceptable if
-`git diff 9cccd01..HEAD -- lib test integration_test android ios assets pubspec.yaml pubspec.lock`
-is empty. Execute the matrix with the exact PowerShell run sheet in
+Runtime/build-input baseline for the next run:
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
+`codex/archive-delete-contract`. A descendant is acceptable only if this
+runtime/build-input diff is empty:
+
+```powershell
+git diff 7944c93..HEAD -- lib test integration_test android ios linux macos web windows assets pubspec.yaml pubspec.lock .metadata analysis_options.yaml
+```
+
+Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The previous verified baseline `a5c2b08` and superseded candidate `fcb3013`
-remain historical provenance only. Flutter 3.44 analysis required an equivalent
-null-aware syntax cleanup after `fcb3013`; do not use either older commit for a
-new device run.
+The route-hardening baseline `53bb4fe`, its status descendant `ed4d416`, and
+toolchain checkpoint `eccced7` are historical provenance only; `eccced7` was
+superseded by `7944c93`. Previous baselines `5a2cb8e` and `979e106`, plus
+candidate `0c8fa87`, are also historical. Do not use an older
+commit for a new device run.
 
 | Scenario | Status | Required observation |
 |---|---|---|
@@ -67,8 +77,11 @@ new device run.
 | Large/binary media | BLOCKED | Target-route MTU respected; byte-perfect reassembly; progress/retry sane |
 | Offline queue then reconnect | BLOCKED | Pending direct message reaches intended peer only |
 | Foreground -> background -> resume | BLOCKED | Dart resume hook flushes backlog on a ready link; this does not claim delivery while killed or dozing |
+| Sender process death -> relaunch | BLOCKED | A persists a pending row while B is unavailable, survives A process death/relaunch, then delivers exactly once after B returns |
+| Doze/battery-saver observation | BLOCKED | Forced-idle state is recorded; any pending row survives and delivers once after unforce/resume, without claiming native background delivery |
 | Route disappears mid-send | BLOCKED | Sender fails promptly and retains/retries queue item; no false success |
 | Manual reconnect | BLOCKED | Finds the other PakConnect advertiser and reconnects |
+| Bluetooth off/on reconnect target | BLOCKED | Record the connected platform peripheral UUID before and after cycling Bluetooth on each phone. Stable UUID may auto-reconnect only to that exact target; rotation must ignore other advertisers and safely time out until manual identity-verified reconnect |
 | Multi-link inventory/routing | BLOCKED | All links listed; control frames use exact route/MTU; ambiguous direct payloads defer until per-link identity/ACK binding exists |
 | Relay A -> B -> C | BLOCKED | Requires three phones. Final C delivery decodes the signed encrypted v2 inner `ProtocolMessage`, authenticates/decrypts and persists it before the routed ACK; processing failure emits no ACK and does not mark the message seen; a duplicate completed delivery resends the ACK without redelivery |
 | Log/privacy inspection | BLOCKED | No keys, plaintext payload previews, passphrases or SQLCipher key material in logs |
@@ -109,7 +122,9 @@ background scheduler/service decision is still open. Test at minimum:
 
 - `scripts/real_device_test.sh` now defaults to debug, accepts
   `--debug|--release`, uses `build/app/outputs/flutter-apk/app-{mode}.apk`, and
-  performs a release-signing preflight.
+  performs a release-signing preflight. It is a legacy convenience helper,
+  not an evidence protocol; do not use it to mark rows `PASS` unless the exact
+  baseline checklist explicitly routes the operator through it.
 - Shell syntax validation passes and the corrected debug artifact path is
   proven by a successful direct Flutter build. Script-driven installation is
   blocked because no Android device is attached.
@@ -119,6 +134,20 @@ background scheduler/service decision is still open. Test at minimum:
 - The two-device run can close all executable A/B rows, but multi-link
   inventory/routing and `A -> B -> C` relay remain blocked until a third
   physical Android device is available.
+
+## Cross-cutting readiness matrix
+
+These rows prevent a device pass from being stretched into unrelated SRS or
+release claims. They use the same evidence-state vocabulary, but not every row
+is device-bound.
+
+| Area | Status | Required disposition/evidence |
+|---|---|---|
+| v10 -> v11 -> v12 database upgrade | NOT RUN | Add a populated v10 fixture upgrade test that verifies the v11 change-log table/triggers, v12 per-peer cursor, preserved user data, schema version and reopen; after that, retain one Android app-update smoke artifact |
+| Mixed app/protocol versions | BLOCKED | The current exact checklist installs one identical APK hash on both phones and therefore cannot prove cross-version compatibility. Define supported old/new build hashes, install/upgrade order, expected protocol-floor accept/reject behavior, and bidirectional XX/KK/message cases in a checklist extension |
+| Accessibility | NOT RUN | Record TalkBack traversal and labels, 200% text scaling without clipped actions/content, non-color-only status meaning, touch targets, and any claimed keyboard/focus behavior. High-contrast mode remains not implemented |
+| Numeric performance/battery targets | NOT RUN | Treat every numeric NFR as a design target until a fixed build/device/OS/workload, sample count, percentile rule, radio conditions and raw result artifact are recorded |
+| Third-party license and crypto-distribution audit | NOT RUN | Generate a lockfile-derived dependency/SBOM inventory, review bundled licenses/notices and applicable jurisdictional crypto obligations, then retain shipped notices. A phone run cannot close this release gate |
 
 ## Exit gate
 

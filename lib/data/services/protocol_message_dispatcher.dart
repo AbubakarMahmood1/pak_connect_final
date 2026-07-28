@@ -16,10 +16,12 @@ class ProtocolMessageDispatcher {
       String? senderPublicKey,
     )
     onUnhandledMessage,
-    Future<void> Function(String messageId, String senderPublicKey)? onAckReceived,
+    Future<void> Function(String messageId, String senderPublicKey)?
+    onAckReceived,
     Future<void> Function({
       required String originalMessageId,
       required String relayNode,
+      required String transportSender,
       required bool delivered,
       List<String>? ackRoutingPath,
     })?
@@ -27,6 +29,7 @@ class ProtocolMessageDispatcher {
     Future<void> Function({
       required MessageId originalMessageId,
       required String relayNode,
+      required String transportSender,
       required bool delivered,
       List<String>? ackRoutingPath,
     })?
@@ -44,7 +47,8 @@ class ProtocolMessageDispatcher {
 
   final Logger _logger;
   final MessageAckTracker _ackTracker;
-  final Future<void> Function(String messageId, String senderPublicKey)? _onAckReceived;
+  final Future<void> Function(String messageId, String senderPublicKey)?
+  _onAckReceived;
   final Future<String?> Function(
     ProtocolMessage protocolMessage,
     String? Function(String)? onMessageIdFound,
@@ -54,6 +58,7 @@ class ProtocolMessageDispatcher {
   final Future<void> Function({
     required String originalMessageId,
     required String relayNode,
+    required String transportSender,
     required bool delivered,
     List<String>? ackRoutingPath,
   })?
@@ -61,6 +66,7 @@ class ProtocolMessageDispatcher {
   final Future<void> Function({
     required MessageId originalMessageId,
     required String relayNode,
+    required String transportSender,
     required bool delivered,
     List<String>? ackRoutingPath,
   })?
@@ -118,6 +124,12 @@ class ProtocolMessageDispatcher {
           _logger.warning('Received relayAck with no message ID');
           return null;
         }
+        if (senderPublicKey == null || senderPublicKey.isEmpty) {
+          _logger.warning(
+            'Dropping relayAck for $originalMessageId: sender identity missing',
+          );
+          return null;
+        }
 
         final messageId = MessageId(originalMessageId);
 
@@ -125,6 +137,7 @@ class ProtocolMessageDispatcher {
           await _onRelayAckIds(
             originalMessageId: messageId,
             relayNode: relayNode,
+            transportSender: senderPublicKey,
             delivered: delivered,
             ackRoutingPath: ackRoutingPath?.cast<String>(),
           );
@@ -132,6 +145,7 @@ class ProtocolMessageDispatcher {
           await _onRelayAck(
             originalMessageId: messageId.value,
             relayNode: relayNode,
+            transportSender: senderPublicKey,
             delivered: delivered,
             ackRoutingPath: ackRoutingPath?.cast<String>(),
           );

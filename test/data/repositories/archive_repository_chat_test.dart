@@ -172,12 +172,12 @@ void main() {
  expect(archive.messages.length, 3);
  });
 
- test('archives large chat with compression', () async {
+ test('does not claim compression until compressed rows are persisted', () async {
  final repo = ArchiveRepository();
  await repo.initialize();
 
  // Create chat with enough messages so estimatedSize > 10240
- await createChatWithMessages('chat_big', 'BigChat', 15);
+ await createChatWithMessages('chat_big', 'BigChat', 50);
 
  final result = await repo.archiveChat(chatId: 'chat_big',
  compressLargeArchives: true,
@@ -185,7 +185,19 @@ void main() {
 
  expect(result.success, true);
  expect(result.archiveId, isNotNull);
- expect(result.metadata?['messageCount'], 15);
+ expect(result.metadata?['messageCount'], 50);
+ expect(result.metadata?['compressed'], false);
+ expect(result.metadata?['finalSize'], result.metadata?['originalSize']);
+ expect(
+ result.warnings,
+ contains('Archive compression is not implemented; stored uncompressed'),
+ );
+
+ final archive = await repo.getArchivedChat(result.archiveId!);
+ expect(archive, isNotNull);
+ expect(archive!.messages, hasLength(50));
+ expect(archive.isCompressed, false);
+ expect(archive.compressionInfo, isNull);
  });
 
  test('archives chat without compression when disabled', () async {
@@ -249,12 +261,11 @@ void main() {
  expect(gone, isNull);
  });
 
- test('restores compressed archive', () async {
+ test('restores legacy archive rows marked compressed', () async {
  final repo = ArchiveRepository();
  await repo.initialize();
 
- // Create a "compressed" archive directly (flag only; decompressArchive
- // handles fallback gracefully when blob is absent)
+ // Older builds could set the flag while retaining canonical message rows.
  final archiveId = await createArchiveDirectly('chat_comp_rst',
  'Compressed',
  2,

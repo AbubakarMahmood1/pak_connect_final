@@ -40,15 +40,16 @@ class ChatSessionLifecycle {
     this.retryCoordinator,
     this.offlineQueue,
     Logger? logger,
-  }) : _logger = logger ?? Logger('ChatSessionLifecycle') {
-    this.messageRouter =
-        messageRouter ?? _resolveMessageRouter(connectionService);
+  }) : _explicitMessageRouter = messageRouter,
+       _logger = logger ?? Logger('ChatSessionLifecycle') {
+    this.messageRouter = messageRouter ?? MessageRouter.maybeInstance;
   }
 
   final ChatSessionViewModel viewModel;
   final IConnectionService connectionService;
   final IMeshNetworkingService meshService;
-  late final MessageRouter? messageRouter;
+  final MessageRouter? _explicitMessageRouter;
+  MessageRouter? messageRouter;
   final MessageSecurity messageSecurity;
   final IMessageRepository messageRepository;
   final MessageRetryCoordinator? retryCoordinator;
@@ -65,9 +66,7 @@ class ChatSessionLifecycle {
   Timer? _initializationTimeoutTimer;
   Timer? _delayedRetryTimer;
   PersistentChatStateManager? persistentChatManager;
-  OfflineMessageQueueContract? _fallbackOfflineQueue;
-  bool _fallbackQueueInitialized = false;
-  Future<void>? _fallbackQueueInitFuture;
+  Future<MessageRouter?>? _messageRouterInitialization;
 
   /// Placeholder init hook; real logic will move here during migration.
   Future<void> initialize() async {
@@ -288,8 +287,8 @@ class ChatSessionLifecycle {
       } catch (_) {}
     }
 
-    _logger.fine('Using standalone OfflineMessageQueue fallback');
-    return _getFallbackQueue();
+    _logger.fine('Canonical offline queue is not available');
+    return null;
   }
 
   OfflineMessageQueueContract? _tryResolveSharedQueue() {
@@ -314,46 +313,12 @@ class ChatSessionLifecycle {
     }
   }
 
-  Future<OfflineMessageQueueContract> _buildFallbackOfflineQueue() async {
-    final queue = _getFallbackQueue(ensureInitialized: true);
-    if (_fallbackQueueInitFuture != null) {
-      try {
-        await _fallbackQueueInitFuture;
-      } catch (error, stack) {
-        _logger.warning(
-          'Fallback offline queue initialization failed: $error',
-          stack,
-        );
-      }
-    }
-    return queue;
-  }
-
-  OfflineMessageQueueContract _getFallbackQueue({
-    bool ensureInitialized = false,
-  }) {
-    _fallbackOfflineQueue ??= MessageRouter.createStandaloneQueue();
-    if (_fallbackQueueInitFuture == null && !_fallbackQueueInitialized) {
-      _fallbackQueueInitialized = true;
-      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
-      if (!ensureInitialized) {
-        _fallbackQueueInitFuture!.catchError((error, stack) {
-          _logger.warning(
-            'Fallback offline queue initialization failed: $error',
-            stack,
-          );
-        });
-      }
-    } else if (ensureInitialized && _fallbackQueueInitFuture == null) {
-      _fallbackQueueInitFuture = _fallbackOfflineQueue!.initialize();
-    }
-    return _fallbackOfflineQueue!;
-  }
-
   Future<OfflineMessageQueueContract> buildFallbackOfflineQueue() =>
-      _buildFallbackOfflineQueue();
+      MessageRouter.createInitializedStandaloneQueue();
 
-  MessageRouter? _resolveMessageRouter(IConnectionService connectionService) {
+  Future<MessageRouter?> _resolveMessageRouter(
+    IConnectionService connectionService,
+  ) async {
     final existingRouter = MessageRouter.maybeInstance;
     if (existingRouter != null) {
       return existingRouter;
@@ -363,13 +328,9 @@ class ChatSessionLifecycle {
       'MessageRouter not initialized; attempting on-demand initialization',
     );
     try {
-      final fallbackQueue = resolveOfflineQueue();
-      unawaited(
-        MessageRouter.initialize(
-          connectionService,
-          offlineQueue: fallbackQueue,
-          fallbackQueueBuilder: _buildFallbackOfflineQueue,
-        ),
+      await MessageRouter.initialize(
+        connectionService,
+        offlineQueue: offlineQueue,
       );
       return MessageRouter.maybeInstance;
     } catch (error, stack) {
@@ -378,6 +339,35 @@ class ChatSessionLifecycle {
         stack,
       );
       return null;
+    }
+  }
+
+  Future<MessageRouter?> _getOrInitializeMessageRouter() async {
+    final explicitRouter = _explicitMessageRouter;
+    if (explicitRouter != null) {
+      messageRouter = explicitRouter;
+      return explicitRouter;
+    }
+
+    // Auto-bound lifecycles must follow the current singleton after AppCore
+    // reset/rebootstrap instead of retaining a disposed runtime's router.
+    final existingRouter = MessageRouter.maybeInstance;
+    if (existingRouter != null) {
+      messageRouter = existingRouter;
+      return existingRouter;
+    }
+    messageRouter = null;
+
+    final initialization = _messageRouterInitialization ??=
+        _resolveMessageRouter(connectionService);
+    try {
+      final resolvedRouter = await initialization;
+      messageRouter = resolvedRouter;
+      return resolvedRouter;
+    } finally {
+      if (identical(_messageRouterInitialization, initialization)) {
+        _messageRouterInitialization = null;
+      }
     }
   }
 
@@ -587,8 +577,9 @@ class ChatSessionLifecycle {
     bool success = false;
 
     try {
-      if (messageRouter != null) {
-        final routeResult = await messageRouter!.sendMessage(
+      final router = await _getOrInitializeMessageRouter();
+      if (router != null) {
+        final routeResult = await router.sendMessage(
           content: message.content,
           recipientId: contactPublicKey ?? fallbackRecipientId,
           messageId: message.id.value,

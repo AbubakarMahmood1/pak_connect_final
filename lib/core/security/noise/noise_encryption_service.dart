@@ -33,6 +33,7 @@ class NoiseEncryptionService {
   /// Static identity keys (persistent across app restarts)
   late final SecureKey _staticIdentityPrivateKey;
   late final Uint8List _staticIdentityPublicKey;
+  bool _hasStaticIdentityPrivateKey = false;
 
   /// Session manager
   late final NoiseSessionManager _sessionManager;
@@ -61,22 +62,27 @@ class NoiseEncryptionService {
 
     _logger.info('Initializing Noise encryption service');
 
-    // Load or generate static identity key
-    await _loadOrGenerateStaticKey();
+    try {
+      // Load or generate static identity key
+      await _loadOrGenerateStaticKey();
 
-    // Initialize session manager
-    _sessionManager = NoiseSessionManager(
-      localStaticPrivateKey: _staticIdentityPrivateKey.copyData(),
-      localStaticPublicKey: _staticIdentityPublicKey,
-    );
+      // Initialize session manager
+      _sessionManager = NoiseSessionManager(
+        localStaticPrivateKey: _staticIdentityPrivateKey.copyData(),
+        localStaticPublicKey: _staticIdentityPublicKey,
+      );
 
-    // Set up callbacks
-    _sessionManager.onSessionEstablished = _handleSessionEstablished;
-    _sessionManager.onSessionFailed = _handleSessionFailed;
+      // Set up callbacks
+      _sessionManager.onSessionEstablished = _handleSessionEstablished;
+      _sessionManager.onSessionFailed = _handleSessionFailed;
 
-    _initialized = true;
-    _logger.info('Noise encryption service initialized');
-    _logger.info('Our fingerprint: ${getIdentityFingerprint()}');
+      _initialized = true;
+      _logger.info('Noise encryption service initialized');
+      _logger.info('Our fingerprint: ${getIdentityFingerprint()}');
+    } catch (_) {
+      shutdown();
+      rethrow;
+    }
   }
 
   /// Load or generate static identity key
@@ -88,26 +94,33 @@ class NoiseEncryptionService {
     if (privateKeyStr != null && publicKeyStr != null) {
       // Load existing keys
       _staticIdentityPrivateKey = SecureKey(_hexToBytes(privateKeyStr));
+      _hasStaticIdentityPrivateKey = true;
       _staticIdentityPublicKey = _hexToBytes(publicKeyStr);
       _logger.info('Loaded existing static identity key');
     } else {
       // Generate new key pair
       final dhState = DHState();
-      dhState.generateKeyPair();
+      try {
+        dhState.generateKeyPair();
 
-      final privateKeyBytes = Uint8List.fromList(dhState.getPrivateKey()!);
-      final privateKeyHex = _bytesToHex(privateKeyBytes);
-      _staticIdentityPrivateKey = SecureKey(privateKeyBytes);
-      _staticIdentityPublicKey = dhState.getPublicKey()!;
+        final privateKeyBytes = Uint8List.fromList(dhState.getPrivateKey()!);
+        final privateKeyHex = _bytesToHex(privateKeyBytes);
+        _staticIdentityPrivateKey = SecureKey(privateKeyBytes);
+        _hasStaticIdentityPrivateKey = true;
+        _staticIdentityPublicKey = dhState.getPublicKey()!;
 
-      // Save to secure storage
-      await _secureStorage.write(key: _keyStaticPrivate, value: privateKeyHex);
-      await _secureStorage.write(
-        key: _keyStaticPublic,
-        value: _bytesToHex(_staticIdentityPublicKey),
-      );
-
-      dhState.destroy();
+        // Save to secure storage
+        await _secureStorage.write(
+          key: _keyStaticPrivate,
+          value: privateKeyHex,
+        );
+        await _secureStorage.write(
+          key: _keyStaticPublic,
+          value: _bytesToHex(_staticIdentityPublicKey),
+        );
+      } finally {
+        dhState.destroy();
+      }
       _logger.info('Generated and saved new static identity key');
     }
   }
@@ -379,8 +392,8 @@ class NoiseEncryptionService {
 
     if (_initialized) {
       _sessionManager.shutdown();
-      _zeroizeStaticIdentityPrivateKey();
     }
+    _zeroizeStaticIdentityPrivateKey();
 
     await _secureStorage.delete(key: _keyStaticPrivate);
     await _secureStorage.delete(key: _keyStaticPublic);
@@ -395,18 +408,21 @@ class NoiseEncryptionService {
     if (_initialized) {
       _logger.info('Shutting down Noise encryption service');
       _sessionManager.shutdown();
-      _zeroizeStaticIdentityPrivateKey();
-      _initialized = false;
     }
+    _zeroizeStaticIdentityPrivateKey();
+    _initialized = false;
   }
 
   void _zeroizeStaticIdentityPrivateKey() {
-    _staticIdentityPrivateKey.destroy();
+    if (_hasStaticIdentityPrivateKey &&
+        !_staticIdentityPrivateKey.isDestroyed) {
+      _staticIdentityPrivateKey.destroy();
+    }
   }
 
   @visibleForTesting
   bool get debugIsStaticPrivateKeyZeroized =>
-      _staticIdentityPrivateKey.isDestroyed;
+      _hasStaticIdentityPrivateKey && _staticIdentityPrivateKey.isDestroyed;
 
   // ========== UTILITIES ==========
 

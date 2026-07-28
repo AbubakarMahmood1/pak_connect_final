@@ -12,7 +12,12 @@ abstract class IArchiveRepository {
   /// Initialize the archive repository
   Future<void> initialize();
 
-  /// Archive a chat (move to archives)
+  /// Archive a chat (move to archives).
+  ///
+  /// [compressLargeArchives] records the caller's preference, but archive
+  /// compression is currently deferred: implementations must not report a
+  /// compressed archive unless compressed bytes are the canonical persisted
+  /// representation used by search and restore.
   Future<ArchiveOperationResult> archiveChat({
     required String chatId,
     String? archiveReason,
@@ -20,8 +25,15 @@ abstract class IArchiveRepository {
     bool compressLargeArchives = true,
   });
 
-  /// Restore a chat from archives
-  Future<ArchiveOperationResult> restoreChat(ArchiveId archiveId);
+  /// Restore a chat from archives.
+  ///
+  /// Existing live chats are preserved unless [overwriteExisting] is explicit.
+  /// [targetChatId] allows restoring under a different live chat identity.
+  Future<ArchiveOperationResult> restoreChat(
+    ArchiveId archiveId, {
+    ChatId? targetChatId,
+    bool overwriteExisting = false,
+  });
 
   /// Get count of archived chats
   Future<int> getArchivedChatsCount();
@@ -48,7 +60,9 @@ abstract class IArchiveRepository {
   });
 
   /// Permanently delete an archive
-  Future<void> permanentlyDeleteArchive(ArchiveId archivedChatId);
+  Future<ArchiveOperationResult> permanentlyDeleteArchive(
+    ArchiveId archivedChatId,
+  );
 
   /// Get archive statistics
   Future<ArchiveStatistics?> getArchiveStatistics();

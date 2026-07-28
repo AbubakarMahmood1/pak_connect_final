@@ -198,4 +198,16 @@ class EphemeralKeyManager {
   static String? get ephemeralSigningPrivateKey => _ephemeralSigningPrivateKey;
 
   static String? get ephemeralSigningPublicKey => _ephemeralSigningPublicKey;
+
+  /// Clear all process-local session and signing material before rebootstrap.
+  static void reset() {
+    _userSalt = null;
+    _myPrivateKey = null;
+    _currentSessionKey = null;
+    _sessionStartTime = null;
+    _ephemeralSigningPrivateKey = null;
+    _ephemeralSigningPublicKey = null;
+    HintCacheManager.onSessionRotated();
+    _logger.info(AppLogger.event(type: 'ephemeral_session_cleared'));
+  }
 }
