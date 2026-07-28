@@ -45,8 +45,8 @@ Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
 Runtime/build-input baseline for the next run:
-`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
-`codex/archive-delete-contract`. A descendant is acceptable only if this
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) in protected
+`main` history. A descendant is acceptable only if this
 runtime/build-input diff is empty:
 
 ```powershell
