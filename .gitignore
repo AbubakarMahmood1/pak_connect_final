@@ -112,8 +112,8 @@ coverage/
 # =========================
 # Project-specific
 # =========================
-# Local/secret-y configs (adjust as needed)
-.claude/*.local.json
+# Local assistant configuration is machine-specific.
+.claude/
 
 # Runtime output directories (regenerated at runtime; never commit)
 binary_payloads/

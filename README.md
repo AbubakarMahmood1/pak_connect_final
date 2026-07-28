@@ -43,7 +43,7 @@ persistence, archive/search, and advanced UI flows are implemented. The
 VM-friendly test suite has a current clean local baseline; device transport,
 mobile SQLCipher, and release-build evidence remain explicit validation gates.
 The current verified local runtime/device baseline is
-`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
 `codex/archive-delete-contract`. It was verified with Flutter 3.44.4 revision
 `ad70ec4617166f1c38e5d2bfd388af71fda14f06` and bundled Dart 3.12.2; the
 project's Dart language floor remains 3.10.3.

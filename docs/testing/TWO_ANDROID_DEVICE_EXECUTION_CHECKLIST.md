@@ -7,8 +7,8 @@ and `NOT RUN` in the final record.
 
 The fixed build/runtime verification baseline is:
 
-- commit: `9434384851298c976cda0269f6cef65ebaafed1c`
-- short commit: `9434384`
+- commit: `7944c9385a367746646229f5f33c410a39d57570`
+- short commit: `7944c93`
 - branch used to prepare the baseline: `codex/archive-delete-contract`
 - local verification toolchain: Flutter 3.44.4 revision
   `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2
@@ -27,8 +27,8 @@ The fixed build/runtime verification baseline is:
 A descendant with no changes in the listed build/runtime verification tree is
 acceptable. Any changed listed input is a hard stop until the new code has its
 own baseline and desktop verification. In the rewritten local history,
-`19c4824` is the combined route/offline implementation commit, `10b1830` is
-its documentation checkpoint, and `b024cab` is the superseded prior runtime
+`53bb4fe` is the combined route/offline implementation commit, `ed4d416` is
+its documentation checkpoint, and `eccced7` is the superseded prior runtime
 baseline. They remain historical provenance only; no older commit is valid for
 this run.
 
@@ -69,7 +69,7 @@ if ($PSVersionTable.PSVersion -lt [version]'7.0') {
   throw 'This run sheet requires PowerShell 7 or newer.'
 }
 
-$ExpectedBaseline = '9434384851298c976cda0269f6cef65ebaafed1c'
+$ExpectedBaseline = '7944c9385a367746646229f5f33c410a39d57570'
 $BaselineShort = $ExpectedBaseline.Substring(0, 7)
 $Baseline = $BaselineShort
 $Package = 'com.pakconnect.app'

@@ -66,7 +66,7 @@ code.
 
 The current verified local authority is branch
 `codex/archive-delete-contract` at runtime/device baseline
-`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`). Its coverage run
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`). Its coverage run
 passed 5,691 tests with zero failures (reporter 5m37s; measured command wall
 353,083 ms) and produced:
 

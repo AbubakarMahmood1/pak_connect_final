@@ -1,48 +1,47 @@
 # PakConnect engineering status
 
-Last updated: 2026-07-14
+Last updated: 2026-07-29
 
 ## Current verdict
 
 The canonical source is reconciled, statically clean, green across the full
-desktop suite, and produces an Android debug APK. The current local suite
+desktop suite, and produces an Android debug APK. The verified local suite
 passes 5,691 tests after the deliberate removal of isolated dead
 implementations and the addition of focused durability, route-ownership and
-archive regressions. Real BLE, SQLCipher-at-rest, native background behavior,
-release signing and installation remain device/environment-gated. The latest
-public `main` Flutter workflow is red and the local fix has not been exercised
-by GitHub Actions yet, so this is neither a signed/hardware-validated release
-nor a publicly green CI head.
+archive regressions. Publication is governed by normal PR #73 and protected
+`main`; every final PR head must pass Flutter coverage plus Android and Actions
+CodeQL before merge. Real BLE, SQLCipher-at-rest, native background behavior,
+release signing and installation remain separate device/environment gates.
 
 ## Authority and preservation
 
 - Canonical remote: `AbubakarMahmood/pak_connect`.
 - The compressed working copy was checkpointed and archived before retirement;
   the verified bundle, not a second checkout, is recovery authority.
-- PR #71 merged the reconciliation through normal merge commit `f9b90c9`.
-  PR #72 later advanced public `main` to `1d484eb`.
+- PR #71 merged the reconciliation through normal merge commit `f99ed90`.
+  PR #72 later advanced public `main` to `df30c99`.
 - The only active worktree is on local branch
   `codex/archive-delete-contract`, ahead of and zero behind `origin/main`. The
   branch name is historical residue; it contains the subsequent durability,
-  exact-route, archive-truth and metadata hardening chain and has not been
-  pushed.
+  exact-route, archive-truth and metadata hardening chain. It is pushed as
+  normal PR #73.
 - Verified runtime/build-input and device-test baseline:
-  `9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
+  `7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
   `codex/archive-delete-contract`.
-- Rewritten route-hardening baseline `19c4824`, status descendant `10b1830`
-  and toolchain checkpoint `b024cab` are historical provenance only;
-  `b024cab` was superseded by `9434384` and is not authority for a new device
+- Route-hardening baseline `53bb4fe`, status descendant `ed4d416`
+  and toolchain checkpoint `eccced7` are historical provenance only;
+  `eccced7` was superseded by `7944c93` and is not authority for a new device
   run.
-- The former baselines `9cccd01` and `a5c2b08` remain historical provenance,
+- The former baselines `5a2cb8e` and `979e106` remain historical provenance,
   not baselines for a new device run.
-- Candidate `fcb3013` is also historical: Flutter 3.44 analysis required an
-  equivalent null-aware syntax cleanup, which is included in `9cccd01`.
+- Candidate `0c8fa87` is also historical: Flutter 3.44 analysis required an
+  equivalent null-aware syntax cleanup, which is included in `5a2cb8e`.
 - The public mainline contains the earlier reconciled runtime and guidance,
   but not the current local durability/route/archive hardening chain or its
   non-runtime/build-input closeout descendants.
-- Public `main` has no branch protection/ruleset. The current branch has not
-  been pushed, no PR exists for this head, and no exact-head GitHub verification
-  has run.
+- Public `main` is protected with strict required contexts `test`,
+  `Analyze GitHub Actions`, and `Analyze Java/Kotlin (Android)`. PR #73 is the
+  immutable publication/check record for this chain.
 - The former compressed checkout is not an authorized worktree and must not be
   recreated as a parallel working copy.
 
@@ -53,7 +52,7 @@ nor a publicly green CI head.
 | Flutter/Dart toolchain | Flutter 3.44.4 stable, Dart 3.12.2 | Green |
 | Static analysis before current patch | `flutter analyze --no-pub` | Green |
 | Pre-patch full desktop suite | 5,748 tests, 0 failures, about 4m42s | Green baseline |
-| Current static analysis | `flutter analyze --no-pub`, clean on 2026-07-14 with Flutter 3.44.4 | Green |
+| Current static analysis | `flutter analyze --no-pub`, clean on 2026-07-29 with Flutter 3.44.4 | Green |
 | Dart reachability enforcement | 437 libraries; 433 runtime, 4 reviewed test-only, 0 unreviewed | Green |
 | Strict BLE gate | 108 tests | Green |
 | Crypto policy gate | 14 policy cases | Green |
@@ -72,8 +71,8 @@ nor a publicly green CI head.
 | Full-run failure regressions | 38 model/fragment tests + 36 app widget/smoke tests | Green |
 | Current full desktop suite | 5,691 tests, 0 failures; reporter 5m37s, measured 353,083 ms; 9,268,167-byte `flutter_test_latest.log`, SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905`; 426,546-byte `coverage/lcov.info`, SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` | Green locally |
 | Android debug APK | 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059` | Green local build |
-| Latest public-main Flutter workflow | Run `29215130687` on `1d484eb`: 5,537 passed, 2 failed because `database_helper_set_test_name_test.dart` and `database_backup_service_test.dart` contended for `pak_connect.db` | Red public head |
-| Local CI-race correction | Commit `4fd8aec` preserves each suite's isolated test database; current full suite is green | Awaiting exact-head GitHub Actions |
+| Historical public-main Flutter workflow | Run `29215130687`: 5,537 passed, 2 failed because `database_helper_set_test_name_test.dart` and `database_backup_service_test.dart` contended for `pak_connect.db` | Superseded failure evidence |
+| CI-race correction and publication gate | Commit `569ff9a` preserves each suite's isolated test database; PR #73 must pass required exact-head Flutter and CodeQL contexts before merge | Protected PR gate |
 | Android device matrix | No phone attached | Device-gated |
 | SQLCipher at-rest proof | Desktop loader falls back to plaintext | Device-gated |
 
@@ -81,7 +80,7 @@ Desktop logs can contain expected SQLite loader fallback notices and explicit
 plaintext-test events. Those are known harness behavior; they must not be
 mistaken for production encryption evidence.
 
-## Earlier reconciliation hardening (through `9cccd01`)
+## Earlier reconciliation hardening (through `5a2cb8e`)
 
 | Area | Result |
 |---|---|
@@ -114,7 +113,7 @@ mistaken for production encryption evidence.
 | Fragment cleanup determinism | Expiry uses an inclusive boundary, so zero-timeout cleanup cannot retain an assembly created in the same clock tick |
 | Widget harness teardown | App shell tests use a lightweight connection contract mock, hold initialization at the loading boundary, and unmount providers before closing streams; full-suite workers no longer hang |
 
-## Subsequent local hardening (through `19c4824`)
+## Subsequent local hardening (through `53bb4fe`)
 
 | Area | Result |
 |---|---|
@@ -130,15 +129,15 @@ mistaken for production encryption evidence.
 | Physical write route | Central/peripheral sends pin connection incarnation plus physical peer/characteristic handles, revalidate inside one shared GATT lane, and start ACK timing only when the scheduled write executes |
 | Parallel database tests | Suite-specific database names survive helper tests, eliminating the two known shared-`pak_connect.db` CI collisions locally |
 
-## Current baseline delta (`10b1830..9434384`)
+## Current baseline delta (`ed4d416..7944c93`)
 
 | Commit | Result |
 |---|---|
-| `5aa12f9` | Android notification naming and UI state the actual boundary: the handler posts to the system tray while PakConnect is running; it does not claim killed-process receipt or native background execution |
-| `b024cab` | CI and package authority use Flutter 3.44.4 with lockfile-enforced dependency resolution; Android preserves `android.builtInKotlin=false` and `android.newDsl=false` compatibility flags pending a separate toolchain migration |
-| `e19a11e` | Archive compression requests fail honestly to uncompressed storage instead of claiming savings while retaining the original rows |
-| `ef0ef15` | Public-facing Flutter template labels and descriptions use PakConnect branding while package and binary identities remain stable |
-| `9434384` | Dormant BLE contract seams and their ownership limits are labeled accurately; this exact runtime/build-input tree is the current verified device baseline |
+| `db529df` | Android notification naming and UI state the actual boundary: the handler posts to the system tray while PakConnect is running; it does not claim killed-process receipt or native background execution |
+| `eccced7` | CI and package authority use Flutter 3.44.4 with lockfile-enforced dependency resolution; Android preserves `android.builtInKotlin=false` and `android.newDsl=false` compatibility flags pending a separate toolchain migration |
+| `5142358` | Archive compression requests fail honestly to uncompressed storage instead of claiming savings while retaining the original rows |
+| `d584f44` | Public-facing Flutter template labels and descriptions use PakConnect branding while package and binary identities remain stable |
+| `7944c93` | Dormant BLE contract seams and their ownership limits are labeled accurately; this exact runtime/build-input tree is the current verified device baseline |
 
 ## Confirmed live capabilities
 
@@ -175,9 +174,9 @@ mistaken for production encryption evidence.
 
 ## Immediate sequence
 
-1. Publish the local hardening chain through a normal non-force branch/PR and
-   require fresh Flutter and CodeQL checks on the exact PR head before merge.
-2. Use runtime/device baseline `9434384` as the device-evidence ID.
+1. Close PR #73 only after fresh Flutter and both CodeQL checks pass on its
+   exact final head, then verify the resulting protected `main`.
+2. Use runtime/device baseline `7944c93` as the device-evidence ID.
 3. Install its debug APK and execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` when two phones are
    available.

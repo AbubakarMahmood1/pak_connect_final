@@ -184,7 +184,7 @@ This document details quality attributes and constraints extracted from implemen
 | NFR-6.2.2 | Dart version | 3.10.3+ language floor; canonical 3.12.2 | Bundled with Flutter; null safety |
 | NFR-6.2.3 | Android SDK | min 24, compile/target 36 | Resolved by the current Flutter SDK; repo does not pin it |
 | NFR-6.2.4 | iOS deployment target | 12.0+ | Background BLE remains limited |
-| NFR-6.2.5 | Storage requirement | Artifact-derived | Baseline `9434384` debug APK is 205,113,616 bytes before installed data; release size unverified |
+| NFR-6.2.5 | Storage requirement | Artifact-derived | Baseline `7944c93` debug APK is 205,113,616 bytes before installed data; release size unverified |
 
 ## NFR-7: Efficiency
 

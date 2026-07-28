@@ -113,7 +113,7 @@ or higher.
 artifact for the intended build mode and a documented data-retention target.
 
 **Current evidence**:
-- The verified debug APK for baseline `9434384` is 205,113,616 bytes; installed
+- The verified debug APK for baseline `7944c93` is 205,113,616 bytes; installed
   size can be larger.
 - A 20-30 MB release binary is only a future optimization target until a
   signed release artifact is measured.

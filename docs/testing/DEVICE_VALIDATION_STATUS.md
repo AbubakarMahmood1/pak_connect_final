@@ -28,12 +28,12 @@ Use only these labels:
 
 | Item | Status | Evidence/notes |
 |---|---|---|
-| `flutter analyze --no-pub` | PASS | Clean on 2026-07-14 for baseline `9434384` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
+| `flutter analyze --no-pub` | PASS | Clean on 2026-07-29 for baseline `7944c93` with Flutter 3.44.4 revision `ad70ec4617166f1c38e5d2bfd388af71fda14f06` / Dart 3.12.2 |
 | Desktop full unit/widget suite | PASS | 5,691 passed, 0 failed; reporter 5m37s; measured wall 353,083 ms; 9,268,167-byte `flutter_test_latest.log`, SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905` |
 | Coverage artifact | PASS | `coverage/lcov.info`; 426,546 bytes; SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` |
 | Strict BLE / crypto policy gates | PASS | 108 strict BLE tests and all 14 crypto-policy cases passed |
 | DI / hygiene / reachability gates | PASS | 0 direct `GetIt` calls and 16 reviewed `.instance` references; 0 runtime `print()` calls and 21 reviewed timers; 437 libraries / 433 runtime / 4 reviewed test-only / 0 unreviewed |
-| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`; its exact runtime/build-input tree is committed as baseline `9434384` |
+| Android debug APK | PASS | `build/app/outputs/flutter-apk/app-debug.apk`; 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`; its exact runtime/build-input tree is committed as baseline `7944c93` |
 | Android release APK | BLOCKED | Signing configuration must be supplied/verified |
 | Install on Android device A | BLOCKED | No device attached |
 | Install on Android device B | BLOCKED | No device attached |
@@ -45,21 +45,21 @@ Record device model, OS, app commit, build flavor, timestamps and log file for
 every row.
 
 Runtime/build-input baseline for the next run:
-`9434384851298c976cda0269f6cef65ebaafed1c` (`9434384`) on
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
 `codex/archive-delete-contract`. A descendant is acceptable only if this
 runtime/build-input diff is empty:
 
 ```powershell
-git diff 9434384..HEAD -- lib test integration_test android ios linux macos web windows assets pubspec.yaml pubspec.lock .metadata analysis_options.yaml
+git diff 7944c93..HEAD -- lib test integration_test android ios linux macos web windows assets pubspec.yaml pubspec.lock .metadata analysis_options.yaml
 ```
 
 Execute the matrix with the exact PowerShell run sheet in
 [TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md](TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md).
 
-The rewritten route-hardening baseline `19c4824`, its status descendant
-`10b1830`, and toolchain checkpoint `b024cab` are historical provenance only;
-`b024cab` was superseded by `9434384`. Previous baselines `9cccd01` and
-`a5c2b08`, plus candidate `fcb3013`, are also historical. Do not use an older
+The route-hardening baseline `53bb4fe`, its status descendant `ed4d416`, and
+toolchain checkpoint `eccced7` are historical provenance only; `eccced7` was
+superseded by `7944c93`. Previous baselines `5a2cb8e` and `979e106`, plus
+candidate `0c8fa87`, are also historical. Do not use an older
 commit for a new device run.
 
 | Scenario | Status | Required observation |
