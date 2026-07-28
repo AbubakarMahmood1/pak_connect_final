@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:pak_connect/core/bluetooth/handshake_coordinator.dart';
@@ -162,9 +164,19 @@ void main() {
 
     test('flushQueueForPeer processes messages in priority order', () async {
       final deliveredMessages = <String>[];
+      final initialAttemptIds = <String>{};
+      final initialAttemptsStarted = Completer<void>();
+      queue.onSendMessage = (messageId) {
+        initialAttemptIds.add(messageId);
+        if (initialAttemptIds.length == 3 &&
+            !initialAttemptsStarted.isCompleted) {
+          initialAttemptsStarted.complete();
+        }
+        return OfflineQueueSendDisposition.deferred;
+      };
 
       // Queue messages with different priorities
-      await queue.queueMessage(
+      final lowId = await queue.queueMessage(
         chatId: 'chat',
         content: 'Low priority',
         recipientPublicKey: peerEphemeralId,
@@ -180,7 +192,7 @@ void main() {
         priority: MessagePriority.urgent,
       );
 
-      await queue.queueMessage(
+      final normalId = await queue.queueMessage(
         chatId: 'chat',
         content: 'Normal',
         recipientPublicKey: peerEphemeralId,
@@ -188,9 +200,14 @@ void main() {
         priority: MessagePriority.normal,
       );
 
-      // Let the queue's initial deferred delivery attempts settle before
-      // changing the transport disposition for the explicit flush.
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+      await initialAttemptsStarted.future.timeout(const Duration(seconds: 2));
+      await _waitFor(
+        () => queue
+            .getPendingMessages()
+            .map((message) => message.id)
+            .toSet()
+            .containsAll(<String>{lowId, urgentId, normalId}),
+      );
 
       // Mock send callback to track the explicit flush order.
       queue.onSendMessage = (messageId) {
@@ -211,18 +228,28 @@ void main() {
       'multiple handshake completions do not cause duplicate sends',
       () async {
         int sendCount = 0;
+        final initialAttemptStarted = Completer<void>();
+        queue.onSendMessage = (_) {
+          if (!initialAttemptStarted.isCompleted) {
+            initialAttemptStarted.complete();
+          }
+          return OfflineQueueSendDisposition.deferred;
+        };
 
         // Queue a message
-        await queue.queueMessage(
+        final messageId = await queue.queueMessage(
           chatId: 'chat',
           content: 'Test',
           recipientPublicKey: peerEphemeralId,
           senderPublicKey: myPublicKey,
         );
 
-        // Avoid racing the queueMessage-triggered deferred attempt with the
-        // explicit handshake flush below.
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        await initialAttemptStarted.future.timeout(const Duration(seconds: 2));
+        await _waitFor(
+          () => queue.getPendingMessages().any(
+            (message) => message.id == messageId,
+          ),
+        );
 
         queue.onSendMessage = (messageId) {
           sendCount++;
@@ -238,4 +265,14 @@ void main() {
       },
     );
   });
+}
+
+Future<void> _waitFor(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Condition was not met before timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
 }
