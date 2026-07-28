@@ -5,13 +5,14 @@ Last updated: 2026-07-29
 ## Current verdict
 
 The canonical source is reconciled, statically clean, green across the full
-desktop suite, and produces an Android debug APK. The verified local suite
-passes 5,691 tests after the deliberate removal of isolated dead
-implementations and the addition of focused durability, route-ownership and
-archive regressions. Publication is governed by normal PR #73 and protected
-`main`; every final PR head must pass Flutter coverage plus Android and Actions
-CodeQL before merge. Real BLE, SQLCipher-at-rest, native background behavior,
-release signing and installation remain separate device/environment gates.
+desktop suite, and produces an Android debug APK. The verified suite passes
+5,691 tests after the deliberate removal of isolated dead implementations and
+the addition of focused durability, route-ownership and archive regressions.
+PR #73 exact head `d551f00` passed Flutter coverage plus Android and Actions
+CodeQL, then merged normally as `3d9bcdb`; the merge tree is byte-identical to
+the tested PR-head tree. Real BLE, SQLCipher-at-rest, native background
+behavior, release signing and installation remain separate device/environment
+gates.
 
 ## Authority and preservation
 
@@ -20,14 +21,14 @@ release signing and installation remain separate device/environment gates.
   the verified bundle, not a second checkout, is recovery authority.
 - PR #71 merged the reconciliation through normal merge commit `f99ed90`.
   PR #72 later advanced public `main` to `df30c99`.
-- The only active worktree is on local branch
-  `codex/archive-delete-contract`, ahead of and zero behind `origin/main`. The
-  branch name is historical residue; it contains the subsequent durability,
-  exact-route, archive-truth and metadata hardening chain. It is pushed as
-  normal PR #73.
+- PR #73 published the subsequent durability, exact-route, archive-truth and
+  metadata hardening chain through tested head `d551f00` and normal
+  implementation merge `3d9bcdb`.
+- The only active worktree is on protected `main`, synchronized with
+  `origin/main`; the publication branch is deleted locally and remotely.
 - Verified runtime/build-input and device-test baseline:
-  `7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
-  `codex/archive-delete-contract`.
+  `7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) in protected
+  `main` history.
 - Route-hardening baseline `53bb4fe`, status descendant `ed4d416`
   and toolchain checkpoint `eccced7` are historical provenance only;
   `eccced7` was superseded by `7944c93` and is not authority for a new device
@@ -36,9 +37,8 @@ release signing and installation remain separate device/environment gates.
   not baselines for a new device run.
 - Candidate `0c8fa87` is also historical: Flutter 3.44 analysis required an
   equivalent null-aware syntax cleanup, which is included in `5a2cb8e`.
-- The public mainline contains the earlier reconciled runtime and guidance,
-  but not the current local durability/route/archive hardening chain or its
-  non-runtime/build-input closeout descendants.
+- Protected `main` contains the reconciled runtime, durability, route, archive,
+  guidance, and closeout chain.
 - Public `main` is protected with strict required contexts `test`,
   `Analyze GitHub Actions`, and `Analyze Java/Kotlin (Android)`. PR #73 is the
   immutable publication/check record for this chain.
@@ -72,7 +72,7 @@ release signing and installation remain separate device/environment gates.
 | Current full desktop suite | 5,691 tests, 0 failures; reporter 5m37s, measured 353,083 ms; 9,268,167-byte `flutter_test_latest.log`, SHA-256 `78798AD4575FB77E3B99F50C5D30B4715CE44CAA9BDC5245982CAF5F3892C905`; 426,546-byte `coverage/lcov.info`, SHA-256 `57F95535FC93711B39344343A1D8F2DE644B9697EA23F45204D1529CE84BF794` | Green locally |
 | Android debug APK | 205,113,616 bytes; SHA-256 `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059` | Green local build |
 | Historical public-main Flutter workflow | Run `29215130687`: 5,537 passed, 2 failed because `database_helper_set_test_name_test.dart` and `database_backup_service_test.dart` contended for `pak_connect.db` | Superseded failure evidence |
-| CI-race correction and publication gate | Commit `569ff9a` preserves each suite's isolated test database; PR #73 must pass required exact-head Flutter and CodeQL contexts before merge | Protected PR gate |
+| Exact-head public CI and publication | Commit `569ff9a` preserves each suite's isolated test database. PR #73 head `d551f00` passed Flutter run `30399126498` plus Android and Actions CodeQL run `30399126495`; normal merge `3d9bcdb` has the identical tree | Green public source/CI gate |
 | Android device matrix | No phone attached | Device-gated |
 | SQLCipher at-rest proof | Desktop loader falls back to plaintext | Device-gated |
 
@@ -174,15 +174,13 @@ mistaken for production encryption evidence.
 
 ## Immediate sequence
 
-1. Close PR #73 only after fresh Flutter and both CodeQL checks pass on its
-   exact final head, then verify the resulting protected `main`.
-2. Use runtime/device baseline `7944c93` as the device-evidence ID.
-3. Install its debug APK and execute
+1. Use runtime/device baseline `7944c93` as the device-evidence ID.
+2. Install its debug APK and execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md` when two phones are
    available.
-4. Complete the SQLCipher-at-rest proof on a production-like Android build.
-5. Supply/verify release signing and build/install the signed release APK.
-6. Design per-link handshake identity and ACK binding before enabling
+3. Complete the SQLCipher-at-rest proof on a production-like Android build.
+4. Supply/verify release signing and build/install the signed release APK.
+5. Design per-link handshake identity and ACK binding before enabling
    multi-link user-payload delivery.
-7. Attach every hardware result and redacted log reference to
+6. Attach every hardware result and redacted log reference to
    `docs/testing/DEVICE_VALIDATION_STATUS.md`.

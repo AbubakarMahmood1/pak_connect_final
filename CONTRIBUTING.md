@@ -64,8 +64,7 @@ pushes to `main`, manual dispatches, and its weekly schedule. It analyzes
 Android Java/Kotlin and GitHub Actions definitions; it does not analyze Dart
 code.
 
-The current verified local authority is branch
-`codex/archive-delete-contract` at runtime/device baseline
+The current verified runtime/device baseline in protected `main` history is
 `7944c9385a367746646229f5f33c410a39d57570` (`7944c93`). Its coverage run
 passed 5,691 tests with zero failures (reporter 5m37s; measured command wall
 353,083 ms) and produced:
@@ -78,8 +77,9 @@ passed 5,691 tests with zero failures (reporter 5m37s; measured command wall
   `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`.
 
 These are local code/build artifacts, not physical BLE, mobile
-SQLCipher-at-rest, background-delivery, signed-release, or public-CI evidence.
-Public `main` remains red and currently has no active branch-protection rule.
+SQLCipher-at-rest, background-delivery, or signed-release evidence. Public CI
+authority is PR #73 exact head `d551f00`: Flutter run `30399126498` and CodeQL
+run `30399126495` passed before merge commit `3d9bcdb`.
 
 If code is genuinely device-bound (for example, a platform-channel wrapper),
 document the limitation and the required device evidence in the pull request.
@@ -101,10 +101,11 @@ The following areas require extra care and closer review. Changes here should be
 
 - All development happens on feature branches cut from `main`
 - Branch naming convention: `feature/<short-description>`, `fix/<short-description>`, `refactor/<short-description>`
-- A pull request is required by project policy to merge into `main`; the branch
-  is currently unprotected, so GitHub does not enforce that policy server-side
-- PRs require at least one approval before merge
-- Resolve all review comments before requesting re-review
+- A pull request is required to merge into protected `main`
+- Every final PR head must pass `test`, `Analyze GitHub Actions`, and
+  `Analyze Java/Kotlin (Android)` with strict base freshness
+- Resolve all review comments before merge; external review is encouraged but
+  is not a mandatory solo-maintainer gate
 
 ---
 

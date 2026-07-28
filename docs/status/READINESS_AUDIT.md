@@ -8,24 +8,26 @@ or device ledgers; it states what those sources prove and what they do not.
 
 ## Verdict
 
-**Local code/build readiness: green. Public CI is protected-PR-gated; final FYP
-demo and release readiness are not yet proven.**
+**Local code/build and public source/CI readiness: green. Final FYP demo and
+release readiness are not yet proven.**
 
 The canonical worktree is mapped, statically clean, covered by a green
 5,691-test desktop suite, and produces a debug Android APK. That is sufficient
 to present the architecture and engineering hardening honestly in a portfolio,
-provided the public-CI and hardware boundaries are disclosed. It is not
-sufficient to claim a working off-grid BLE product: PR #73 must record green
-required checks on its exact final head, while two-device radio behavior,
-mobile SQLCipher bytes at rest, OS background behavior, release signing and
-installation still require external evidence.
+provided the hardware boundaries are disclosed. PR #73 exact head `d551f00`
+passed the required Flutter and CodeQL contexts and merged normally as
+`3d9bcdb`; its merge tree is identical to the tested PR-head tree. This is
+still not sufficient to claim a working off-grid BLE product: two-device radio
+behavior, mobile SQLCipher bytes at rest, OS background behavior, release
+signing and installation require external evidence.
 
 The exact verified runtime/build-input and device-test tree is committed as
-`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) on
-`codex/archive-delete-contract`. Public `main` is `df30c99`; the pushed branch
-is ahead of and zero behind it and is published through normal PR #73. Changes
-after the verified baseline are documentation, guidance, testing scripts, and
-assistant metadata only. Protected `main` strictly requires `test`,
+`7944c9385a367746646229f5f33c410a39d57570` (`7944c93`) in protected
+`main` history. PR #73 published the hardening chain through tested head
+`d551f00` and implementation merge `3d9bcdb`; the publication branch is deleted
+locally and remotely. Changes after the verified baseline are documentation,
+guidance, testing scripts, and assistant metadata only. Protected `main`
+strictly requires `test`,
 `Analyze GitHub Actions`, and `Analyze Java/Kotlin (Android)`.
 The route-hardening baseline `53bb4fe`, its status descendant `ed4d416`, and
 toolchain checkpoint `eccced7` are provenance only; `eccced7` is superseded by
@@ -36,16 +38,16 @@ are older historical provenance.
 
 | Requested outcome | Authoritative evidence | Verdict |
 |---|---|---|
-| Establish authoritative repo/version | `docs/status/ENGINEERING_STATUS.md` records remote `AbubakarMahmood/pak_connect`, sole active worktree, PR branch `codex/archive-delete-contract`, runtime/device baseline `7944c93`, public head `df30c99`, Flutter 3.44.4 and Dart 3.12.2 | Proven |
+| Establish authoritative repo/version | `docs/status/ENGINEERING_STATUS.md` records remote `AbubakarMahmood/pak_connect`, sole active protected-`main` worktree, runtime/device baseline `7944c93`, tested PR head `d551f00`, implementation merge `3d9bcdb`, Flutter 3.44.4 and Dart 3.12.2 | Proven |
 | Preserve/reconcile the two source copies | Engineering status records the compressed checkpoint as recovery evidence and the canonical repo as the only active worktree | Proven |
 | Inventory modules and ownership | `docs/architecture/CODEBASE_MAP.md` defines the accepted owner/layer boundary: all 437 libraries are included in layer counts and reachability evaluation, live behavior is routed through named owners/invariants, and the four non-runtime libraries have machine-readable owners and exit conditions | Proven at the accepted whole-library/owner boundary; member-level liveness is not implied |
 | Map runtime interactions | `docs/architecture/RUNTIME_FLOWS.md` covers bootstrap, BLE bring-up, identities, direct send/receive, relay, queue sync, verified friend reveal, broadcast lists and persistence | Proven/documented for wired Dart paths; device behavior remains gated |
 | Maintain work-thread inventory | `PLANS.md`, `docs/maintenance/DEBT_REGISTER.md` and `docs/status/ENGINEERING_STATUS.md` separate completed, accepted, investigated and device-gated work | Proven |
-| Reconcile documentation | README, CONTRIBUTING, testing guides, threat/security docs and SRS distinguish current behavior, historical targets and device-only claims | Proven locally; PR #73 is the publication record |
+| Reconcile documentation | README, CONTRIBUTING, testing guides, threat/security docs and SRS distinguish current behavior, historical targets and device-only claims | Proven and published through protected PRs |
 | Detect/fix bugs and design issues | Engineering status promotion table records correlated queue sync, exact route/MTU, strict-TDM generations, ACK ownership, authenticated final-relay persistence, reconnect/resume, typed failure, bounded fragmentation, verified reveal, archive/unread and broadcast-list fixes | Proven by focused and full-suite evidence |
 | Perform targeted refactors/cleanup | Production change-log replay removed from composition; 44 unjustified libraries, six island-only test clusters and orphan Node/MCP manifests removed; no umbrella rewrite introduced | Proven |
 | Strengthen verification | Analyzer clean; reachability enforcement has zero unreviewed candidates; `git diff --check` and runner syntax pass; full suite 5,691/5,691 with coverage; debug APK builds | Proven locally |
-| Reconcile public CI | Historical run `29215130687` failed two suites through a shared test-database collision; commit `569ff9a` isolates them. Protected `main` now requires Flutter coverage plus Android and Actions CodeQL, with PR #73 as the exact-head record | Fix proven locally; merge remains conditional on green required PR checks |
+| Reconcile public CI | Historical run `29215130687` failed two suites through a shared test-database collision; commit `569ff9a` isolates them. PR #73 head `d551f00` passed Flutter run `30399126498` and Android/Actions CodeQL run `30399126495`, then merged normally as `3d9bcdb`. Protected `main` requires those contexts on every final PR head | Proven publicly |
 | Track device/deferred work | `docs/testing/DEVICE_VALIDATION_STATUS.md` and the debt register name every hardware/environment gate and its exit condition | Proven as tracking; execution pending |
 | Evaluate ideas on merit | Strict TDM was hardened and retained; change-log replay and relay privacy claims were disabled/bounded; true groups and multi-link payloads were not fabricated; dead code/tooling decisions use reachability and dependency evidence | Proven by recorded decisions |
 | Demonstrably ready for final FYP demo/release | Requires the physical-device and signed-release exit gate below | Not yet proven |
@@ -84,8 +86,9 @@ are older historical provenance.
   `84C9B0F5E32D34C90C06D2F9CE7787E23AF60CF79692395B75C2B5DC0BF46059`.
 - Latest public-main Flutter workflow `29215130687`: 5,537 passed and two
   failed with SQLite `database is locked`; both failures used the production
-  test filename concurrently. Commit `569ff9a` preserves suite-specific names;
-  protected PR #73 is the exact-head Flutter and CodeQL publication record.
+  test filename concurrently. Commit `569ff9a` preserves suite-specific names.
+  PR #73 head `d551f00` superseded that evidence: Flutter run `30399126498` and
+  CodeQL run `30399126495` passed before normal merge `3d9bcdb`.
 - Final relay regression evidence proves that the signed encrypted v2 inner
   `ProtocolMessage` is decoded, authenticated/decrypted and persisted before
   the routed ACK. Processing failure emits no ACK and does not mark the message
@@ -138,21 +141,19 @@ not SQLCipher-at-rest evidence.
 Do not expand the architecture before the current hardware facts exist. The
 recommended next sequence is:
 
-1. Merge PR #73 only after the exact final head passes Flutter coverage plus
-   Android and Actions CodeQL; then verify the resulting protected `main`.
-2. Build/install runtime/device baseline `7944c93` on two Android phones, execute
+1. Build/install runtime/device baseline `7944c93` on two Android phones, execute
    `docs/testing/TWO_ANDROID_DEVICE_EXECUTION_CHECKLIST.md`, and update every
    observed row in `docs/testing/DEVICE_VALIDATION_STATUS.md`, saving redacted
    logs by device/build/commit.
-3. Reproduce and fix only failures observed by that matrix, rerunning focused
+2. Reproduce and fix only failures observed by that matrix, rerunning focused
    tests plus the full suite after each production change.
-4. Prove SQLCipher at rest on Android using the documented credential and
+3. Prove SQLCipher at rest on Android using the documented credential and
    direct-file-open procedure.
-5. Supply and verify release signing, build the release APK, install it on both
+4. Supply and verify release signing, build the release APK, install it on both
    devices and rerun the critical XX/KK/direct/offline/fragment paths.
-6. If the public mesh-relay claim is retained, add a third Android phone for
+5. If the public mesh-relay claim is retained, add a third Android phone for
    multi-link inventory/routing and controlled `A -> B -> C` relay evidence.
-7. Decide native background work and per-link multi-payload architecture from
+6. Decide native background work and per-link multi-payload architecture from
    measured FYP requirements and device traces, not from feature pressure.
 
 Final demo/release readiness becomes green only when those device rows pass or
